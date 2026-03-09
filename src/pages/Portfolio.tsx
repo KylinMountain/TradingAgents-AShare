@@ -206,7 +206,7 @@ export default function Portfolio() {
                                     : 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-orange-400'
                                 }`}
                             >
-                                {src === 'em' ? '东方财富' : src === 'xq' ? '雪球热门' : '同花顺连涨'}
+                                {src === 'em' ? '东财热榜' : src === 'xq' ? '雪球热门' : '连涨榜'}
                             </button>
                         ))}
                     </div>
@@ -228,10 +228,17 @@ export default function Portfolio() {
                                         </div>
                                         <div className="flex items-center gap-3 mt-0.5">
                                             <span className="text-sm text-slate-700 dark:text-slate-300">¥{stock.price.toFixed(2)}</span>
-                                            <span className={`text-xs font-medium flex items-center gap-0.5 ${stock.change_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                {stock.change_pct >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                                {stock.change_pct >= 0 ? '+' : ''}{stock.change_pct.toFixed(2)}%
-                                            </span>
+                                            {stock.change_pct !== 0 && (
+                                                <span className={`text-xs font-medium flex items-center gap-0.5 ${stock.change_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                    {stock.change_pct >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                                    {stock.change_pct >= 0 ? '+' : ''}{stock.change_pct.toFixed(2)}%
+                                                </span>
+                                            )}
+                                            {stock.extra && (
+                                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                                    {stock.extra}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-1">

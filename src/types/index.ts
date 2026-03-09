@@ -253,6 +253,7 @@ export interface HotStock {
     price: number
     change: number
     change_pct: number
+    extra: string  // Additional info like "连涨11天" or "关注 3,551,238"
 }
 
 // Runtime config
