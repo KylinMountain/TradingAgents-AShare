@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -81,6 +81,16 @@ export default function Header() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    <a
+                        href="https://github.com/KylinMountain/TradingAgents-AShare"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group flex items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-all mr-1"
+                        title="Star us on GitHub"
+                    >
+                        <Github className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
+                        <span className="text-[13px] font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white hidden sm:inline">Star</span>
+                    </a>
                     {user && (
                         <div className="relative" ref={menuRef}>
                             <button
