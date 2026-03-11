@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from tradingagents.agents.utils.agent_utils import get_news
+from tradingagents.agents.utils.agent_utils import get_news, get_zt_pool, get_hot_stocks_xq
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 
@@ -32,6 +32,9 @@ def create_social_media_analyst(llm):
             },
         )
 
+        zt_data = _invoke_tool(get_zt_pool, {"date": current_date})
+        hot_stocks = _invoke_tool(get_hot_stocks_xq, {})
+
         messages = [
             SystemMessage(
                 content=(
@@ -46,6 +49,8 @@ def create_social_media_analyst(llm):
                     f"以下是 {ticker} 在 {current_date} 的舆情近似资料。"
                     "请严格基于这些资料输出舆情分析报告。\n\n"
                     f"【get_news】\n{news_text}\n"
+                    f"\n【涨停池数据】\n{zt_data}\n"
+                    f"\n【雪球热门股票】\n{hot_stocks}\n"
                 )
             ),
         ]
