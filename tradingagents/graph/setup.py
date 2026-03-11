@@ -13,8 +13,6 @@ from tradingagents.agents.utils.agent_utils import (
     get_lhb_detail,
     get_indicators,
     get_news,
-    get_hot_stocks_xq,
-    get_zt_pool,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -99,12 +97,12 @@ class GraphSetup:
 
         if "macro" in selected_analysts:
             analyst_nodes["macro"] = create_macro_analyst(self.quick_thinking_llm)
-            tool_nodes["macro"] = ToolNode([get_board_fund_flow, get_news])
+            tool_nodes["macro"] = self.tool_nodes["macro"]
             done_nodes["macro"] = analyst_done_node
 
         if "smart_money" in selected_analysts:
             analyst_nodes["smart_money"] = create_smart_money_analyst(self.quick_thinking_llm)
-            tool_nodes["smart_money"] = ToolNode([get_individual_fund_flow, get_lhb_detail, get_indicators])
+            tool_nodes["smart_money"] = self.tool_nodes["smart_money"]
             done_nodes["smart_money"] = analyst_done_node
 
         # Create researcher and manager nodes
