@@ -17,10 +17,11 @@ def create_macro_analyst(llm):
     def macro_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
+        print(f"[Macro Analyst] START {ticker} {current_date}")
         config = get_config()
         system_message = get_prompt("macro_system_message", config=config)
 
-        board_flow = _invoke_tool(get_board_fund_flow, {})
+        board_flow = _invoke_tool(get_board_fund_flow, {"symbol": ticker})
 
         end_dt = datetime.strptime(current_date, "%Y-%m-%d")
         start_dt = end_dt - timedelta(days=7)
@@ -48,6 +49,7 @@ def create_macro_analyst(llm):
         ]
 
         result = llm.invoke(messages)
+        print(f"[Macro Analyst] DONE {ticker}, report length={len(result.content)}")
         return {"macro_report": result.content}
 
     return macro_analyst_node

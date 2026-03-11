@@ -19,6 +19,7 @@ def create_smart_money_analyst(llm):
     def smart_money_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
+        print(f"[Smart Money Analyst] START {ticker} {current_date}")
         config = get_config()
         system_message = get_prompt("smart_money_system_message", config=config)
 
@@ -50,6 +51,7 @@ def create_smart_money_analyst(llm):
         ]
 
         result = llm.invoke(messages)
+        print(f"[Smart Money Analyst] DONE {ticker}, report length={len(result.content)}")
         return {"smart_money_report": result.content}
 
     return smart_money_analyst_node

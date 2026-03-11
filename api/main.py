@@ -15,8 +15,10 @@ from fastapi import Body
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
-
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -33,8 +35,6 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.dataflows.trade_calendar import cn_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
-
-load_dotenv()
 
 
 def _cors_allow_origins() -> list[str]:
@@ -90,24 +90,30 @@ FIXED_TEAMS = {
         "Social Analyst",
         "News Analyst",
         "Fundamentals Analyst",
+        "Macro Analyst",
+        "Smart Money Analyst",
     ],
-    "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
+    "Research Team": ["Game Theory Manager", "Bull Researcher", "Bear Researcher", "Research Manager"],
     "Trading Team": ["Trader"],
     "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
     "Portfolio Management": ["Portfolio Manager"],
 }
-ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
+ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money"]
 ANALYST_AGENT_NAMES = {
     "market": "Market Analyst",
     "social": "Social Analyst",
     "news": "News Analyst",
     "fundamentals": "Fundamentals Analyst",
+    "macro": "Macro Analyst",
+    "smart_money": "Smart Money Analyst",
 }
 ANALYST_REPORT_MAP = {
     "market": "market_report",
     "social": "sentiment_report",
     "news": "news_report",
     "fundamentals": "fundamentals_report",
+    "macro": "macro_report",
+    "smart_money": "smart_money_report",
 }
 
 
@@ -404,6 +410,9 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "sentiment_report": final_state.get("sentiment_report"),
         "news_report": final_state.get("news_report"),
         "fundamentals_report": final_state.get("fundamentals_report"),
+        "macro_report": final_state.get("macro_report"),
+        "smart_money_report": final_state.get("smart_money_report"),
+        "game_theory_report": final_state.get("game_theory_report"),
         "investment_plan": final_state.get("investment_plan"),
         "trader_investment_plan": final_state.get("trader_investment_plan"),
         "final_trade_decision": final_state.get("final_trade_decision"),
@@ -432,6 +441,9 @@ class AgentProgressTracker:
             "sentiment_report": None,
             "news_report": None,
             "fundamentals_report": None,
+            "macro_report": None,
+            "smart_money_report": None,
+            "game_theory_report": None,
             "investment_plan": None,
             "trader_investment_plan": None,
             "final_trade_decision": None,
@@ -606,9 +618,20 @@ class AgentProgressTracker:
             else:
                 self._set_status(agent_name, "pending")
 
+        # Game Theory Manager 状态跟踪
+        if chunk.get("game_theory_report"):
+            self.report_sections["game_theory_report"] = chunk.get("game_theory_report")
+            if self.status.get("Game Theory Manager") != "completed":
+                self._set_status("Game Theory Manager", "completed")
+        elif not found_active and self.selected_analysts:
+            if self.status.get("Game Theory Manager") == "pending":
+                self._set_status("Game Theory Manager", "in_progress")
+
         if not found_active and self.selected_analysts:
-            if self.status.get("Bull Researcher") == "pending":
+            if self.status.get("Game Theory Manager") == "completed" and self.status.get("Bull Researcher") == "pending":
                 self._set_status("Bull Researcher", "in_progress")
+            elif self.status.get("Game Theory Manager") != "completed" and self.status.get("Game Theory Manager") != "in_progress":
+                pass  # wait for game theory
 
         # 研究团队状态更新
         debate_state = chunk.get("investment_debate_state") or {}
@@ -758,6 +781,9 @@ def _run_job(
                 "sentiment_report",
                 "news_report",
                 "fundamentals_report",
+                "macro_report",
+                "smart_money_report",
+                "game_theory_report",
                 "investment_plan",
                 "trader_investment_plan",
                 "final_trade_decision",
@@ -767,6 +793,10 @@ def _run_job(
             for chunk in graph.graph.stream(init_state, **args):
                 final_state = chunk
                 tracker.apply_chunk(chunk)
+                # 打印当前 chunk 包含哪些 key，方便追踪 agent 执行进度
+                active_keys = [k for k, v in chunk.items() if v and k != "messages"]
+                if active_keys:
+                    print(f"[Graph Chunk] keys={active_keys}")
                 messages = chunk.get("messages", [])
                 if messages:
                     msg = messages[-1]
