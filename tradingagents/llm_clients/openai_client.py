@@ -66,6 +66,10 @@ class OpenAIClient(BaseLLMClient):
         """Return configured ChatOpenAI instance."""
         llm_kwargs = {"model": self.model}
 
+        # 非推理模型强制 temperature=0 保证输出稳定性
+        if not UnifiedChatOpenAI._is_reasoning_model(self.model) and "temperature" not in self.kwargs:
+            llm_kwargs["temperature"] = 0
+
         if self.provider == "xai":
             llm_kwargs["base_url"] = "https://api.x.ai/v1"
             api_key = os.environ.get("XAI_API_KEY")
