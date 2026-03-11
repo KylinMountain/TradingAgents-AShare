@@ -74,3 +74,8 @@ class AgentState(MessagesState):
         RiskDebateState, "Current state of the debate on evaluating risk"
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
+
+    # game theory layer reports
+    macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
+    smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
+    game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
