@@ -66,9 +66,9 @@ class OpenAIClient(BaseLLMClient):
         """Return configured ChatOpenAI instance."""
         llm_kwargs = {"model": self.model}
 
-        # 非推理模型强制 temperature=0 保证输出稳定性
-        if not UnifiedChatOpenAI._is_reasoning_model(self.model) and "temperature" not in self.kwargs:
-            llm_kwargs["temperature"] = 0
+        # Default temperature=0 for non-reasoning models; user-provided value in kwargs takes precedence
+        if not UnifiedChatOpenAI._is_reasoning_model(self.model):
+            llm_kwargs["temperature"] = self.kwargs.get("temperature", 0)
 
         if self.provider == "xai":
             llm_kwargs["base_url"] = "https://api.x.ai/v1"
@@ -86,10 +86,10 @@ class OpenAIClient(BaseLLMClient):
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
-        for key in ("timeout", "max_retries", "reasoning_effort", "api_key", "callbacks", "temperature"):
-            if key in self.kwargs:
-                llm_kwargs[key] = self.kwargs[key]
-        for key in ("response_parse_retries", "response_parse_retry_delay"):
+        for key in (
+            "timeout", "max_retries", "reasoning_effort", "api_key", "callbacks",
+            "response_parse_retries", "response_parse_retry_delay",
+        ):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
