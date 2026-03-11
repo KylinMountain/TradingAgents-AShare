@@ -578,14 +578,18 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 f"cn_akshare is temporarily unavailable for insider transactions: {'; '.join(errors)}"
             )
 
-    def get_board_fund_flow(self, symbol: str) -> str:
+    def get_board_fund_flow(self) -> str:
         """获取行业板块资金流向排名。"""
         try:
             ak = self._ak()
             df = ak.stock_board_industry_fund_flow_em(symbol="今日")
             if df is None or df.empty:
                 return "今日板块资金流向数据暂不可用。"
-            df_sorted = df.sort_values("今日主力净流入-净额", ascending=False).reset_index(drop=True)
+            sort_col = "今日主力净流入-净额"
+            if sort_col in df.columns:
+                df_sorted = df.sort_values(sort_col, ascending=False).reset_index(drop=True)
+            else:
+                df_sorted = df.reset_index(drop=True)
             df_sorted.insert(0, "排名", range(1, len(df_sorted) + 1))
             total = len(df_sorted)
             result = df_sorted.head(10).to_string(index=False)
@@ -593,11 +597,13 @@ class CnAkshareProvider(BaseMarketDataProvider):
         except Exception as exc:
             return f"板块资金流向数据获取失败：{type(exc).__name__}: {exc}"
 
-    def get_individual_fund_flow(self, symbol: str, market: str = "sh") -> str:
+    def get_individual_fund_flow(self, symbol: str) -> str:
         """获取个股近期主力资金净流向。"""
         try:
             ak = self._ak()
             code = self._normalize_symbol(symbol)
+            # 沪市：以 5、6、9 开头；其余为深市
+            market = "sh" if code[:1] in ("5", "6", "9") else "sz"
             df = ak.stock_individual_fund_flow(stock=code, market=market)
             if df is None or df.empty:
                 return f"{symbol} 近期主力资金流向数据暂不可用。"
@@ -614,7 +620,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
             df = ak.stock_lhb_detail_em(symbol=code, start_date=date, end_date=date)
             if df is None or df.empty:
                 return f"{symbol} 在 {date} 无龙虎榜数据（非异动日属正常）。"
-            return f"{symbol} 龙虎榜明细（{date}）：\n{df.to_string(index=False)}"
+            return f"{symbol} 龙虎榜明细（{date}）：\n{df.head(20).to_string(index=False)}"
         except Exception as exc:
             return f"龙虎榜数据获取失败：{type(exc).__name__}: {exc}"
 
@@ -629,7 +635,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
             result = f"{date} 涨停家数：{count}\n"
             if "连板数" in df.columns:
                 lianban = df["连板数"].value_counts().sort_index()
-                result += f"连板分布：\n{lianban.to_string()}"
+                result += f"连板分布：\n{lianban.head(10).to_string()}"
             return result
         except Exception as exc:
             return f"涨停板情绪池数据获取失败：{type(exc).__name__}: {exc}"
