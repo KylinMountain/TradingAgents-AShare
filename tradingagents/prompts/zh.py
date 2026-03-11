@@ -112,6 +112,8 @@ close_50_sma, close_200_sma, close_10_ema, macd, macds, macdh, rsi, boll, boll_u
 历史复盘经验：
 {past_memory_str}
 
+博弈判断报告：{game_theory_report}
+
 本轮辩论历史：
 {history}
 

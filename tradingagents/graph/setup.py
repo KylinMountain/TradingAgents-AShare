@@ -7,6 +7,15 @@ from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import *
 from tradingagents.agents.utils.agent_states import AgentState
+from tradingagents.agents.utils.agent_utils import (
+    get_board_fund_flow,
+    get_individual_fund_flow,
+    get_lhb_detail,
+    get_indicators,
+    get_news,
+    get_hot_stocks_xq,
+    get_zt_pool,
+)
 
 from .conditional_logic import ConditionalLogic
 
@@ -38,7 +47,7 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"]
     ):
         """Set up and compile the agent workflow graph.
 
@@ -88,6 +97,16 @@ class GraphSetup:
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
             done_nodes["fundamentals"] = analyst_done_node
 
+        if "macro" in selected_analysts:
+            analyst_nodes["macro"] = create_macro_analyst(self.quick_thinking_llm)
+            tool_nodes["macro"] = ToolNode([get_board_fund_flow, get_news])
+            done_nodes["macro"] = analyst_done_node
+
+        if "smart_money" in selected_analysts:
+            analyst_nodes["smart_money"] = create_smart_money_analyst(self.quick_thinking_llm)
+            tool_nodes["smart_money"] = ToolNode([get_individual_fund_flow, get_lhb_detail, get_indicators])
+            done_nodes["smart_money"] = analyst_done_node
+
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
             self.quick_thinking_llm, self.bull_memory
@@ -95,6 +114,7 @@ class GraphSetup:
         bear_researcher_node = create_bear_researcher(
             self.quick_thinking_llm, self.bear_memory
         )
+        game_theory_manager_node = create_game_theory_manager(self.quick_thinking_llm)
         research_manager_node = create_research_manager(
             self.deep_thinking_llm, self.invest_judge_memory
         )
@@ -118,6 +138,7 @@ class GraphSetup:
             workflow.add_node(f"{analyst_type.capitalize()} Analyst Done", done_nodes[analyst_type])
 
         # Add other nodes
+        workflow.add_node("Game Theory Manager", game_theory_manager_node)
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -148,10 +169,13 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
+        # All analysts complete → Game Theory Manager
         workflow.add_edge(
             [f"{analyst_type.capitalize()} Analyst Done" for analyst_type in selected_analysts],
-            "Bull Researcher",
+            "Game Theory Manager",
         )
+        # Game Theory Manager → Bull Researcher
+        workflow.add_edge("Game Theory Manager", "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(

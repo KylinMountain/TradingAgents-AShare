@@ -11,6 +11,7 @@ def create_research_manager(llm, memory):
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
+        game_theory_report = state.get("game_theory_report", "")
 
         investment_debate_state = state["investment_debate_state"]
 
@@ -24,6 +25,7 @@ def create_research_manager(llm, memory):
         prompt = get_prompt("research_manager_prompt", config=get_config()).format(
             past_memory_str=past_memory_str,
             history=history,
+            game_theory_report=game_theory_report,
         )
         response = llm.invoke(prompt)
 
