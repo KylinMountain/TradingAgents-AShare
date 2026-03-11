@@ -6,6 +6,9 @@ import {
     MessageCircle,
     Newspaper,
     Calculator,
+    BarChart2,
+    DollarSign,
+    Swords,
     ArrowBigUp,
     ArrowBigDown,
     Brain,
@@ -39,6 +42,9 @@ const META: AgentCardMeta[] = [
     { name: 'Social Analyst', label: '舆情分析师', short: '情绪', section: 'sentiment_report', icon: <MessageCircle className="w-3.5 h-3.5" />, tint: 'text-fuchsia-500', activeTint: 'ring-fuchsia-500/30 bg-fuchsia-50 dark:bg-fuchsia-500/10' },
     { name: 'News Analyst', label: '新闻分析师', short: '新闻', section: 'news_report', icon: <Newspaper className="w-3.5 h-3.5" />, tint: 'text-cyan-500', activeTint: 'ring-cyan-500/30 bg-cyan-50 dark:bg-cyan-500/10' },
     { name: 'Fundamentals Analyst', label: '基本面分析师', short: '基本面', section: 'fundamentals_report', icon: <Calculator className="w-3.5 h-3.5" />, tint: 'text-emerald-500', activeTint: 'ring-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10' },
+    { name: 'Macro Analyst', label: '宏观板块分析师', short: '宏观', section: 'macro_report', icon: <BarChart2 className="w-3.5 h-3.5" />, tint: 'text-violet-500', activeTint: 'ring-violet-500/30 bg-violet-50 dark:bg-violet-500/10' },
+    { name: 'Smart Money Analyst', label: '主力资金分析师', short: '主力', section: 'smart_money_report', icon: <DollarSign className="w-3.5 h-3.5" />, tint: 'text-amber-500', activeTint: 'ring-amber-500/30 bg-amber-50 dark:bg-amber-500/10' },
+    { name: 'Game Theory Manager', label: '博弈裁判', short: '博弈', section: 'game_theory_report', icon: <Swords className="w-3.5 h-3.5" />, tint: 'text-rose-500', activeTint: 'ring-rose-500/30 bg-rose-50 dark:bg-rose-500/10' },
     { name: 'Bull Researcher', label: '多头研究员', short: '多头', section: 'investment_plan', icon: <ArrowBigUp className="w-3.5 h-3.5" />, tint: 'text-emerald-500', activeTint: 'ring-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10' },
     { name: 'Bear Researcher', label: '空头研究员', short: '空头', section: 'investment_plan', icon: <ArrowBigDown className="w-3.5 h-3.5" />, tint: 'text-rose-500', activeTint: 'ring-rose-500/30 bg-rose-50 dark:bg-rose-500/10' },
     { name: 'Research Manager', label: '研究经理', short: '裁决', section: 'investment_plan', icon: <Brain className="w-3.5 h-3.5" />, tint: 'text-indigo-500', activeTint: 'ring-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10' },
@@ -52,8 +58,13 @@ const META: AgentCardMeta[] = [
 const GROUPS: AgentGroup[] = [
     {
         title: '分析团队',
-        description: '市场、舆情、新闻与基本面并行产出初始判断。',
-        cards: ['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst'],
+        description: '市场、舆情、新闻、基本面、宏观板块与主力资金并行产出初始判断。',
+        cards: ['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst'],
+    },
+    {
+        title: '博弈裁判',
+        description: '综合各分析师观点，进行博弈判断与综合裁决。',
+        cards: ['Game Theory Manager'],
     },
     {
         title: '多空辩论',
@@ -112,10 +123,10 @@ export default function AgentCollaboration({ onSelectSection }: AgentCollaborati
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">TradingAgents 协同研判台</h3>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">12 个研究席位联动运行，分析团队并行，多空与风控阶段形成对抗式讨论。</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">15 个研究席位联动运行，分析团队并行，多空与风控阶段形成对抗式讨论。</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-sm text-slate-500 dark:text-slate-400">{completedCount}/12</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">{completedCount}/15</span>
                     {isAnalyzing && (
                         <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
                             <Loader2 className="w-3 h-3 animate-spin" />
