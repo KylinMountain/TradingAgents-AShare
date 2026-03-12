@@ -234,5 +234,9 @@ plans/
 tradingagents.db
 deploy/deploy.env
 
-tradingagents.db.bak.*
 .playwright-cli/
+.DS_Store
+*.log
+.vercel
+.env*.local
+frontend/node_modules/
