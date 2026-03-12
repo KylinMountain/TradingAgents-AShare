@@ -54,8 +54,6 @@ def _extract_decision_keyword(text: str) -> str | None:
         "清仓",
         "空仓",
         "回避",
-        "止盈",
-        "止损",
     ]
     buy_keywords = [
         "BUY",

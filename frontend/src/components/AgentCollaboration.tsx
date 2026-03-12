@@ -7,7 +7,7 @@ import {
     Brain, Briefcase, Flame, Scale, Shield, CheckCircle2, Loader2,
     ArrowRight,
 } from 'lucide-react'
-import { buildAgentSummary } from '@/utils/reportText'
+import { extractVerdict, type Verdict } from '@/utils/reportText'
 
 // ── Agent metadata ────────────────────────────────────────────────────────────
 
@@ -150,9 +150,18 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
 
 // ── Single agent card ─────────────────────────────────────────────────────────
 
-interface CardData extends AgentMeta { status: AgentStatus; isStreaming: boolean; preview: string }
+interface CardData extends AgentMeta { status: AgentStatus; isStreaming: boolean; verdict: Verdict | null }
 
-function AgentCard({ card, onClick }: { card: CardData; onClick?: () => void }) {
+const VERDICT_COLORS: Record<string, string> = {
+    '看多': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
+    '看空': 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
+    '中性': 'bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400',
+    '谨慎': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+    // fallback for any unrecognized value
+    _default: 'bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400',
+}
+
+function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boolean; onClick?: () => void }) {
     const active  = card.status === 'in_progress'
     const done    = card.status === 'completed'
     const skipped = card.status === 'skipped'
@@ -166,7 +175,9 @@ function AgentCard({ card, onClick }: { card: CardData; onClick?: () => void }) 
             onClick={() => clickable && onClick?.()}
             className={[
                 'group w-full text-left rounded-xl border transition-all duration-200 overflow-hidden',
-                active
+                selected
+                    ? 'border-blue-400 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-500/10 shadow-md ring-1 ring-blue-300/50 dark:ring-blue-500/30'
+                    : active
                     ? 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-sm'
                     : done
                     ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60'
@@ -205,30 +216,32 @@ function AgentCard({ card, onClick }: { card: CardData; onClick?: () => void }) 
                     </span>
                 </div>
 
-                {/* Key Points Summary — shown when content exists or actively running */}
-                {(card.preview || active) && (
+                {/* Key Points Summary */}
+                {(done || active) && (
                     <div className={`rounded-lg border px-2.5 py-2 ${card.sumBorder} ${card.sumBg}`}>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">
                             Key Points
                         </p>
-                        {active && !card.preview ? (
+                        {active ? (
                             <div className="flex items-center gap-1.5">
                                 <Loader2 className={`w-3 h-3 animate-spin shrink-0 ${card.badgeText}`} />
                                 <span className={`text-[11px] ${card.sumText}`}>正在生成分析...</span>
                             </div>
+                        ) : card.verdict ? (
+                            <div className="flex items-start gap-1.5 min-w-0">
+                                <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-tight ${VERDICT_COLORS[card.verdict.direction] ?? VERDICT_COLORS._default}`}>
+                                    {card.verdict.direction}
+                                </span>
+                                <span className={`text-[11px] leading-[1.4] ${card.sumText}`}>
+                                    {card.verdict.reason}
+                                </span>
+                            </div>
                         ) : (
-                            <p className={`text-[11px] leading-[1.4] line-clamp-3 ${card.sumText}`}>
-                                {card.preview}
-                            </p>
+                            <div className="flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                                <span className="text-[11px] text-emerald-600 dark:text-emerald-400">分析完成</span>
+                            </div>
                         )}
-                    </div>
-                )}
-
-                {/* Done checkmark row */}
-                {done && !card.preview && (
-                    <div className="flex items-center gap-1 mt-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                        <span className="text-[11px] text-emerald-600 dark:text-emerald-400">分析完成</span>
                     </div>
                 )}
             </div>
@@ -240,9 +253,10 @@ function AgentCard({ card, onClick }: { card: CardData; onClick?: () => void }) 
 
 interface AgentCollaborationProps {
     onSelectSection?: (section?: string) => void
+    selectedSection?: string
 }
 
-export default function AgentCollaboration({ onSelectSection }: AgentCollaborationProps) {
+export default function AgentCollaboration({ onSelectSection, selectedSection }: AgentCollaborationProps) {
     const { agents, isAnalyzing, streamingSections, report } = useAnalysisStore()
 
     const cards = useMemo(() => META.map((meta) => {
@@ -254,7 +268,7 @@ export default function AgentCollaboration({ onSelectSection }: AgentCollaborati
             ...meta,
             status:      (agent?.status ?? 'pending') as AgentStatus,
             isStreaming: !!streamState?.isTyping,
-            preview:     buildAgentSummary(src),
+            verdict:     extractVerdict(src),
         }
     }), [agents, report, streamingSections])
 
@@ -325,7 +339,14 @@ export default function AgentCollaboration({ onSelectSection }: AgentCollaborati
                                     <AgentCard
                                         key={card.name}
                                         card={card}
-                                        onClick={() => onSelectSection?.(card.section)}
+                                        selected={!!card.section && card.section === selectedSection}
+                                        onClick={() => {
+                                            if (card.section === selectedSection) {
+                                                onSelectSection?.(undefined)
+                                            } else {
+                                                onSelectSection?.(card.section)
+                                            }
+                                        }}
                                     />
                                 ))}
                             </div>

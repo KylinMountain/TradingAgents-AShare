@@ -82,6 +82,57 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
 _job_events: Dict[str, "queue.Queue[Dict[str, Any]]"] = {}
+
+# ── A-share stock name → code cache ──────────────────────────────────────────
+_cn_stock_map: Optional[Dict[str, str]] = None  # name -> "XXXXXX.SH/SZ"
+_cn_stock_map_lock = Lock()
+
+
+def _load_cn_stock_map() -> Dict[str, str]:
+    """Lazy-load and cache akshare A-share name→code mapping."""
+    global _cn_stock_map
+    if _cn_stock_map is not None:
+        return _cn_stock_map
+    with _cn_stock_map_lock:
+        if _cn_stock_map is not None:
+            return _cn_stock_map
+        try:
+            import akshare as ak
+            df = ak.stock_info_a_code_name()
+            result: Dict[str, str] = {}
+            for _, row in df.iterrows():
+                name = str(row.get("name", "")).strip()
+                code = str(row.get("code", "")).strip()
+                if name and code:
+                    normalized = _normalize_symbol(code)
+                    result[name] = normalized
+            _cn_stock_map = result
+            print(f"[StockMap] Loaded {len(result)} A-share stocks.")
+        except Exception as e:
+            print(f"[StockMap] Failed to load: {e}")
+            _cn_stock_map = {}
+    return _cn_stock_map
+
+
+def _search_cn_stock_by_name(query: str) -> Optional[str]:
+    """Look up A-share stock code by company name (exact then partial match)."""
+    query = query.strip()
+    if not query:
+        return None
+    stock_map = _load_cn_stock_map()
+    # 1. Exact match
+    if query in stock_map:
+        return stock_map[query]
+    # 2. Partial match: query is substring of a stock name or vice versa
+    candidates = [(name, code) for name, code in stock_map.items()
+                  if query in name or name in query]
+    if len(candidates) == 1:
+        return candidates[0][1]
+    # 3. If multiple partial matches, pick the one with shortest name (closest match)
+    if candidates:
+        candidates.sort(key=lambda x: len(x[0]))
+        return candidates[0][1]
+    return None
 _auth_scheme = HTTPBearer(auto_error=False)
 
 FIXED_TEAMS = {
@@ -1414,49 +1465,74 @@ def stream_job_events(job_id: str, current_user: UserDB = Depends(_require_api_u
 
 
 def _ai_extract_symbol_and_date(text: str, config: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
-    """Use LLM to resolve symbol and date from natural language."""
+    """
+    Two-step extraction:
+    1. LLM extracts the company name/ticker and date from natural language.
+    2. Use the extracted name to look up the authoritative stock code from akshare.
+    """
     from tradingagents.llm_clients.factory import create_llm_client
-    
+    import json as _json
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # ── Step 1: LLM extracts company name + date ──────────────────────────────
+    llm_name: Optional[str] = None
+    llm_date: Optional[str] = None
     try:
-        # 1. Initialize a lightweight client
         client = create_llm_client(
             provider=config.get("llm_provider", "openai"),
             model=config.get("quick_think_llm", "gpt-4o-mini"),
             base_url=config.get("backend_url"),
             api_key=config.get("api_key"),
         )
+        prompt = f"""你是金融数据助手。从用户消息中提取股票标的名称（或代码）和交易日期。
 
-        # 2. Craft a strict extraction prompt
-        today = datetime.now().strftime("%Y-%m-%d")
-        prompt = f"""
-        You are a financial data assistant. Extract the STOCK SYMBOL and TRADE DATE from the user's message.
+规则：
+- stock_name：提取用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）。
+- 如果是美股，stock_name 直接填 ticker（如"AAPL"）。
+- date：使用 YYYY-MM-DD 格式。今天是 {today}，如未提及日期则填今天。
+- 仅输出 JSON，不要任何其他文字：{{"stock_name": "...", "date": "YYYY-MM-DD"}}
+- 如果无法识别任何股票标的，返回：{{"stock_name": null, "date": null}}
 
-        Rules:
-        - If it's a Chinese company name, convert to A-share code (e.g., '贵州茅台' -> '600519.SH').
-        - If it's a US company, use ticker (e.g., '苹果' -> 'AAPL').
-        - Use YYYY-MM-DD for date. Today is {today}.
-        - If no date mentioned, use {today}.
-        - Output ONLY a JSON: {{"symbol": "...", "date": "..."}}. 
-        - If no stock found, return {{"symbol": null, "date": null}}.
-
-        User message: "{text}"
-        """
-
-        # 3. Call LLM
+用户消息："{text}"
+"""
         llm = client.get_llm()
         response = llm.invoke(prompt)
-        raw_text = response if isinstance(response, str) else getattr(response, "content", str(response))
-
-        # 4. Parse JSON from response
-        import json
-        match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-            return _normalize_symbol(data.get("symbol") or ""), data.get("date")
+        raw = response if isinstance(response, str) else getattr(response, "content", str(response))
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        if m:
+            data = _json.loads(m.group(0))
+            llm_name = (data.get("stock_name") or "").strip() or None
+            llm_date = data.get("date") or today
     except Exception as e:
-        print(f"AI Extraction failed: {e}")
+        print(f"[StockExtract] LLM failed: {e}")
 
-    return None, None
+    if not llm_name:
+        print(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
+        return None, None
+
+    print(f"[StockExtract] LLM extracted name='{llm_name}', date={llm_date}")
+
+    # ── Step 2: If looks like a direct code (digits / letters), normalize it ──
+    if re.match(r"^\d{6}$", llm_name) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
+        symbol = _normalize_symbol(llm_name)
+        print(f"[StockExtract] Direct code: {symbol}")
+        return symbol or None, llm_date
+
+    # ── Step 3: Search akshare A-share name database ──────────────────────────
+    local_code = _search_cn_stock_by_name(llm_name)
+    if local_code:
+        print(f"[StockExtract] akshare match: '{llm_name}' → {local_code}")
+        return local_code, llm_date
+
+    # ── Step 4: Last resort — treat LLM name as a raw code ────────────────────
+    fallback = _normalize_symbol(llm_name)
+    if fallback:
+        print(f"[StockExtract] Fallback normalize: '{llm_name}' → {fallback}")
+        return fallback, llm_date
+
+    print(f"[StockExtract] Could not resolve '{llm_name}' to a stock code")
+    return None, llm_date
 
 @app.post("/v1/chat/completions")
 def chat_completions(

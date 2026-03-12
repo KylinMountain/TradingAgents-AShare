@@ -13,6 +13,7 @@ export function detectDecisionLabel(text?: string | null): string | null {
 export function sanitizeReportMarkdown(text?: string | null): string {
     if (!text) return ''
     return text
+        .replace(/<!--\s*VERDICT:[^>]*-->/gi, '') // strip machine-readable verdict tag
         .replace(/FINAL TRANSACTION PROPOSAL:\s*\**\s*BUY\s*\**/gi, '最终交易建议：买入')
         .replace(/FINAL TRANSACTION PROPOSAL:\s*\**\s*SELL\s*\**/gi, '最终交易建议：卖出')
         .replace(/FINAL TRANSACTION PROPOSAL:\s*\**\s*HOLD\s*\**/gi, '最终交易建议：观望')
@@ -37,4 +38,35 @@ export function buildAgentSummary(text?: string | null): string {
     if (cleaned.includes('风险')) return '风控结论'
     if (cleaned.includes('计划')) return '计划已生成'
     return cleaned.slice(0, 18) || '报告已生成'
+}
+
+export interface Verdict {
+    direction: string
+    reason: string
+}
+
+// Map English direction values (en.py prompts) to Chinese display labels
+const DIRECTION_ALIAS: Record<string, string> = {
+    BULLISH:  '看多',
+    BEARISH:  '看空',
+    NEUTRAL:  '中性',
+    CAUTIOUS: '谨慎',
+}
+
+/**
+ * Extract the structured verdict embedded by the agent as an HTML comment.
+ * Format: <!-- VERDICT: {"direction": "...", "reason": "..."} -->
+ */
+export function extractVerdict(text?: string | null): Verdict | null {
+    if (!text) return null
+    const m = text.match(/<!--\s*VERDICT:\s*(\{[^>]+\})\s*-->/)
+    if (!m) return null
+    try {
+        const parsed = JSON.parse(m[1]) as { direction?: string; reason?: string }
+        if (!parsed.direction || !parsed.reason) return null
+        const direction = DIRECTION_ALIAS[parsed.direction.toUpperCase()] ?? parsed.direction
+        return { direction, reason: parsed.reason.trim().slice(0, 42) }
+    } catch {
+        return null
+    }
 }
