@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Misc
+.env
+.env.*
+*.db
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Lock files (package-lock.json is needed for npm ci)
+frontend/package-lock.json
+
+# Documentation
+docs/
+*.md
+!README.md
+LICENSE*
+NOTICE
+CHANGELOG.md
+
+# Assets
+assets/

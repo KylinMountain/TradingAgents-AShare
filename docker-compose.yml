@@ -1,0 +1,63 @@
+# TradingAgents-AShare Docker Compose Configuration
+# Usage:
+#   Development: docker compose up -d
+#   Production:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tradingagents-backend
+    restart: unless-stopped
+    environment:
+      - TA_API_KEY=${TA_API_KEY}
+      - TA_BASE_URL=${TA_BASE_URL:-https://api.openai.com/v1}
+      - TA_LLM_QUICK=${TA_LLM_QUICK:-gpt-4o-mini}
+      - TA_LLM_DEEP=${TA_LLM_DEEP:-gpt-4o}
+      - TA_LANGUAGE=${TA_LANGUAGE:-zh}
+      - TA_TRACE=${TA_TRACE:-1}
+      - TA_MAX_DEBATE=${TA_MAX_DEBATE:-1}
+      - TA_MAX_RISK=${TA_MAX_RISK:-1}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/tradingagents.db}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - tradingagents-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_BASE_URL=/v1
+    container_name: tradingagents-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - tradingagents-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  tradingagents-network:
+    driver: bridge
+
+volumes:
+  backend-data:
+    driver: local
