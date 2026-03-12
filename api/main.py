@@ -172,7 +172,7 @@ class AnalyzeRequest(BaseModel):
     symbol: str = Field(..., description="股票代码，如 600519.SH")
     trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -205,7 +205,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
     stream: bool = True
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
