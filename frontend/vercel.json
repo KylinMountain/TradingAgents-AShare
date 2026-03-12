@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/v1/(.*)",
+      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/v1/$1"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/healthz"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/openapi.json"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/docs"
+    },
+    {
+      "source": "/((?!assets/|vite.svg|favicon.ico).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
