@@ -30,7 +30,10 @@ from tradingagents.agents.utils.agent_utils import (
     get_income_statement,
     get_news,
     get_insider_transactions,
-    get_global_news
+    get_global_news,
+    get_board_fund_flow,
+    get_individual_fund_flow,
+    get_lhb_detail,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -45,7 +48,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "fundamentals"],
+        selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
@@ -190,6 +193,21 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                ]
+            ),
+            "macro": ToolNode(
+                [
+                    # Macro analyst tools
+                    get_board_fund_flow,
+                    get_news,
+                ]
+            ),
+            "smart_money": ToolNode(
+                [
+                    # Smart money analyst tools
+                    get_individual_fund_flow,
+                    get_lhb_detail,
+                    get_indicators,
                 ]
             ),
         }

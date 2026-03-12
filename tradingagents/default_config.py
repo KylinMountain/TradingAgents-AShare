@@ -19,7 +19,7 @@ DEFAULT_CONFIG = {
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     
     # Debate and discussion settings
-    "max_debate_rounds": int(os.getenv("TA_MAX_DEBATE") or "1"),
+    "max_debate_rounds": int(os.getenv("TA_MAX_DEBATE") or "2"),
     "max_risk_discuss_rounds": int(os.getenv("TA_MAX_RISK") or "1"),
     "max_recur_limit": 100,
     

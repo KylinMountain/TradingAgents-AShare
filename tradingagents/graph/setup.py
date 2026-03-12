@@ -38,7 +38,7 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"]
     ):
         """Set up and compile the agent workflow graph.
 
@@ -88,6 +88,16 @@ class GraphSetup:
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
             done_nodes["fundamentals"] = analyst_done_node
 
+        if "macro" in selected_analysts:
+            analyst_nodes["macro"] = create_macro_analyst(self.quick_thinking_llm)
+            tool_nodes["macro"] = self.tool_nodes["macro"]
+            done_nodes["macro"] = analyst_done_node
+
+        if "smart_money" in selected_analysts:
+            analyst_nodes["smart_money"] = create_smart_money_analyst(self.quick_thinking_llm)
+            tool_nodes["smart_money"] = self.tool_nodes["smart_money"]
+            done_nodes["smart_money"] = analyst_done_node
+
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
             self.quick_thinking_llm, self.bull_memory
@@ -95,6 +105,7 @@ class GraphSetup:
         bear_researcher_node = create_bear_researcher(
             self.quick_thinking_llm, self.bear_memory
         )
+        game_theory_manager_node = create_game_theory_manager(self.quick_thinking_llm)
         research_manager_node = create_research_manager(
             self.deep_thinking_llm, self.invest_judge_memory
         )
@@ -111,13 +122,18 @@ class GraphSetup:
         # Create workflow
         workflow = StateGraph(AgentState)
 
+        def analyst_display_name(analyst_type: str) -> str:
+            """Convert analyst_type key to display name, e.g. 'smart_money' -> 'Smart Money'."""
+            return analyst_type.replace("_", " ").title()
+
         # Add analyst nodes to the graph
         for analyst_type, node in analyst_nodes.items():
-            workflow.add_node(f"{analyst_type.capitalize()} Analyst", node)
+            workflow.add_node(f"{analyst_display_name(analyst_type)} Analyst", node)
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
-            workflow.add_node(f"{analyst_type.capitalize()} Analyst Done", done_nodes[analyst_type])
+            workflow.add_node(f"{analyst_display_name(analyst_type)} Analyst Done", done_nodes[analyst_type])
 
         # Add other nodes
+        workflow.add_node("Game Theory Manager", game_theory_manager_node)
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -130,13 +146,13 @@ class GraphSetup:
         # Define edges
         # Fan out all selected analysts in parallel from START
         for analyst_type in selected_analysts:
-            workflow.add_edge(START, f"{analyst_type.capitalize()} Analyst")
+            workflow.add_edge(START, f"{analyst_display_name(analyst_type)} Analyst")
 
         # Each analyst runs independently, then fans in to Bull Researcher
         for analyst_type in selected_analysts:
-            current_analyst = f"{analyst_type.capitalize()} Analyst"
+            current_analyst = f"{analyst_display_name(analyst_type)} Analyst"
             current_tools = f"tools_{analyst_type}"
-            current_done = f"{analyst_type.capitalize()} Analyst Done"
+            current_done = f"{analyst_display_name(analyst_type)} Analyst Done"
             # Add conditional edges for current analyst
             workflow.add_conditional_edges(
                 current_analyst,
@@ -148,10 +164,13 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
+        # All analysts complete → Game Theory Manager
         workflow.add_edge(
-            [f"{analyst_type.capitalize()} Analyst Done" for analyst_type in selected_analysts],
-            "Bull Researcher",
+            [f"{analyst_display_name(analyst_type)} Analyst Done" for analyst_type in selected_analysts],
+            "Game Theory Manager",
         )
+        # Game Theory Manager → Bull Researcher
+        workflow.add_edge("Game Theory Manager", "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(

@@ -163,6 +163,9 @@ export interface AnalysisReport {
     sentiment_report?: string
     news_report?: string
     fundamentals_report?: string
+    macro_report?: string
+    smart_money_report?: string
+    game_theory_report?: string
     investment_plan?: string
     trader_investment_plan?: string
     final_trade_decision?: string
@@ -239,6 +242,9 @@ export interface ReportDetail extends Report {
     sentiment_report?: string
     news_report?: string
     fundamentals_report?: string
+    macro_report?: string
+    smart_money_report?: string
+    game_theory_report?: string
     investment_plan?: string
     trader_investment_plan?: string
     final_trade_decision?: string

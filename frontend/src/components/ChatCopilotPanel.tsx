@@ -26,6 +26,8 @@ const ANALYST_OPTIONS = [
     { id: 'social', label: '舆情分析', description: '社交媒体' },
     { id: 'news', label: '新闻分析', description: '财经新闻' },
     { id: 'fundamentals', label: '基本面', description: '财务估值' },
+    { id: 'macro', label: '宏观板块', description: '宏观经济' },
+    { id: 'smart_money', label: '主力资金', description: '机构动向' },
 ]
 
 interface StreamEvent {
@@ -106,13 +108,13 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
         try {
             const stored = localStorage.getItem('tradingagents-settings')
-            if (!stored) return ['market', 'social', 'news', 'fundamentals']
+            if (!stored) return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money']
             const parsed = JSON.parse(stored) as { defaultAnalysts?: string[] }
             if (Array.isArray(parsed.defaultAnalysts) && parsed.defaultAnalysts.length > 0) {
                 return parsed.defaultAnalysts
             }
         } catch {}
-        return ['market', 'social', 'news', 'fundamentals']
+        return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money']
     })
     // track which section IDs have been added to chatMessages and whether they're done
     const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
@@ -498,7 +500,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     <div className="flex items-center gap-2">
                         <Settings2 className="w-4 h-4 text-slate-400" />
                         <span className="text-sm text-slate-600 dark:text-slate-400">
-                            分析类型 ({selectedAnalysts.length}/4)
+                            分析类型 ({selectedAnalysts.length}/6)
                         </span>
                     </div>
                     {showConfig ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}

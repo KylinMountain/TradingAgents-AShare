@@ -41,6 +41,8 @@ const ANALYSTS = [
     { id: 'news', label: '新闻分析' },
     { id: 'fundamentals', label: '基本面' },
     { id: 'sentiment', label: '情绪分析' },
+    { id: 'macro', label: '宏观板块' },
+    { id: 'smart_money', label: '主力资金' },
 ]
 
 function actionBadge(action: string) {
@@ -64,7 +66,7 @@ export default function Backtest() {
     const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
     const [holdDays, setHoldDays] = useState(5)
     const [sampleInterval, setSampleInterval] = useState(7)
-    const [analysts, setAnalysts] = useState<string[]>(['market', 'news', 'fundamentals', 'sentiment'])
+    const [analysts, setAnalysts] = useState<string[]>(['market', 'news', 'fundamentals', 'sentiment', 'macro', 'smart_money'])
     const [submitting, setSubmitting] = useState(false)
     const [jobs, setJobs] = useState<BacktestJob[]>([])
     const [expandedJob, setExpandedJob] = useState<string | null>(null)

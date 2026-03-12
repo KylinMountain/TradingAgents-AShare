@@ -108,7 +108,7 @@ export default function Analysis() {
                     />
                 </div>
 
-                <AgentCollaboration onSelectSection={handleShowReport} />
+                <AgentCollaboration onSelectSection={handleShowReport} selectedSection={activeSection} />
 
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                     <DecisionCard

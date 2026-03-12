@@ -106,8 +106,11 @@ const initialAgents: Agent[] = [
     { id: 'social', name: 'Social Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'news', name: 'News Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'fundamentals', name: 'Fundamentals Analyst', team: 'Analyst Team', status: 'pending' },
+    { id: 'macro', name: 'Macro Analyst', team: 'Analyst Team', status: 'pending' },
+    { id: 'smart_money', name: 'Smart Money Analyst', team: 'Analyst Team', status: 'pending' },
 
     // Research Team
+    { id: 'game_theory', name: 'Game Theory Manager', team: 'Research Team', status: 'pending' },
     { id: 'bull', name: 'Bull Researcher', team: 'Research Team', status: 'pending' },
     { id: 'bear', name: 'Bear Researcher', team: 'Research Team', status: 'pending' },
     { id: 'research_manager', name: 'Research Manager', team: 'Research Team', status: 'pending' },

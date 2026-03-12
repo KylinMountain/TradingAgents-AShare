@@ -31,6 +31,16 @@ TOOLS_CATEGORIES = {
             "get_insider_transactions",
         ],
     },
+    "cn_market_data": {
+        "description": "China A-share market sentiment and fund flow data",
+        "tools": [
+            "get_board_fund_flow",
+            "get_individual_fund_flow",
+            "get_lhb_detail",
+            "get_zt_pool",
+            "get_hot_stocks_xq",
+        ],
+    },
 }
 
 _registry = build_default_registry()
