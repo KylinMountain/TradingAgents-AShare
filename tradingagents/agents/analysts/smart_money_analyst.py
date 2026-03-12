@@ -21,7 +21,7 @@ def create_smart_money_analyst(llm):
         ticker = state["company_of_interest"]
         print(f"[Smart Money Analyst] START {ticker} {current_date}")
         config = get_config()
-        system_message = get_prompt("smart_money_system_message", config=config)
+        system_message = get_prompt("smart_money_system_message", config=config) or ""
 
         fund_flow = _invoke_tool(get_individual_fund_flow, {"symbol": ticker})
         lhb = _invoke_tool(get_lhb_detail, {"symbol": ticker, "date": current_date})

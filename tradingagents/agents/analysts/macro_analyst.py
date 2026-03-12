@@ -19,7 +19,7 @@ def create_macro_analyst(llm):
         ticker = state["company_of_interest"]
         print(f"[Macro Analyst] START {ticker} {current_date}")
         config = get_config()
-        system_message = get_prompt("macro_system_message", config=config)
+        system_message = get_prompt("macro_system_message", config=config) or ""
 
         board_flow = _invoke_tool(get_board_fund_flow, {"symbol": ticker})
 
