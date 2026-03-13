@@ -23,7 +23,6 @@ RUN uv sync --frozen --no-install-project --no-dev
 # Copy backend source code
 COPY api/ ./api/
 COPY tradingagents/ ./tradingagents/
-COPY main.py ./
 
 # Copy built frontend from Stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
