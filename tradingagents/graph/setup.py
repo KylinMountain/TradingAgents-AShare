@@ -25,6 +25,7 @@ class GraphSetup:
         invest_judge_memory,
         risk_manager_memory,
         conditional_logic: ConditionalLogic,
+        data_collector=None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
@@ -36,6 +37,7 @@ class GraphSetup:
         self.invest_judge_memory = invest_judge_memory
         self.risk_manager_memory = risk_manager_memory
         self.conditional_logic = conditional_logic
+        self.data_collector = data_collector
 
     def setup_graph(
         self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"]
@@ -62,39 +64,43 @@ class GraphSetup:
 
         if "market" in selected_analysts:
             analyst_nodes["market"] = create_market_analyst(
-                self.quick_thinking_llm
+                self.quick_thinking_llm, self.data_collector
             )
             tool_nodes["market"] = self.tool_nodes["market"]
             done_nodes["market"] = analyst_done_node
 
         if "social" in selected_analysts:
             analyst_nodes["social"] = create_social_media_analyst(
-                self.quick_thinking_llm
+                self.quick_thinking_llm, self.data_collector
             )
             tool_nodes["social"] = self.tool_nodes["social"]
             done_nodes["social"] = analyst_done_node
 
         if "news" in selected_analysts:
             analyst_nodes["news"] = create_news_analyst(
-                self.quick_thinking_llm
+                self.quick_thinking_llm, self.data_collector
             )
             tool_nodes["news"] = self.tool_nodes["news"]
             done_nodes["news"] = analyst_done_node
 
         if "fundamentals" in selected_analysts:
             analyst_nodes["fundamentals"] = create_fundamentals_analyst(
-                self.quick_thinking_llm
+                self.quick_thinking_llm, self.data_collector
             )
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
             done_nodes["fundamentals"] = analyst_done_node
 
         if "macro" in selected_analysts:
-            analyst_nodes["macro"] = create_macro_analyst(self.quick_thinking_llm)
+            analyst_nodes["macro"] = create_macro_analyst(
+                self.quick_thinking_llm, self.data_collector
+            )
             tool_nodes["macro"] = self.tool_nodes["macro"]
             done_nodes["macro"] = analyst_done_node
 
         if "smart_money" in selected_analysts:
-            analyst_nodes["smart_money"] = create_smart_money_analyst(self.quick_thinking_llm)
+            analyst_nodes["smart_money"] = create_smart_money_analyst(
+                self.quick_thinking_llm, self.data_collector
+            )
             tool_nodes["smart_money"] = self.tool_nodes["smart_money"]
             done_nodes["smart_money"] = analyst_done_node
 
