@@ -96,6 +96,62 @@ cd frontend && npm run dev
 ```
 访问 `http://localhost:5173` 即可开始您的 AI 投研之旅。
 
+## 🐳 Docker 一键部署
+
+支持通过 Docker Compose 一键部署完整服务。
+
+### 快速启动
+
+1. **克隆项目并配置环境变量**：
+```bash
+git clone https://github.com/KylinMountain/TradingAgents-AShare.git
+cd TradingAgents-AShare
+cp docker.env.example .env
+# 编辑 .env 文件，填写 TA_API_KEY
+```
+
+2. **一键启动**：
+```bash
+docker compose up -d
+```
+
+3. **访问服务**：打开浏览器访问 `http://localhost:3000`
+
+### 使用预构建镜像
+
+从 GitHub Container Registry 拉取预构建镜像：
+
+```bash
+# 拉取镜像
+docker pull ghcr.io/kylinmountain/tradingagents-ashare/backend:latest
+docker pull ghcr.io/kylinmountain/tradingagents-ashare/frontend:latest
+
+# 使用预构建镜像启动
+docker compose up -d
+```
+
+### 生产环境部署
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### 常用命令
+
+```bash
+# 查看日志
+docker compose logs -f
+
+# 停止服务
+docker compose down
+
+# 重新构建
+docker compose build --no-cache
+
+# 更新镜像
+docker compose pull && docker compose up -d
+```
+
 
 ## 🛠 API 集成
 
