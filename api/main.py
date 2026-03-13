@@ -977,14 +977,12 @@ def _run_job(
             "stop_loss_price": resolved["stop_loss_price"]
         })
 
-        saved_report = None
-
         # 自动保存报告到数据库
         if save_report:
             db = SessionLocal()
             try:
                 # 传入已解析的值，避免重复开销
-                saved_report = report_service.create_report(
+                report_service.create_report(
                     db=db,
                     symbol=request.symbol,
                     trade_date=request.trade_date,
@@ -997,9 +995,7 @@ def _run_job(
                     target_price_override=result["target_price"],
                     stop_loss_override=result["stop_loss_price"],
                 )
-                db.commit()
             except Exception as e:
-                db.rollback()
                 print(f"Failed to save report: {e}")
             finally:
                 db.close()
@@ -1012,8 +1008,8 @@ def _run_job(
                 "decision": decision,
                 "direction": result["direction"],
                 "result": result,
-                "risk_items": saved_report.risk_items if saved_report else ([r.model_dump() for r in structured.risks] if structured else []),
-                "key_metrics": saved_report.key_metrics if saved_report else ([m.model_dump() for m in structured.key_metrics] if structured else []),
+                "risk_items": [r.model_dump() for r in structured.risks] if structured else [],
+                "key_metrics": [m.model_dump() for m in structured.key_metrics] if structured else [],
                 "confidence": result["confidence"],
                 "target_price": result["target_price"],
                 "stop_loss_price": result["stop_loss_price"],

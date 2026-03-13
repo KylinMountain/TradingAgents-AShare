@@ -5,7 +5,7 @@ import hashlib
 import os
 import secrets
 import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from typing import Optional
 from uuid import uuid4
@@ -21,7 +21,15 @@ ALGORITHM = "HS256"
 
 
 def _utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _secret_key() -> str:
@@ -118,7 +126,8 @@ def verify_login_code(db: Session, email: str, code: str, purpose: str = "login"
         .order_by(EmailVerificationCodeDB.created_at.desc())
         .first()
     )
-    if not code_row or code_row.expires_at < now:
+    expires_at = _as_utc(code_row.expires_at) if code_row else None
+    if not code_row or not expires_at or expires_at < now:
         return None
     if code_row.code_hash != hash_code(email, code):
         return None
