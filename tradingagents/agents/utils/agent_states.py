@@ -1,10 +1,28 @@
-from typing import Annotated, Sequence
+import operator
+from typing import Annotated, List, Sequence
 from datetime import date, timedelta, datetime
 from typing_extensions import TypedDict, Optional
 from langchain_openai import ChatOpenAI
 from tradingagents.agents import *
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph, START, MessagesState
+
+
+class UserIntent(TypedDict, total=False):
+    raw_query: str
+    ticker: str
+    horizons: List[str]         # ["short", "medium"]
+    focus_areas: List[str]
+    specific_questions: List[str]
+
+
+class TraceItem(TypedDict, total=False):
+    agent: str
+    horizon: str        # "short" | "medium"
+    data_window: str    # e.g. "14天" | "90天"
+    key_finding: str    # one-line summary
+    verdict: str        # 看多/看空/中性/谨慎
+    confidence: str     # 高/中/低
 
 
 # Researcher team state
@@ -79,3 +97,11 @@ class AgentState(MessagesState):
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
     game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
+
+    # multi-horizon fields
+    user_intent: Annotated[Optional[UserIntent], "Parsed user intent from natural language"]
+    horizon: Annotated[str, "Current analysis horizon: short or medium"]
+    # operator.add reducer accumulates traces from all analyst nodes
+    analyst_traces: Annotated[List[TraceItem], operator.add]
+    short_term_result: Annotated[Optional[dict], "Final short-term analysis result"]
+    medium_term_result: Annotated[Optional[dict], "Final medium-term analysis result"]
