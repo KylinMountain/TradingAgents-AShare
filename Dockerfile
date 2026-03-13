@@ -36,5 +36,5 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Command to run the application
-# We use 'uv run' to ensure dependencies are loaded from the sync environment
-CMD ["uv", "run", "python", "main.py"]
+# We use uvicorn directly to serve the API and static files
+CMD ["uv", "run", "python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
