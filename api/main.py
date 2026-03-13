@@ -183,13 +183,15 @@ ANALYST_REPORT_MAP = {
 
 
 class AnalyzeRequest(BaseModel):
-    symbol: str = Field(..., description="股票代码，如 600519.SH")
+    symbol: str = Field(default="", description="股票代码，如 600519.SH（当 query 包含代码时可省略）")
     trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
         default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
+    # When set, triggers intent-driven dual-horizon analysis via propagate_async
+    query: Optional[str] = Field(default=None, description="自然语言查询，如：分析贵州茅台短线机会")
 
 
 class AnalyzeResponse(BaseModel):
@@ -860,6 +862,57 @@ def _run_job(
             config=config,
         )
         final_state: Optional[Dict[str, Any]] = None
+
+        # ── Dual-horizon intent-driven path ──────────────────────────────────
+        if request.query:
+            import asyncio as _asyncio
+            _emit_job_event(job_id, "agent.snapshot", tracker.snapshot())
+            dual = _asyncio.run(
+                graph.propagate_async(
+                    request.symbol or display_name,
+                    request.trade_date,
+                    query=request.query,
+                )
+            )
+            short_r = dual["short_term"]
+            medium_r = dual["medium_term"]
+            # Primary decision = short-term
+            decision = graph.process_signal(short_r.get("final_trade_decision", "")) or "UNKNOWN"
+            result = {
+                "symbol": short_r.get("company_of_interest") or request.symbol,
+                "trade_date": request.trade_date,
+                "mode": "dual_horizon",
+                "user_intent": dual.get("user_intent", {}),
+                "short_term": short_r,
+                "medium_term": medium_r,
+                "decision": decision,
+                "final_trade_decision": short_r.get("final_trade_decision", ""),
+                "analyst_traces": (
+                    short_r.get("analyst_traces", []) + medium_r.get("analyst_traces", [])
+                ),
+            }
+            _set_job(
+                job_id,
+                status="completed",
+                result=result,
+                decision=decision,
+                finished_at=_utcnow_iso(),
+            )
+            for agent, status in tracker.status.items():
+                if status not in ("completed", "skipped"):
+                    tracker._set_status(agent, "completed")
+            _emit_job_event(
+                job_id,
+                "job.completed",
+                {
+                    "job_id": job_id,
+                    "decision": decision,
+                    "result": result,
+                    "mode": "dual_horizon",
+                },
+            )
+            return
+        # ── End dual-horizon path ─────────────────────────────────────────────
 
         if stream_events:
             init_state = graph.propagator.create_initial_state(
@@ -1622,6 +1675,7 @@ def chat_completions(
         selected_analysts=request.selected_analysts,
         config_overrides=request.config_overrides,
         dry_run=request.dry_run,
+        query=text,  # pass full NL query for intent-driven dual-horizon analysis
     )
     job_id = uuid4().hex
     now = _utcnow_iso()
