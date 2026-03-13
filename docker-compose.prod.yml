@@ -2,7 +2,7 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
-  backend:
+  app:
     restart: always
     environment:
       - TA_TRACE=0
@@ -16,18 +16,4 @@ services:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
-
-  frontend:
-    restart: always
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
         max-file: "3"

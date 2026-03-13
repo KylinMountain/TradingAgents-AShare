@@ -21,7 +21,8 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -1867,6 +1868,57 @@ def update_runtime_config(
         "has_api_key": bool(row.api_key_encrypted),
         "current": _config_response_for_user(current_user, db),
     }
+
+
+# ── Static Frontend Serving (Single Container Mode) ──────────────────────────
+STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+
+
+def _static_dir_exists() -> bool:
+    """Check if static directory exists (built frontend)."""
+    return os.path.isdir(STATIC_DIR)
+
+
+# Mount static assets directory if it exists
+if _static_dir_exists():
+    # Mount assets subdirectory for JS/CSS/images
+    assets_dir = os.path.join(STATIC_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def serve_index():
+    """Serve frontend index.html for root path."""
+    if _static_dir_exists():
+        index_path = os.path.join(STATIC_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+    return HTMLResponse(content="<h1>TradingAgents API</h1><p>Frontend not built.</p>")
+
+
+@app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+async def serve_spa(path: str):
+    """
+    SPA fallback - serve index.html for all non-API routes.
+    This handles client-side routing for React/Vue/Angular apps.
+    """
+    # Skip API routes
+    if path.startswith("v1/") or path.startswith("docs") or path.startswith("openapi"):
+        raise HTTPException(status_code=404)
+
+    if _static_dir_exists():
+        # Try to serve the exact file first
+        file_path = os.path.join(STATIC_DIR, path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # Fallback to index.html for SPA routing
+        index_path = os.path.join(STATIC_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+
+    raise HTTPException(status_code=404)
 
 
 def run() -> None:

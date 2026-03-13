@@ -1,15 +1,21 @@
 # TradingAgents-AShare Docker Compose Configuration
+# Single container deployment (Frontend + Backend combined)
+#
 # Usage:
 #   Development: docker compose up -d
 #   Production:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
-  backend:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tradingagents-backend
+      args:
+        - VITE_API_BASE_URL=/v1
+    container_name: tradingagents
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
       - TA_API_KEY=${TA_API_KEY}
       - TA_BASE_URL=${TA_BASE_URL:-https://api.openai.com/v1}
@@ -22,9 +28,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/tradingagents.db}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
     volumes:
-      - backend-data:/app/data
-    networks:
-      - tradingagents-network
+      - app-data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
@@ -32,32 +36,6 @@ services:
       retries: 3
       start_period: 10s
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        - VITE_API_BASE_URL=/v1
-    container_name: tradingagents-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - tradingagents-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-networks:
-  tradingagents-network:
-    driver: bridge
-
 volumes:
-  backend-data:
+  app-data:
     driver: local

@@ -1,4 +1,32 @@
-# TradingAgents Backend - Python 3.11
+# TradingAgents - Single Container (Frontend + Backend)
+# Combines React frontend and Python backend in one image
+
+# ============================================
+# Stage 1: Build Frontend
+# ============================================
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy package files first for better caching
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
+COPY frontend/ ./
+
+# Build arguments for environment variables
+ARG VITE_API_BASE_URL=/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+# Build the application
+RUN npm run build
+
+# ============================================
+# Stage 2: Python Backend with Frontend
+# ============================================
 FROM python:3.11-slim AS base
 
 # Set environment variables
@@ -29,6 +57,9 @@ RUN uv sync --frozen --no-dev --no-editable
 COPY tradingagents/ ./tradingagents/
 COPY api/ ./api/
 COPY main.py ./
+
+# Copy frontend build from previous stage
+COPY --from=frontend-builder /app/frontend/dist ./static
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
