@@ -1940,10 +1940,24 @@ if os.path.exists(dist_path):
     async def serve_frontend(full_path: str):
         # Security: Prevent path traversal by normalizing and checking boundaries
         abs_dist_path = os.path.abspath(dist_path)
-        requested_path = os.path.abspath(os.path.join(abs_dist_path, full_path))
         
-        # If the file exists and is within the dist directory, serve it
-        if os.path.isfile(requested_path) and os.path.commonpath([abs_dist_path, requested_path]) == abs_dist_path:
+        # 1. Normalize the user-provided path fragment
+        normalized_rel_path = os.path.normpath(full_path)
+        
+        # 2. Explicitly reject absolute paths or paths that attempt to escape
+        if os.path.isabs(normalized_rel_path) or normalized_rel_path.startswith(".."):
+            return FileResponse(os.path.join(abs_dist_path, "index.html"))
+            
+        # 3. Build the absolute requested path and resolve any symlinks
+        requested_path = os.path.realpath(os.path.join(abs_dist_path, normalized_rel_path))
+        
+        # 4. Final boundary check: must be within the dist directory
+        try:
+            is_inside = os.path.commonpath([abs_dist_path, requested_path]) == abs_dist_path
+        except ValueError:
+            is_inside = False
+
+        if is_inside and os.path.isfile(requested_path):
             return FileResponse(requested_path)
             
         # Otherwise fallback to index.html for SPA routing
