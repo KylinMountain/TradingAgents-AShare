@@ -1957,8 +1957,11 @@ if os.path.exists(dist_path):
         except ValueError:
             is_inside = False
 
-        if is_inside and os.path.isfile(requested_path):
-            return FileResponse(requested_path)
+        # Only use a path derived from user input if it is safely inside abs_dist_path
+        if is_inside:
+            safe_requested_path = requested_path
+            if os.path.isfile(safe_requested_path):
+                return FileResponse(safe_requested_path)
             
         # Otherwise fallback to index.html for SPA routing
         return FileResponse(os.path.join(abs_dist_path, "index.html"))
