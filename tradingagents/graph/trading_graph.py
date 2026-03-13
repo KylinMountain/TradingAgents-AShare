@@ -1,5 +1,6 @@
 # TradingAgents/graph/trading_graph.py
 
+import asyncio
 import os
 from pathlib import Path
 import json
@@ -37,6 +38,8 @@ from tradingagents.agents.utils.agent_utils import (
 )
 
 from .conditional_logic import ConditionalLogic
+from .data_collector import DataCollector
+from .intent_parser import parse_intent
 from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
@@ -107,6 +110,9 @@ class TradingAgentsGraph:
         # Create tool nodes
         self.tool_nodes = self._create_tool_nodes()
 
+        # Data collector — fetches once, shared across dual-horizon runs
+        self.data_collector = DataCollector()
+
         # Initialize components
         self.conditional_logic = ConditionalLogic()
         self.graph_setup = GraphSetup(
@@ -119,6 +125,7 @@ class TradingAgentsGraph:
             self.invest_judge_memory,
             self.risk_manager_memory,
             self.conditional_logic,
+            data_collector=self.data_collector,
         )
 
         self.propagator = Propagator()
@@ -246,6 +253,108 @@ class TradingAgentsGraph:
 
         # Return decision and processed signal
         return final_state, self.process_signal(final_state["final_trade_decision"])
+
+    async def propagate_async(
+        self,
+        company_name: str,
+        trade_date: str,
+        query: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run dual-horizon analysis concurrently.
+
+        Parses the natural language query (if provided), pre-collects data once,
+        then runs short-term and medium-term graph invocations in parallel via
+        asyncio.gather.
+
+        Returns a dict with keys: short_term, medium_term, user_intent.
+        """
+        self.ticker = company_name
+
+        # Parse intent from query, or build a minimal intent from ticker alone
+        if query:
+            user_intent = parse_intent(query, self.quick_thinking_llm, fallback_ticker=company_name)
+            ticker = user_intent.get("ticker") or company_name
+        else:
+            ticker = company_name
+            user_intent = {
+                "raw_query": "",
+                "ticker": ticker,
+                "horizons": ["short", "medium"],
+                "focus_areas": [],
+                "specific_questions": [],
+            }
+
+        # Pre-collect data once; analysts will read from cache
+        print(f"[TradingAgentsGraph] Collecting data for {ticker} {trade_date}…")
+        self.data_collector.collect(ticker, trade_date)
+
+        graph_args = self.propagator.get_graph_args()
+
+        async def _run(horizon: str):
+            state = self.propagator.create_initial_state(
+                ticker, trade_date, user_intent=user_intent, horizon=horizon
+            )
+            return await self.graph.ainvoke(state, **graph_args)
+
+        short_state, medium_state = await asyncio.gather(
+            _run("short"), _run("medium")
+        )
+
+        # Evict cached data to free memory
+        self.data_collector.evict(ticker, trade_date)
+
+        short_result = self._build_horizon_result("short", short_state)
+        medium_result = self._build_horizon_result("medium", medium_state)
+
+        self._log_state_dual(trade_date, short_result, medium_result, user_intent)
+
+        return {
+            "short_term": short_result,
+            "medium_term": medium_result,
+            "user_intent": user_intent,
+        }
+
+    def _build_horizon_result(self, horizon: str, final_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract a compact result dict from a completed graph state."""
+        return {
+            "horizon": horizon,
+            "company_of_interest": final_state.get("company_of_interest", ""),
+            "trade_date": final_state.get("trade_date", ""),
+            "final_trade_decision": final_state.get("final_trade_decision", ""),
+            "investment_plan": final_state.get("investment_plan", ""),
+            "trader_investment_plan": final_state.get("trader_investment_plan", ""),
+            "analyst_traces": final_state.get("analyst_traces", []),
+            "market_report": final_state.get("market_report", ""),
+            "sentiment_report": final_state.get("sentiment_report", ""),
+            "news_report": final_state.get("news_report", ""),
+            "fundamentals_report": final_state.get("fundamentals_report", ""),
+            "macro_report": final_state.get("macro_report", ""),
+            "smart_money_report": final_state.get("smart_money_report", ""),
+        }
+
+    def _log_state_dual(
+        self,
+        trade_date: str,
+        short_result: Dict[str, Any],
+        medium_result: Dict[str, Any],
+        user_intent: Dict[str, Any],
+    ) -> None:
+        """Log dual-horizon results to a JSON file."""
+        ticker = short_result.get("company_of_interest") or self.ticker or "unknown"
+        entry = {
+            "user_intent": user_intent,
+            "short_term": short_result,
+            "medium_term": medium_result,
+        }
+        self.log_states_dict[str(trade_date)] = entry
+
+        directory = Path(f"eval_results/{ticker}/TradingAgentsStrategy_logs/")
+        directory.mkdir(parents=True, exist_ok=True)
+        with open(
+            f"eval_results/{ticker}/TradingAgentsStrategy_logs/dual_horizon_{trade_date}.json",
+            "w",
+        ) as f:
+            json.dump(entry, f, indent=4, ensure_ascii=False)
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
