@@ -125,7 +125,9 @@ def _extract_verdict(text: Optional[str]) -> Optional[Dict[str, str]]:
     if not match:
         return None
     try:
-        payload = json.loads(match.group(1))
+        # Clean potential newlines or invisible characters common in LLM outputs
+        raw_json = match.group(1).strip().replace('\n', ' ').replace('\r', ' ')
+        payload = json.loads(raw_json)
     except Exception:
         return None
     direction = str(payload.get("direction") or "").strip()

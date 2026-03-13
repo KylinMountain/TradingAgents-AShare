@@ -934,7 +934,7 @@ def _run_job(
         if not final_state:
             raise RuntimeError("graph returned empty final state")
 
-        decision = graph.process_signal(final_state["final_trade_decision"])
+        decision = graph.process_signal(final_state["final_trade_decision"]) or "UNKNOWN"
         result = _build_result_payload(final_state)
         result["decision"] = decision
 
@@ -961,15 +961,21 @@ def _run_job(
         except Exception as e:
             print(f"Structured extraction failed (non-fatal): {e}")
 
-        risk_items = [r.model_dump() for r in structured.risks] if structured else []
-        key_metrics = [m.model_dump() for m in structured.key_metrics] if structured else []
-        resolved_fields = report_service.resolve_report_fields(
+        # 一次性解析所有字段（方向、信心、目标价等）
+        resolved = report_service.resolve_report_fields(
             result_data=result,
             confidence_override=structured.confidence if structured else None,
             target_price_override=structured.target_price if structured else None,
             stop_loss_override=structured.stop_loss_price if structured else None,
         )
-        result["direction"] = resolved_fields["direction"]
+
+        # 注入结果字典以便通知和保存使用
+        result.update({
+            "direction": resolved["direction"],
+            "confidence": resolved["confidence"],
+            "target_price": resolved["target_price"],
+            "stop_loss_price": resolved["stop_loss_price"]
+        })
 
         saved_report = None
 
@@ -977,6 +983,7 @@ def _run_job(
         if save_report:
             db = SessionLocal()
             try:
+                # 传入已解析的值，避免重复开销
                 saved_report = report_service.create_report(
                     db=db,
                     symbol=request.symbol,
@@ -984,13 +991,15 @@ def _run_job(
                     decision=decision,
                     result_data=result,
                     user_id=user_id,
-                    risk_items=risk_items or None,
-                    key_metrics=key_metrics or None,
-                    confidence_override=structured.confidence if structured else None,
-                    target_price_override=structured.target_price if structured else None,
-                    stop_loss_override=structured.stop_loss_price if structured else None,
+                    risk_items=([r.model_dump() for r in structured.risks] if structured else None),
+                    key_metrics=([m.model_dump() for m in structured.key_metrics] if structured else None),
+                    confidence_override=result["confidence"],
+                    target_price_override=result["target_price"],
+                    stop_loss_override=result["stop_loss_price"],
                 )
+                db.commit()
             except Exception as e:
+                db.rollback()
                 print(f"Failed to save report: {e}")
             finally:
                 db.close()
@@ -1001,13 +1010,13 @@ def _run_job(
             {
                 "job_id": job_id,
                 "decision": decision,
-                "direction": resolved_fields["direction"],
+                "direction": result["direction"],
                 "result": result,
-                "risk_items": saved_report.risk_items if saved_report else risk_items,
-                "key_metrics": saved_report.key_metrics if saved_report else key_metrics,
-                "confidence": saved_report.confidence if saved_report else resolved_fields["confidence"],
-                "target_price": saved_report.target_price if saved_report else resolved_fields["target_price"],
-                "stop_loss_price": saved_report.stop_loss_price if saved_report else resolved_fields["stop_loss_price"],
+                "risk_items": saved_report.risk_items if saved_report else ([r.model_dump() for r in structured.risks] if structured else []),
+                "key_metrics": saved_report.key_metrics if saved_report else ([m.model_dump() for m in structured.key_metrics] if structured else []),
+                "confidence": result["confidence"],
+                "target_price": result["target_price"],
+                "stop_loss_price": result["stop_loss_price"],
             },
         )
     except Exception as exc:

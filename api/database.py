@@ -44,10 +44,13 @@ def init_db() -> None:
 
 def _ensure_report_schema() -> None:
     """Add lightweight columns for existing SQLite deployments without migrations."""
-    with engine.begin() as conn:
-        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(reports)"))}
-        if "direction" not in columns:
-            conn.execute(text("ALTER TABLE reports ADD COLUMN direction VARCHAR(50)"))
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(reports)"))}
+            if "direction" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN direction VARCHAR(50)"))
+    except Exception as e:
+        print(f"Warning: Failed to ensure report schema: {e}")
 
 
 # Report Model

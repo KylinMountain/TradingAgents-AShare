@@ -138,4 +138,4 @@ def _extract_decision_keyword(text: str) -> str | None:
     if decision:
         return decision
 
-    return None
+    return "UNKNOWN"
