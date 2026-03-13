@@ -2,6 +2,7 @@
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Generator
 
 from sqlalchemy import Boolean, create_engine, Column, String, DateTime, Text, Integer, Float, JSON
@@ -12,6 +13,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tradingagents.db")
 
 # Create engine
 if DATABASE_URL.startswith("sqlite"):
+    # Ensure directory exists for SQLite database
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
