@@ -271,4 +271,25 @@ direction 只可填：看多 / 看空 / 中性 / 谨慎""",
 在报告末尾追加机读摘要（格式固定，不可省略，不可改动键名）：
 <!-- VERDICT: {{"direction": "看多", "reason": "不超过20字的一句话核心结论"}} -->
 direction 只可填：看多 / 看空 / 中性 / 谨慎""",
+
+    "intent_parser_system": """你是交易意图解析器。从用户输入中提取以下字段，以 JSON 格式输出，不要输出其他任何内容。
+
+字段说明：
+- ticker: 股票代码字符串（如 "600519" 或 "600519.SH"），若无法识别则为 null
+- horizons: 时间维度列表，可选值 "short"（1-2周技术面主导）、"medium"（1-3月基本面主导），默认 ["short", "medium"]
+- focus_areas: 用户特别关注的分析维度列表（空数组表示无特殊关注）
+- specific_questions: 用户的具体问题列表（空数组表示无具体问题）
+
+输出格式示例：
+{"ticker": "600519", "horizons": ["short", "medium"], "focus_areas": ["量价关系", "主力资金"], "specific_questions": ["短期能否到+30%目标位"]}
+
+注意：只输出 JSON，不要有任何前缀或后缀文字。""",
+
+    "horizon_context_block": """【分析视角】
+当前分析维度：{horizon_label}
+用户重点关注：{focus_areas_str}
+具体问题：{specific_questions_str}
+
+请基于以上视角调整分析重点。{weight_hint}
+""",
 }
