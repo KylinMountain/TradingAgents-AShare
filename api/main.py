@@ -1938,33 +1938,23 @@ if os.path.exists(dist_path):
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        # Security: Prevent path traversal by normalizing and checking boundaries
-        abs_dist_path = os.path.abspath(dist_path)
+        # 1. Define and resolve the absolute safe root
+        base_path = os.path.realpath(dist_path)
         
-        # 1. Normalize the user-provided path fragment
-        normalized_rel_path = os.path.normpath(full_path)
+        # 2. Resolve the requested path (handling .. and symlinks)
+        # We lstrip("/") to prevent os.path.join from treating it as an absolute path
+        fullpath = os.path.realpath(os.path.join(base_path, full_path.lstrip("/")))
         
-        # 2. Explicitly reject absolute paths or paths that attempt to escape
-        if os.path.isabs(normalized_rel_path) or normalized_rel_path.startswith(".."):
-            return FileResponse(os.path.join(abs_dist_path, "index.html"))
+        # 3. Security Check: The normalized path must start with the base_path
+        if not fullpath.startswith(base_path):
+            return FileResponse(os.path.join(base_path, "index.html"))
             
-        # 3. Build the absolute requested path and resolve any symlinks
-        requested_path = os.path.realpath(os.path.join(abs_dist_path, normalized_rel_path))
-        
-        # 4. Final boundary check: must be within the dist directory
-        try:
-            is_inside = os.path.commonpath([abs_dist_path, requested_path]) == abs_dist_path
-        except ValueError:
-            is_inside = False
-
-        # Only use a path derived from user input if it is safely inside abs_dist_path
-        if is_inside:
-            safe_requested_path = requested_path
-            if os.path.isfile(safe_requested_path):
-                return FileResponse(safe_requested_path)
+        # 4. Final check: if it's a valid file, serve it
+        if os.path.isfile(fullpath):
+            return FileResponse(fullpath)
             
         # Otherwise fallback to index.html for SPA routing
-        return FileResponse(os.path.join(abs_dist_path, "index.html"))
+        return FileResponse(os.path.join(base_path, "index.html"))
 
 
 def run() -> None:
