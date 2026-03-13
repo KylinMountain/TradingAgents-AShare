@@ -1,5 +1,6 @@
 """Report service for database operations."""
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Literal
@@ -117,6 +118,71 @@ def _extract_price_regex(text: Optional[str], price_type: str = "target") -> Opt
     return None
 
 
+def _extract_verdict(text: Optional[str]) -> Optional[Dict[str, str]]:
+    if not text:
+        return None
+    match = re.search(r"<!--\s*VERDICT:\s*(\{.*?\})\s*-->", text, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(1))
+    except Exception:
+        return None
+    direction = str(payload.get("direction") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    if not direction:
+        return None
+    return {"direction": direction, "reason": reason}
+
+
+def resolve_report_fields(
+    result_data: Optional[Dict[str, Any]] = None,
+    confidence_override: Optional[int] = None,
+    target_price_override: Optional[float] = None,
+    stop_loss_override: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Resolve the final structured fields once for both SSE payloads and DB writes."""
+    market_report = sentiment_report = news_report = None
+    fundamentals_report = investment_plan = trader_investment_plan = None
+    final_trade_decision = None
+
+    if result_data:
+        market_report = result_data.get("market_report")
+        sentiment_report = result_data.get("sentiment_report")
+        news_report = result_data.get("news_report")
+        fundamentals_report = result_data.get("fundamentals_report")
+        investment_plan = result_data.get("investment_plan")
+        trader_investment_plan = result_data.get("trader_investment_plan")
+        final_trade_decision = result_data.get("final_trade_decision")
+
+    verdict = _extract_verdict(final_trade_decision)
+    direction = verdict["direction"] if verdict else None
+
+    confidence = confidence_override if confidence_override is not None else _extract_confidence_regex(final_trade_decision)
+
+    target_price = target_price_override if target_price_override is not None else _extract_price_regex(final_trade_decision, "target")
+    if target_price is None:
+        target_price = _extract_price_regex(trader_investment_plan, "target")
+
+    stop_loss_price = stop_loss_override if stop_loss_override is not None else _extract_price_regex(final_trade_decision, "stop_loss")
+    if stop_loss_price is None:
+        stop_loss_price = _extract_price_regex(trader_investment_plan, "stop_loss")
+
+    return {
+        "market_report": market_report,
+        "sentiment_report": sentiment_report,
+        "news_report": news_report,
+        "fundamentals_report": fundamentals_report,
+        "investment_plan": investment_plan,
+        "trader_investment_plan": trader_investment_plan,
+        "final_trade_decision": final_trade_decision,
+        "direction": direction,
+        "confidence": confidence,
+        "target_price": target_price,
+        "stop_loss_price": stop_loss_price,
+    }
+
+
 # ─── CRUD ────────────────────────────────────────────────────────────────────
 
 def create_report(
@@ -134,33 +200,12 @@ def create_report(
 ) -> ReportDB:
     """Create a new report."""
     report_id = str(uuid4())
-
-    market_report = sentiment_report = news_report = None
-    fundamentals_report = investment_plan = trader_investment_plan = None
-    final_trade_decision = None
-
-    if result_data:
-        market_report = result_data.get("market_report")
-        sentiment_report = result_data.get("sentiment_report")
-        news_report = result_data.get("news_report")
-        fundamentals_report = result_data.get("fundamentals_report")
-        investment_plan = result_data.get("investment_plan")
-        trader_investment_plan = result_data.get("trader_investment_plan")
-        final_trade_decision = result_data.get("final_trade_decision")
-
-    # Prefer LLM-extracted values; fall back to regex
-    confidence = confidence_override if confidence_override is not None \
-        else _extract_confidence_regex(final_trade_decision)
-
-    target_price = target_price_override if target_price_override is not None \
-        else _extract_price_regex(final_trade_decision, "target")
-    if target_price is None:
-        target_price = _extract_price_regex(trader_investment_plan, "target")
-
-    stop_loss_price = stop_loss_override if stop_loss_override is not None \
-        else _extract_price_regex(final_trade_decision, "stop_loss")
-    if stop_loss_price is None:
-        stop_loss_price = _extract_price_regex(trader_investment_plan, "stop_loss")
+    resolved = resolve_report_fields(
+        result_data=result_data,
+        confidence_override=confidence_override,
+        target_price_override=target_price_override,
+        stop_loss_override=stop_loss_override,
+    )
 
     now = datetime.now(timezone.utc)
     db_report = ReportDB(
@@ -169,19 +214,20 @@ def create_report(
         symbol=symbol,
         trade_date=trade_date,
         decision=decision,
-        confidence=confidence,
-        target_price=target_price,
-        stop_loss_price=stop_loss_price,
+        direction=resolved["direction"],
+        confidence=resolved["confidence"],
+        target_price=resolved["target_price"],
+        stop_loss_price=resolved["stop_loss_price"],
         result_data=result_data,
         risk_items=risk_items,
         key_metrics=key_metrics,
-        market_report=market_report,
-        sentiment_report=sentiment_report,
-        news_report=news_report,
-        fundamentals_report=fundamentals_report,
-        investment_plan=investment_plan,
-        trader_investment_plan=trader_investment_plan,
-        final_trade_decision=final_trade_decision,
+        market_report=resolved["market_report"],
+        sentiment_report=resolved["sentiment_report"],
+        news_report=resolved["news_report"],
+        fundamentals_report=resolved["fundamentals_report"],
+        investment_plan=resolved["investment_plan"],
+        trader_investment_plan=resolved["trader_investment_plan"],
+        final_trade_decision=resolved["final_trade_decision"],
         created_at=now,
         updated_at=now,
     )

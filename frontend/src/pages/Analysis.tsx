@@ -115,6 +115,7 @@ export default function Analysis() {
                         symbol={activeSymbol}
                         report={report || undefined}
                         decision={mapDecision(report?.decision)}
+                        direction={report?.direction}
                         confidence={confidence}
                         targetPrice={targetPrice}
                         stopLoss={stopLoss}

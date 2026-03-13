@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -18,6 +18,10 @@ from uuid import uuid4
 # ──────────────────────────────────────────────────────────────────────────────
 _backtest_jobs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _set(job_id: str, **kwargs: Any) -> None:
@@ -181,7 +185,7 @@ def _run_backtest(job_id: str, symbol: str, start_date: str, end_date: str,
                   selected_analysts: List[str], hold_days: int, sample_interval: int,
                   config: Dict[str, Any]) -> None:
     """Background thread: run backtest and store results."""
-    _set(job_id, status="running", started_at=datetime.now().isoformat())
+    _set(job_id, status="running", started_at=_utcnow_iso())
 
     dates = _get_trading_dates(start_date, end_date, sample_interval)
     total = len(dates)
@@ -214,7 +218,7 @@ def _run_backtest(job_id: str, symbol: str, start_date: str, end_date: str,
     stats = _compute_stats(records)
     _set(job_id,
          status="completed",
-         finished_at=datetime.now().isoformat(),
+         finished_at=_utcnow_iso(),
          records=records,
          stats=stats)
 
@@ -239,7 +243,7 @@ def submit(
          hold_days=hold_days,
          sample_interval=sample_interval,
          status="pending",
-         created_at=datetime.now().isoformat(),
+         created_at=_utcnow_iso(),
          total_dates=0,
          completed_dates=0,
          records=[],

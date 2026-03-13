@@ -159,6 +159,7 @@ export interface AnalysisReport {
     symbol: string
     trade_date: string
     decision?: string
+    direction?: string
     market_report?: string
     sentiment_report?: string
     news_report?: string
@@ -228,6 +229,7 @@ export interface Report {
     symbol: string
     trade_date: string
     decision?: string
+    direction?: string
     confidence?: number
     target_price?: number
     stop_loss_price?: number

@@ -177,7 +177,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 }
 
                 pushAssistant(
-                    `**分析完成（已从中断连接恢复）**\n\n最终建议：**${String(result.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
+                    `**分析完成（已从中断连接恢复）**\n\n方向倾向：**${String(result.result.direction || '未知')}**\n\n执行动作：**${String(result.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
                 )
                 return true
             }
@@ -266,11 +266,11 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     stopLoss: data.stop_loss_price as number | null,
                 })
                 pushAssistant(
-                    `**分析完成**\n\n最终建议：**${String(data.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
+                    `**分析完成**\n\n方向倾向：**${String(data.direction || '未知')}**\n\n执行动作：**${String(data.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
                 )
                 if ('Notification' in window && Notification.permission === 'granted') {
                     new Notification('TradingAgents 分析完成', {
-                        body: data.decision ? `建议：${String(data.decision)}` : '点击查看完整报告',
+                        body: data.direction ? `方向：${String(data.direction)} · 动作：${String(data.decision || 'HOLD')}` : '点击查看完整报告',
                         icon: '/favicon.ico',
                     })
                 }

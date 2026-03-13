@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from io import StringIO
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from fastapi import Body
 from typing import Any, Dict, List, Literal, Optional
@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException, Depends, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
@@ -86,6 +86,20 @@ _job_events: Dict[str, "queue.Queue[Dict[str, Any]]"] = {}
 # ── A-share stock name → code cache ──────────────────────────────────────────
 _cn_stock_map: Optional[Dict[str, str]] = None  # name -> "XXXXXX.SH/SZ"
 _cn_stock_map_lock = Lock()
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat()
 
 
 def _load_cn_stock_map() -> Dict[str, str]:
@@ -232,6 +246,7 @@ class ReportResponse(BaseModel):
     symbol: str
     trade_date: str
     decision: Optional[str]
+    direction: Optional[str]
     confidence: Optional[int]
     target_price: Optional[float]
     stop_loss_price: Optional[float]
@@ -241,6 +256,10 @@ class ReportResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "updated_at", when_used="json")
+    def serialize_report_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(value)
 
 
 class ReportDetailResponse(ReportResponse):
@@ -266,6 +285,10 @@ class UserResponse(BaseModel):
     last_login_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "last_login_at", when_used="json")
+    def serialize_user_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(value)
 
 
 class AuthRequestCodeRequest(BaseModel):
@@ -313,6 +336,10 @@ class UserTokenResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "last_used_at", when_used="json")
+    def serialize_token_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(value)
 
 
 class UserTokenCreateRequest(BaseModel):
@@ -448,7 +475,7 @@ def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
     payload = {
         "event": event,
         "data": data,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _utcnow_iso(),
     }
     _ensure_job_event_queue(job_id).put(payload)
 
@@ -457,6 +484,7 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "symbol": final_state.get("company_of_interest"),
         "trade_date": final_state.get("trade_date"),
+        "direction": None,
         "market_report": final_state.get("market_report"),
         "sentiment_report": final_state.get("sentiment_report"),
         "news_report": final_state.get("news_report"),
@@ -528,7 +556,7 @@ class AgentProgressTracker:
                 "stage": stage,
                 "title": title,
                 "summary": summary,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": _utcnow_iso(),
             },
         )
         print(f"[Milestone] {title}: {summary[:100]}...")
@@ -782,7 +810,7 @@ def _run_job(
     save_report: bool = True,
     user_id: Optional[str] = None,
 ) -> None:
-    _set_job(job_id, status="running", started_at=datetime.now().isoformat())
+    _set_job(job_id, status="running", started_at=_utcnow_iso())
     _emit_job_event(
         job_id,
         "job.running",
@@ -806,7 +834,7 @@ def _run_job(
                 status="completed",
                 result=result,
                 decision="DRY_RUN",
-                finished_at=datetime.now().isoformat(),
+                finished_at=_utcnow_iso(),
             )
             _emit_job_event(
                 job_id,
@@ -908,13 +936,14 @@ def _run_job(
 
         decision = graph.process_signal(final_state["final_trade_decision"])
         result = _build_result_payload(final_state)
+        result["decision"] = decision
 
         _set_job(
             job_id,
             status="completed",
             result=result,
             decision=decision,
-            finished_at=datetime.now().isoformat(),
+            finished_at=_utcnow_iso(),
         )
         # 全量收口为 completed/skipped
         for agent, status in tracker.status.items():
@@ -934,12 +963,21 @@ def _run_job(
 
         risk_items = [r.model_dump() for r in structured.risks] if structured else []
         key_metrics = [m.model_dump() for m in structured.key_metrics] if structured else []
+        resolved_fields = report_service.resolve_report_fields(
+            result_data=result,
+            confidence_override=structured.confidence if structured else None,
+            target_price_override=structured.target_price if structured else None,
+            stop_loss_override=structured.stop_loss_price if structured else None,
+        )
+        result["direction"] = resolved_fields["direction"]
+
+        saved_report = None
 
         # 自动保存报告到数据库
         if save_report:
             db = SessionLocal()
             try:
-                report_service.create_report(
+                saved_report = report_service.create_report(
                     db=db,
                     symbol=request.symbol,
                     trade_date=request.trade_date,
@@ -963,12 +1001,13 @@ def _run_job(
             {
                 "job_id": job_id,
                 "decision": decision,
+                "direction": resolved_fields["direction"],
                 "result": result,
-                "risk_items": risk_items,
-                "key_metrics": key_metrics,
-                "confidence": structured.confidence if structured else None,
-                "target_price": structured.target_price if structured else None,
-                "stop_loss_price": structured.stop_loss_price if structured else None,
+                "risk_items": saved_report.risk_items if saved_report else risk_items,
+                "key_metrics": saved_report.key_metrics if saved_report else key_metrics,
+                "confidence": saved_report.confidence if saved_report else resolved_fields["confidence"],
+                "target_price": saved_report.target_price if saved_report else resolved_fields["target_price"],
+                "stop_loss_price": saved_report.stop_loss_price if saved_report else resolved_fields["stop_loss_price"],
             },
         )
     except Exception as exc:
@@ -977,7 +1016,7 @@ def _run_job(
             status="failed",
             error=f"{type(exc).__name__}: {exc}",
             traceback=traceback.format_exc(),
-            finished_at=datetime.now().isoformat(),
+            finished_at=_utcnow_iso(),
         )
         _emit_job_event(
             job_id,
@@ -1225,7 +1264,7 @@ def _stream_job_events(job_id: str):
             if status in ("completed", "failed"):
                 yield "event: done\ndata: [DONE]\n\n"
                 break
-            yield _sse_pack("ping", {"timestamp": datetime.now().isoformat()})
+            yield _sse_pack("ping", {"timestamp": _utcnow_iso()})
 
 
 @app.get("/healthz")
@@ -1389,7 +1428,7 @@ def analyze(
     current_user: UserDB = Depends(_require_api_user),
 ) -> AnalyzeResponse:
     job_id = uuid4().hex
-    now = datetime.now().isoformat()
+    now = _utcnow_iso()
     _set_job(
         job_id,
         job_id=job_id,
@@ -1567,7 +1606,7 @@ def chat_completions(
         dry_run=request.dry_run,
     )
     job_id = uuid4().hex
-    now = datetime.now().isoformat()
+    now = _utcnow_iso()
     _set_job(
         job_id,
         job_id=job_id,
