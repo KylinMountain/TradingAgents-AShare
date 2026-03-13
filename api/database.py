@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from typing import Generator
 
-from sqlalchemy import Boolean, create_engine, Column, String, DateTime, Text, Integer, Float, JSON
+from sqlalchemy import Boolean, create_engine, Column, String, DateTime, Text, Integer, Float, JSON, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # Database URL - default to SQLite for simplicity
@@ -39,6 +39,18 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """Initialize database tables."""
     Base.metadata.create_all(bind=engine)
+    _ensure_report_schema()
+
+
+def _ensure_report_schema() -> None:
+    """Add lightweight columns for existing SQLite deployments without migrations."""
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(reports)"))}
+            if "direction" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN direction VARCHAR(50)"))
+    except Exception as e:
+        print(f"Warning: Failed to ensure report schema: {e}")
 
 
 # Report Model
@@ -54,6 +66,7 @@ class ReportDB(Base):
     
     # Decision info
     decision = Column(String(50), nullable=True)  # BUY, SELL, HOLD, etc.
+    direction = Column(String(50), nullable=True)  # 看多、看空、中性、谨慎
     confidence = Column(Integer, nullable=True)  # 0-100
     target_price = Column(Float, nullable=True)
     stop_loss_price = Column(Float, nullable=True)
@@ -86,6 +99,7 @@ class ReportDB(Base):
             "symbol": self.symbol,
             "trade_date": self.trade_date,
             "decision": self.decision,
+            "direction": self.direction,
             "confidence": self.confidence,
             "target_price": self.target_price,
             "stop_loss_price": self.stop_loss_price,

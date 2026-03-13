@@ -218,6 +218,7 @@ export default function Reports() {
                     <DecisionCard
                         symbol={selectedReport.symbol}
                         decision={action}
+                        direction={selectedReport.direction}
                         confidence={selectedReport.confidence ?? undefined}
                         targetPrice={selectedReport.target_price ?? undefined}
                         stopLoss={selectedReport.stop_loss_price ?? undefined}

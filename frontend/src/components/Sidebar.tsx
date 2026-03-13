@@ -17,6 +17,10 @@ const navItems = [
     { path: '/settings', icon: Settings, label: '设置' },
 ]
 
+const buildDate = __APP_BUILD_DATE__
+const buildCommit = __APP_BUILD_COMMIT__
+const buildVersion = __APP_BUILD_VERSION__
+
 export default function Sidebar() {
     const [isExpanded, setIsExpanded] = useState(false)
 
@@ -67,10 +71,12 @@ export default function Sidebar() {
                 {isExpanded ? (
                     <div className="text-xs text-slate-500 text-center">
                         <p className="text-slate-400 text-sm font-medium">TradingAgents</p>
-                        <p className="mt-0.5">多智能体投研系统 v0.1.0</p>
+                        <p className="mt-0.5">多智能体投研系统</p>
+                        <p className="mt-1 font-mono text-[11px] text-slate-400">{buildVersion}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">{buildDate} · {buildCommit}</p>
                     </div>
                 ) : (
-                    <div className="text-[10px] text-slate-500 text-center">v0.1</div>
+                    <div className="text-[10px] text-slate-500 text-center font-mono">{buildCommit}</div>
                 )}
             </div>
         </aside>

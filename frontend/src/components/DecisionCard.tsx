@@ -9,6 +9,7 @@ interface DecisionCardProps {
     symbol: string
     name?: string
     decision?: 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch'
+    direction?: string
     confidence?: number
     targetPrice?: number
     targetChange?: number
@@ -32,6 +33,7 @@ export default function DecisionCard({
     symbol,
     name = symbol,
     decision: propDecision,
+    direction,
     confidence,
     targetPrice,
     targetChange,
@@ -77,6 +79,9 @@ export default function DecisionCard({
                     <div>
                         <h3 className="font-semibold text-slate-900 dark:text-slate-100">{name}</h3>
                         <p className="text-sm text-slate-500">{symbol}</p>
+                        {direction && (
+                            <p className="text-xs text-slate-400 mt-0.5">方向：{direction}</p>
+                        )}
                     </div>
                 </div>
                 {config && DecisionIcon ? (
