@@ -4,8 +4,24 @@ on:
   push:
     branches: [ "main" ]
     tags: [ 'v*' ]
+    # 路径过滤：只有当核心代码、前端或构建配置改变时才触发
+    paths:
+      - 'api/**'
+      - 'tradingagents/**'
+      - 'frontend/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/docker-publish.yml'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'api/**'
+      - 'tradingagents/**'
+      - 'frontend/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
 
 env:
   REGISTRY: ghcr.io
