@@ -888,9 +888,21 @@ def _run_job(
                     request.horizons = user_intent["horizons"]
                 user_intent["horizons"] = request.horizons
 
-            # 2. 一次性采集数据，短线/中线共用缓存
-            # 先把所有 analyst 设为 in_progress，让前端看到"正在获取数据"
-            tracker = AgentProgressTracker(request.selected_analysts, job_id)
+            # 2. 根据分析周期（Horizons）动态过滤 Agent
+            # 短线(short)模式下，排除基本面和宏观
+            # 全量模式下则保留全部
+            final_selected = list(request.selected_analysts)
+            if "medium" not in request.horizons:
+                # 如果只有短线，排除长周期 Agent
+                for unwanted in ["fundamentals", "macro"]:
+                    if unwanted in final_selected:
+                        final_selected.remove(unwanted)
+            elif "short" not in request.horizons:
+                # 如果只有中线，排除纯短线 Agent (可选)
+                pass
+            
+            # 3. 一次性采集数据，短线/中线共用缓存
+            tracker = AgentProgressTracker(final_selected, job_id)
             _emit_job_event(job_id, "agent.snapshot", tracker.snapshot())
             for analyst_key in ANALYST_ORDER:
                 if analyst_key in request.selected_analysts:
