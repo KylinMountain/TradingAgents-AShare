@@ -46,13 +46,13 @@ Submit a stock by its **Natural Language Name** or **Standard Code**.
 curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"symbol": "贵州茅台"}'
+  -d '{"symbol": "帮我分析一下贵州茅台"}'
 
 # Example 2: Using code (e.g. "Analyze 300274.SZ")
 curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"symbol": "300274.SZ"}'
+  -d '{"symbol": "Please analyze 300274.SZ"}'
 ```
 
 **Check Job Status / Retrieve Result:**
@@ -71,7 +71,7 @@ Analysis is a compute-heavy process involving a 12-agent debate and takes **1 to
 
 ## Supported Inputs
 
-- **Chinese Names**: "阳光电源", "比亚迪", "中际旭创".
+- **Chinese Stock Names**: "阳光电源", "比亚迪", "中际旭创".
 - **Standard Codes**: `002594.SZ`, `601012.SH`.
 
 ## Notes
