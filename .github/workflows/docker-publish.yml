@@ -1,0 +1,79 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*' ]
+    paths:
+      - 'api/**'
+      - 'tradingagents/**'
+      - 'frontend/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/docker-publish.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'api/**'
+      - 'tradingagents/**'
+      - 'frontend/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tradingagents-ashare
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=short
+            type=match,pattern=^v[0-9]+\.[0-9]+\.[0-9]+$,group=0,value=latest
+
+      - name: Inspect Tags
+        run: |
+          echo "The following tags will be generated:"
+          echo "${{ steps.meta.outputs.tags }}"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -2119,6 +2119,37 @@ def update_runtime_config(
     }
 
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# ─── Static Files & SPA Routing ──────────────────────────────────────────────
+
+# Mount frontend if dist exists
+dist_path = os.path.join(os.getcwd(), "frontend/dist")
+if os.path.exists(dist_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # 1. Define and resolve the absolute safe root
+        base_path = os.path.realpath(dist_path)
+        
+        # 2. Resolve the requested path (handling .. and symlinks)
+        # We lstrip("/") to prevent os.path.join from treating it as an absolute path
+        fullpath = os.path.realpath(os.path.join(base_path, full_path.lstrip("/")))
+        
+        # 3. Security Check: The normalized path must start with the base_path
+        if not fullpath.startswith(base_path):
+            return FileResponse(os.path.join(base_path, "index.html"))
+            
+        # 4. Final check: if it's a valid file, serve it
+        if os.path.isfile(fullpath):
+            return FileResponse(fullpath)
+            
+        # Otherwise fallback to index.html for SPA routing
+        return FileResponse(os.path.join(base_path, "index.html"))
+
+
 def run() -> None:
     import uvicorn
 

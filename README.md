@@ -96,6 +96,20 @@ cd frontend && npm run dev
 ```
 访问 `http://localhost:5173` 即可开始您的 AI 投研之旅。
 
+### 4. Docker 一键部署 (推荐)
+如果您想快速运行完整服务（前后端合一），可以直接使用我们提供的 Docker 镜像：
+
+```bash
+docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
+docker run -d -p 8000:8000 \
+  --name tradingagents \
+  -v $(pwd)/tradingagents.db:/app/tradingagents.db \
+  -e TA_API_KEY="你的密钥" \
+  -e TA_BASE_URL="https://api.openai.com/v1" \
+  ghcr.io/kylinmountain/tradingagents-ashare:latest
+```
+访问 `http://localhost:8000` 即可使用。
+
 
 ## 🛠 API 集成
 
