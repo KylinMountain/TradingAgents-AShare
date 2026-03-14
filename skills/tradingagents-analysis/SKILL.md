@@ -11,7 +11,7 @@ env:
     description: "Bearer token — generate at Settings → API Tokens"
     required: true
 primary_credential: TRADINGAGENTS_TOKEN
-metadata: {"clawdbot":{"emoji":"📉"}}
+metadata: {"clawdbot":{"emoji":"📈"}}
 ---
 
 # tradingagents-analysis
@@ -35,17 +35,24 @@ export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
 
 ## API Basics
 
-The primary endpoint is `POST /v1/analyze`. It automatically resolves stock names to codes.
+The primary endpoint is `POST /v1/analyze`. It automatically resolves stock names to codes using natural language processing.
 
 ## Common Operations
 
 **Submit Analysis Job:**
-Submit a stock by its **name** or **code**.
+Submit a stock by its **Natural Language Name** or **Standard Code**.
 ```bash
+# Example 1: Using name (e.g. "帮我分析一下贵州茅台")
 curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"symbol": "茅台"}'  # Supports "600519.SH" or "贵州茅台"
+  -d '{"symbol": "贵州茅台"}'
+
+# Example 2: Using code (e.g. "Analyze 300274.SZ")
+curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
+  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "300274.SZ"}'
 ```
 
 **Check Job Status / Retrieve Result:**
@@ -56,15 +63,16 @@ curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
 
 Analysis is a compute-heavy process involving a 12-agent debate and takes **1 to 5 minutes**. 
 
-1. **Submit**: Call `POST /v1/analyze` with the user's target.
-2. **Wait**: Inform the user: "Starting multi-agent research. This typically takes 2-3 minutes. I'll watch it for you."
-3. **Poll**: Check `/v1/jobs/{job_id}` every 30s until status is `completed`.
-4. **Summary**: Retrieve results and present the **Decision** (BUY/SELL/HOLD), **Market Direction**, and **Target Price**.
+1. **Extract**: Identify the stock from user query (e.g. "帮我看看宁德时代" -> "宁德时代").
+2. **Submit**: Call `POST /v1/analyze` with the target name/code.
+3. **Wait**: Inform the user: "Starting multi-agent research. This typically takes 2-3 minutes. I'll monitor the agents for you."
+4. **Poll**: Check `/v1/jobs/{job_id}` every 30s until status is `completed`.
+5. **Summary**: Retrieve results and present the **Decision** (BUY/SELL/HOLD), **Market Direction**, and **Target Price**.
 
 ## Supported Inputs
 
-- **A-Share Names**: e.g., "阳光电源", "比亚迪".
-- **A-Share Codes**: e.g., `002594.SZ`, `601012.SH`.
+- **Chinese Names**: "阳光电源", "比亚迪", "中际旭创".
+- **Standard Codes**: `002594.SZ`, `601012.SH`.
 
 ## Notes
 - **Polling Rate**: Do not poll faster than every 15 seconds.
