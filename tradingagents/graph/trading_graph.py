@@ -117,7 +117,10 @@ class TradingAgentsGraph:
         self.data_collector = data_collector if data_collector is not None else DataCollector()
 
         # Initialize components
-        self.conditional_logic = ConditionalLogic()
+        self.conditional_logic = ConditionalLogic(
+            max_debate_rounds=self.config.get("max_debate_rounds", 1),
+            max_risk_discuss_rounds=self.config.get("max_risk_discuss_rounds", 1),
+        )
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
@@ -131,7 +134,9 @@ class TradingAgentsGraph:
             data_collector=self.data_collector,
         )
 
-        self.propagator = Propagator()
+        self.propagator = Propagator(
+            max_recur_limit=self.config.get("max_recur_limit", 100)
+        )
         self.reflector = Reflector(self.quick_thinking_llm)
         self.signal_processor = SignalProcessor(self.quick_thinking_llm)
 
@@ -222,14 +227,25 @@ class TradingAgentsGraph:
             ),
         }
 
-    def propagate(self, company_name, trade_date):
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        user_context: Optional[Dict[str, Any]] = None,
+        selected_analysts: Optional[List[str]] = None,
+        request_source: str = "api",
+    ):
         """Run the trading agents graph for a company on a specific date."""
 
         self.ticker = company_name
 
         # Initialize state
         init_agent_state = self.propagator.create_initial_state(
-            company_name, trade_date
+            company_name,
+            trade_date,
+            user_context=user_context,
+            selected_analysts=selected_analysts,
+            request_source=request_source,
         )
         args = self.propagator.get_graph_args()
 
@@ -371,10 +387,17 @@ class TradingAgentsGraph:
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
+            "instrument_context": final_state.get("instrument_context", {}),
+            "market_context": final_state.get("market_context", {}),
+            "user_context": final_state.get("user_context", {}),
+            "workflow_context": final_state.get("workflow_context", {}),
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],
             "news_report": final_state["news_report"],
             "fundamentals_report": final_state["fundamentals_report"],
+            "macro_report": final_state.get("macro_report", ""),
+            "smart_money_report": final_state.get("smart_money_report", ""),
+            "game_theory_report": final_state.get("game_theory_report", ""),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

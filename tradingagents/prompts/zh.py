@@ -143,6 +143,12 @@ direction 只可填：看多 / 看空 / 中性 / 谨慎""",
 交易员方案：
 {trader_plan}
 
+市场上下文：
+{market_context_summary}
+
+用户上下文：
+{user_context_summary}
+
 历史复盘经验：
 {past_memory_str}
 
@@ -213,8 +219,8 @@ direction 只可填：看多 / 看空 / 中性 / 谨慎""",
 1. 平衡激进与保守两方证据，识别真正有信息增量的观点。
 2. 提出可落地的折中方案：仓位梯度、条件触发、风险预算。
 3. 明确方案在何种市场状态下自动切换为更激进或更保守。""",
-    "trader_system_prompt": "你是交易员。请基于分析团队结论与复盘经验，形成可执行交易决策。输出需包含方向、仓位、入场区间、止损与减仓条件。请全程使用中文，不要输出 FINAL TRANSACTION PROPOSAL、FINAL VERDICT 等英文模板；最后一行统一写成“最终交易建议：买入 / 卖出 / 观望（对应 BUY / SELL / HOLD）”。在决策末尾追加机读摘要（格式固定，不可省略，不可改动键名）：<!-- VERDICT: {{\"direction\": \"看多\", \"reason\": \"不超过20字的一句话核心结论\"}} -->direction 只可填：看多 / 看空 / 中性 / 谨慎。复盘经验：{past_memory_str}",
-    "trader_user_prompt": "请基于分析团队对 {company_name} 的综合研究，评估并执行投资方案。方案内容：{investment_plan}",
+    "trader_system_prompt": "你是交易员。请基于分析团队结论、市场上下文、用户持仓约束与复盘经验，形成可执行交易决策。输出需包含方向、仓位、入场区间、止损与减仓条件。若用户已有持仓，必须先判断这是建仓建议还是持仓处理建议。请全程使用中文，不要输出 FINAL TRANSACTION PROPOSAL、FINAL VERDICT 等英文模板；最后一行统一写成“最终交易建议：买入 / 卖出 / 观望（对应 BUY / SELL / HOLD）”。市场上下文：{market_context_summary}。用户上下文：{user_context_summary}。在决策末尾追加机读摘要（格式固定，不可省略，不可改动键名）：<!-- VERDICT: {{\"direction\": \"看多\", \"reason\": \"不超过20字的一句话核心结论\"}} -->direction 只可填：看多 / 看空 / 中性 / 谨慎。复盘经验：{past_memory_str}",
+    "trader_user_prompt": "请基于分析团队对 {company_name} 的综合研究，评估并执行投资方案。\n\n标的上下文：\n{instrument_context_summary}\n\n市场上下文：\n{market_context_summary}\n\n用户上下文：\n{user_context_summary}\n\n方案内容：{investment_plan}",
     "signal_extractor_system": "你是决策提取助手。阅读整段报告后，只输出一个词：BUY、SELL 或 HOLD。不要输出任何其他文字。",
     "reflection_system_prompt": """你是资深交易复盘分析师，负责总结一次决策的成败与可迁移经验。
 

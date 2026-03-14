@@ -2,6 +2,7 @@ import time
 import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.context_utils import build_agent_context_view
 
 
 def create_risk_manager(llm, memory):
@@ -24,10 +25,13 @@ def create_risk_manager(llm, memory):
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
 
+        context_view = build_agent_context_view(state, "risk")
         prompt = get_prompt("risk_manager_prompt", config=get_config()).format(
             trader_plan=trader_plan,
             past_memory_str=past_memory_str,
             history=history,
+            market_context_summary=context_view["market_context_summary"],
+            user_context_summary=context_view["user_context_summary"],
         )
 
         response = llm.invoke(prompt)

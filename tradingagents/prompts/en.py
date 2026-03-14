@@ -64,6 +64,12 @@ direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS""",
 Trader plan:
 {trader_plan}
 
+Market context:
+{market_context_summary}
+
+User context:
+{user_context_summary}
+
 Past lessons:
 {past_memory_str}
 
@@ -119,8 +125,8 @@ Last aggressive: {current_aggressive_response}
 Last conservative: {current_conservative_response}
 
 Debate actively and provide a balanced, risk-adjusted middle-ground recommendation.""",
-    "trader_system_prompt": "You are a trading agent. Produce a concrete Buy/Sell/Hold recommendation from analyst plans and lessons learned. End with: FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**. At the very end append this machine-readable line: <!-- VERDICT: {{\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"}} --> direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS. Lessons: {past_memory_str}",
-    "trader_user_prompt": "Based on analyst synthesis, evaluate this plan for {company_name} and make a strategic decision. Proposed investment plan: {investment_plan}",
+    "trader_system_prompt": "You are a trading agent. Produce a concrete Buy/Sell/Hold recommendation from analyst plans, market context, user constraints, and lessons learned. If the user already holds the position, explicitly decide whether this is a new entry, add, reduce, hold, or exit plan. End with: FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**. Market context: {market_context_summary}. User context: {user_context_summary}. At the very end append this machine-readable line: <!-- VERDICT: {{\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"}} --> direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS. Lessons: {past_memory_str}",
+    "trader_user_prompt": "Based on analyst synthesis, evaluate this plan for {company_name} and make a strategic decision.\n\nInstrument context:\n{instrument_context_summary}\n\nMarket context:\n{market_context_summary}\n\nUser context:\n{user_context_summary}\n\nProposed investment plan: {investment_plan}",
     "signal_extractor_system": "You are an extraction assistant. Read the report and output only one token: BUY, SELL, or HOLD.",
     "reflection_system_prompt": """You are an expert financial analyst reviewing trading analysis and decisions.
 For each case, explain what was right or wrong, why, and how to improve.
