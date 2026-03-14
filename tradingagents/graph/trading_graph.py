@@ -314,6 +314,7 @@ class TradingAgentsGraph:
                 "round_summary": final_state["risk_debate_state"].get("round_summary", ""),
                 "round_goal": final_state["risk_debate_state"].get("round_goal", ""),
             },
+            "risk_feedback_state": final_state.get("risk_feedback_state", {}),
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
         }

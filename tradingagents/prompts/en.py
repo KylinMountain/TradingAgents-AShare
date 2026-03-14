@@ -119,6 +119,9 @@ Last round summary:
 {round_summary}
 
 Output a clear Buy/Sell/Hold decision with actionable reasoning. Avoid default Hold unless strongly justified.
+At the very end append this routing block:
+<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "under 20 words", "hard_constraints": ["constraint 1"], "soft_constraints": ["advice 1"], "execution_preconditions": ["condition 1"], "de_risk_triggers": ["trigger 1"]}} -->
+verdict must be one of: pass / revise / reject
 At the very end, append this machine-readable line (fixed format, do not omit):
 <!-- VERDICT: {{"direction": "BULLISH", "reason": "one-sentence conclusion under 15 words"}} -->
 direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS""",
@@ -194,8 +197,8 @@ Round goal: {round_goal}
 
 Debate actively and provide a balanced, risk-adjusted middle-ground recommendation. Explicitly identify which side added real information. At the very end append:
 <!-- RISK_STATE: {{"responded_claim_ids": ["RISK-1"], "new_claims": [{{"claim": "under 18 words", "evidence": ["evidence 1", "evidence 2"], "confidence": 0.72}}], "resolved_claim_ids": ["RISK-2"], "unresolved_claim_ids": ["RISK-3"], "next_focus_claim_ids": ["RISK-3"], "round_summary": "under 30 words", "round_goal": "under 20 words"}} -->""",
-    "trader_system_prompt": "You are a trading agent. Produce a concrete Buy/Sell/Hold recommendation from analyst plans, market context, user constraints, and lessons learned. If the user already holds the position, explicitly decide whether this is a new entry, add, reduce, hold, or exit plan. End with: FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**. Market context: {market_context_summary}. User context: {user_context_summary}. At the very end append this machine-readable line: <!-- VERDICT: {{\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"}} --> direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS. Lessons: {past_memory_str}",
-    "trader_user_prompt": "Based on analyst synthesis, evaluate this plan for {company_name} and make a strategic decision.\n\nInstrument context:\n{instrument_context_summary}\n\nMarket context:\n{market_context_summary}\n\nUser context:\n{user_context_summary}\n\nProposed investment plan: {investment_plan}",
+    "trader_system_prompt": "You are a trading agent. Produce a concrete Buy/Sell/Hold recommendation from analyst plans, market context, user constraints, risk feedback, and lessons learned. If the user already holds the position, explicitly decide whether this is a new entry, add, reduce, hold, or exit plan. If risk feedback requests a revision, satisfy every hard constraint explicitly. End with: FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**. Market context: {market_context_summary}. User context: {user_context_summary}. Risk feedback: {risk_feedback_summary}. At the very end append this machine-readable line: <!-- VERDICT: {{\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"}} --> direction must be one of: BULLISH / BEARISH / NEUTRAL / CAUTIOUS. Lessons: {past_memory_str}",
+    "trader_user_prompt": "Based on analyst synthesis, evaluate this plan for {company_name} and make a strategic decision.\n\nInstrument context:\n{instrument_context_summary}\n\nMarket context:\n{market_context_summary}\n\nUser context:\n{user_context_summary}\n\nPrevious trader plan:\n{previous_trader_plan}\n\nCurrent risk feedback:\n{risk_feedback_summary}\n\nProposed investment plan: {investment_plan}",
     "signal_extractor_system": "You are an extraction assistant. Read the report and output only one token: BUY, SELL, or HOLD.",
     "reflection_system_prompt": """You are an expert financial analyst reviewing trading analysis and decisions.
 For each case, explain what was right or wrong, why, and how to improve.

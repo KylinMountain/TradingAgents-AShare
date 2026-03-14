@@ -216,7 +216,14 @@ class GraphSetup:
             },
         )
 
-        workflow.add_edge("Risk Judge", END)
+        workflow.add_conditional_edges(
+            "Risk Judge",
+            self.conditional_logic.should_revise_after_risk_judge,
+            {
+                "Trader": "Trader",
+                "END": END,
+            },
+        )
 
         # Compile and return
         return workflow.compile()

@@ -527,6 +527,7 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "game_theory_signals": final_state.get("game_theory_signals"),
         "investment_plan": final_state.get("investment_plan"),
         "trader_investment_plan": final_state.get("trader_investment_plan"),
+        "risk_feedback_state": final_state.get("risk_feedback_state"),
         "final_trade_decision": final_state.get("final_trade_decision"),
     }
 

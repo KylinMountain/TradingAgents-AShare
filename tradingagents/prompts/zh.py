@@ -208,6 +208,9 @@ direction 只可填：看多 / 看空 / 中性 / 谨慎""",
 5. 必须点名哪些风险 claim 已被解决，哪些仍未解决。
 6. 若拒绝方案，给出可修正路径而不是只否决。
 7. 不要无理由默认 Hold。
+在正文末尾追加风控路由机读块（固定格式）：
+<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "不超过30字", "hard_constraints": ["约束1"], "soft_constraints": ["建议1"], "execution_preconditions": ["条件1"], "de_risk_triggers": ["触发器1"]}} -->
+verdict 只可填：pass / revise / reject
 在报告末尾追加机读摘要（格式固定，不可省略，不可改动键名）：
 <!-- VERDICT: {{"direction": "看多", "reason": "不超过20字的一句话核心结论"}} -->
 direction 只可填：看多 / 看空 / 中性 / 谨慎""",
@@ -298,8 +301,8 @@ direction 只可填：看多 / 看空 / 中性 / 谨慎""",
 4. 明确方案在何种市场状态下自动切换为更激进或更保守。
 5. 在正文末尾追加机读块（固定格式）：
 <!-- RISK_STATE: {{"responded_claim_ids": ["RISK-1"], "new_claims": [{{"claim": "不超过28字", "evidence": ["证据1", "证据2"], "confidence": 0.72}}], "resolved_claim_ids": ["RISK-2"], "unresolved_claim_ids": ["RISK-3"], "next_focus_claim_ids": ["RISK-3"], "round_summary": "不超过50字", "round_goal": "不超过30字"}} -->""",
-    "trader_system_prompt": "你是交易员。请基于分析团队结论、市场上下文、用户持仓约束与复盘经验，形成可执行交易决策。输出需包含方向、仓位、入场区间、止损与减仓条件。若用户已有持仓，必须先判断这是建仓建议还是持仓处理建议。请全程使用中文，不要输出 FINAL TRANSACTION PROPOSAL、FINAL VERDICT 等英文模板；最后一行统一写成“最终交易建议：买入 / 卖出 / 观望（对应 BUY / SELL / HOLD）”。市场上下文：{market_context_summary}。用户上下文：{user_context_summary}。在决策末尾追加机读摘要（格式固定，不可省略，不可改动键名）：<!-- VERDICT: {{\"direction\": \"看多\", \"reason\": \"不超过20字的一句话核心结论\"}} -->direction 只可填：看多 / 看空 / 中性 / 谨慎。复盘经验：{past_memory_str}",
-    "trader_user_prompt": "请基于分析团队对 {company_name} 的综合研究，评估并执行投资方案。\n\n标的上下文：\n{instrument_context_summary}\n\n市场上下文：\n{market_context_summary}\n\n用户上下文：\n{user_context_summary}\n\n方案内容：{investment_plan}",
+    "trader_system_prompt": "你是交易员。请基于分析团队结论、市场上下文、用户持仓约束、风控反馈与复盘经验，形成可执行交易决策。输出需包含方向、仓位、入场区间、止损与减仓条件。若用户已有持仓，必须先判断这是建仓建议还是持仓处理建议。若存在风控打回要求，必须逐条满足硬约束，不允许忽略。请全程使用中文，不要输出 FINAL TRANSACTION PROPOSAL、FINAL VERDICT 等英文模板；最后一行统一写成“最终交易建议：买入 / 卖出 / 观望（对应 BUY / SELL / HOLD）”。市场上下文：{market_context_summary}。用户上下文：{user_context_summary}。风控反馈：{risk_feedback_summary}。在决策末尾追加机读摘要（格式固定，不可省略，不可改动键名）：<!-- VERDICT: {{\"direction\": \"看多\", \"reason\": \"不超过20字的一句话核心结论\"}} -->direction 只可填：看多 / 看空 / 中性 / 谨慎。复盘经验：{past_memory_str}",
+    "trader_user_prompt": "请基于分析团队对 {company_name} 的综合研究，评估并执行投资方案。\n\n标的上下文：\n{instrument_context_summary}\n\n市场上下文：\n{market_context_summary}\n\n用户上下文：\n{user_context_summary}\n\n上一版交易员方案：\n{previous_trader_plan}\n\n当前风控反馈：\n{risk_feedback_summary}\n\n研究经理方案内容：\n{investment_plan}",
     "signal_extractor_system": "你是决策提取助手。阅读整段报告后，只输出一个词：BUY、SELL 或 HOLD。不要输出任何其他文字。",
     "reflection_system_prompt": """你是资深交易复盘分析师，负责总结一次决策的成败与可迁移经验。
 

@@ -83,6 +83,18 @@ class RiskDebateState(TypedDict):
     claim_counter: Annotated[int, "Claim counter for unique ids"]
 
 
+class RiskFeedbackState(TypedDict):
+    retry_count: Annotated[int, "How many times the trader has been sent back for revision"]
+    max_retries: Annotated[int, "Maximum number of allowed revisions"]
+    revision_required: Annotated[bool, "Whether the trader must revise the plan"]
+    latest_risk_verdict: Annotated[str, "Risk judge verdict such as pass, revise, reject"]
+    hard_constraints: Annotated[list[str], "Non-negotiable constraints from the risk judge"]
+    soft_constraints: Annotated[list[str], "Advisory constraints from the risk judge"]
+    execution_preconditions: Annotated[list[str], "Conditions that must hold before execution"]
+    de_risk_triggers: Annotated[list[str], "Triggers that require immediate de-risking"]
+    revision_reason: Annotated[str, "Why the plan was sent back"]
+
+
 class AgentState(MessagesState):
     company_of_interest: Annotated[str, "Company that we are interested in trading"]
     trade_date: Annotated[str, "What date we are trading at"]
@@ -106,6 +118,9 @@ class AgentState(MessagesState):
 
     risk_debate_state: Annotated[
         RiskDebateState, "Current state of the debate on evaluating risk"
+    ]
+    risk_feedback_state: Annotated[
+        RiskFeedbackState, "Risk-judge feedback used for trader revision"
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
 
