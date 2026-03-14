@@ -1,48 +1,83 @@
 ---
 name: tradingagents-analysis
-description: Use when the user asks to analyze a stock, research market trends, or has any investment-related questions for TradingAgents. Supports natural language queries.
+description: Professional multi-agent investment research tool for A-Share and US stocks. Analyzes market, technicals, fundamentals, sentiment, and smart money.
+homepage: https://app.510168.xyz
+repository: https://github.com/KylinMountain/TradingAgents-AShare
 env:
-  TRADINGAGENTS_API_URL: "TradingAgents API base URL (default: https://api.510168.xyz)"
-  TRADINGAGENTS_TOKEN: "Bearer token — login at https://app.510168.xyz → Settings → create an API Token"
+  TRADINGAGENTS_API_URL:
+    description: "TradingAgents API base URL"
+    default: "https://api.510168.xyz"
+  TRADINGAGENTS_TOKEN:
+    description: "Bearer token starts with ta-sk-"
+    required: true
+primary_credential: TRADINGAGENTS_TOKEN
+metadata: {"clawdbot":{"emoji":"📉"}}
 ---
 
-# TradingAgents Analysis Skill (Natural Language)
+# tradingagents-analysis
 
-Ask questions like "How is CATL doing?", "Analyze 600519.SH", or "Is it a good time to buy semiconductors?".
+Use the TradingAgents API to perform deep multi-agent stock analysis and get structured trading recommendations.
 
-## ⚠️ Performance Expectation
-- **Duration**: Deep analysis takes **1 to 5 minutes**.
-- **User Feedback**: Always inform the user that a multi-agent investigation has started.
+## 🔒 Privacy & Security
 
-## API Reference
+- **Data Transmission**: This skill sends the **stock symbol** and analysis parameters to the configured backend.
+- **Sensitive Data**: The skill only accesses the symbol provided by you. It does not read local files or other private data.
+- **Backend Ownership**: The default API (`https://api.510168.xyz`) is provided by the TradingAgents project. 
+- **Self-Hosting**: For maximum privacy, you can host your own backend using the source code from our [GitHub Repository](https://github.com/KylinMountain/TradingAgents-AShare).
 
-### 1. Intent Detection & Quick Chat (POST /v1/chat/completions)
-Send the user's message directly to the TradingAgents backend. The backend will automatically detect the symbol and start an analysis job if needed.
+## Setup
 
-**Request:**
-```json
-{
-  "messages": [
-    {"role": "user", "content": "帮我看看阳光电源目前的表现，适合买入吗？"}
-  ],
-  "stream": false
-}
+1. Login at https://app.510168.xyz
+2. Go to **Settings** → **API Tokens** to create a token.
+3. Configure your environment:
+```bash
+export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
+# Optional: export TRADINGAGENTS_API_URL="http://your-local-ip:8000"
 ```
 
-**Response (Intent Detected):**
-If the backend detects an analysis intent, it returns a message like `[Analysis Started: 300274.SZ @ 2026-03-13] job_id: <id>`.
+## API Basics
 
-### 2. Job Lifecycle (for Analysis Jobs)
-- **Status**: `GET /v1/jobs/{job_id}`
-- **Result**: `GET /v1/jobs/{job_id}/result`
+All requests use the `$TRADINGAGENTS_TOKEN` as a Bearer token.
+The primary endpoint is `POST /v1/analyze`.
 
-## AI Implementation Strategy
-1. **Chat First**: Instead of trying to extract the symbol yourself, send the user's full query to `/v1/chat/completions`.
-2. **Handle Job ID**: Look for a `job_id` in the chat response. If found, start the polling loop.
-3. **Wait & Poll**: Use a 30s interval to poll `/v1/jobs/{id}` until status is `completed`.
-4. **Final Summary**: Retrieve the full report from `/v1/jobs/{id}/result` and provide a high-level expert summary.
+## Common Operations
 
-## Common Symbols
-- Supports Chinese names (e.g., 贵州茅台)
-- Supports 6-digit codes (e.g., 000001)
-- Prefers suffixes for accuracy (.SH / .SZ)
+**1. Submit Analysis Job:**
+Submit a stock symbol for deep multi-agent investigation.
+```bash
+curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
+  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "600519.SH"}'
+```
+
+**2. Poll Job Status:**
+Check if the agents are still working.
+```bash
+curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}" \
+  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN"
+```
+
+**3. Retrieve Final Result:**
+Once the job is `completed`, fetch the full multi-agent report and the final verdict.
+```bash
+curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" \
+  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN"
+```
+
+## Job Workflow
+
+Deep analysis takes **1 to 5 minutes**. 
+1. **Extract**: Get the symbol from user query (e.g. "Moutai" or "600519").
+2. **Submit**: Call `POST /v1/analyze`.
+3. **Inform**: Tell the user that research has started.
+4. **Wait**: Poll status every 30s.
+5. **Summarize**: When `completed`, fetch result and provide a high-level summary (Decision, Direction, Target Price, Risk).
+
+## Supported Symbols
+- **A-Share**: Names (e.g. "茅台") or Codes (`600519.SH`, `300274.SZ`).
+- **US Stocks**: `AAPL`, `TSLA`, `NVDA`.
+
+## Notes
+- **Polling Rate**: Do not exceed 1 request per 15 seconds.
+- **Data Robustness**: If some data sources fail, the system provides inferential logic based on macro/industry trends.
