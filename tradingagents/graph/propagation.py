@@ -14,7 +14,10 @@ from tradingagents.agents.utils.context_utils import (
     summarize_market_context,
     summarize_user_context,
 )
-from tradingagents.agents.utils.debate_utils import default_round_goal
+from tradingagents.agents.utils.debate_utils import (
+    build_empty_risk_debate_state,
+    default_round_goal,
+)
 
 
 class Propagator:
@@ -75,28 +78,18 @@ class Propagator:
                     "claim_counter": 0,
                 }
             ),
-            "risk_debate_state": RiskDebateState(
-                {
-                    "history": "",
-                    "aggressive_history": "",
-                    "conservative_history": "",
-                    "neutral_history": "",
-                    "latest_speaker": "",
-                    "current_aggressive_response": "",
-                    "current_conservative_response": "",
-                    "current_neutral_response": "",
-                    "judge_decision": "",
-                    "count": 0,
-                    "claims": [],
-                    "focus_claim_ids": [],
-                    "open_claim_ids": [],
-                    "resolved_claim_ids": [],
-                    "unresolved_claim_ids": [],
-                    "round_summary": "",
-                    "round_goal": default_round_goal("risk", 1),
-                    "claim_counter": 0,
-                }
-            ),
+            "risk_debate_state": RiskDebateState(build_empty_risk_debate_state()),
+            "risk_feedback_state": {
+                "retry_count": 0,
+                "max_retries": 1,
+                "revision_required": False,
+                "latest_risk_verdict": "",
+                "hard_constraints": [],
+                "soft_constraints": [],
+                "execution_preconditions": [],
+                "de_risk_triggers": [],
+                "revision_reason": "",
+            },
             "market_report": "",
             "fundamentals_report": "",
             "sentiment_report": "",

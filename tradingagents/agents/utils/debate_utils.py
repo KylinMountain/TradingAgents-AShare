@@ -90,6 +90,30 @@ def summarize_game_theory_signals(signals: Mapping[str, Any] | None) -> str:
     )
 
 
+def summarize_risk_feedback(feedback: Mapping[str, Any] | None) -> str:
+    payload = feedback or {}
+    verdict = str(payload.get("latest_risk_verdict", "")).strip()
+    if not verdict:
+        return "当前没有待处理的风控回退要求。"
+
+    hard_constraints = payload.get("hard_constraints") or []
+    soft_constraints = payload.get("soft_constraints") or []
+    preconditions = payload.get("execution_preconditions") or []
+    de_risk_triggers = payload.get("de_risk_triggers") or []
+
+    return "\n".join(
+        [
+            f"风控裁决: {verdict}",
+            f"是否要求重做: {'是' if payload.get('revision_required') else '否'}",
+            f"打回原因: {payload.get('revision_reason', '未提供')}",
+            f"硬约束: {'; '.join(str(item) for item in hard_constraints) if hard_constraints else '无'}",
+            f"软约束: {'; '.join(str(item) for item in soft_constraints) if soft_constraints else '无'}",
+            f"执行前提: {'; '.join(str(item) for item in preconditions) if preconditions else '无'}",
+            f"降风险触发器: {'; '.join(str(item) for item in de_risk_triggers) if de_risk_triggers else '无'}",
+        ]
+    )
+
+
 def default_round_goal(domain: str, next_count: int) -> str:
     goals = {
         "investment": [
@@ -264,3 +288,26 @@ def _fallback_summary(text: str) -> str:
     if not compact:
         return "本轮未提取到有效摘要。"
     return compact[:120]
+
+
+def build_empty_risk_debate_state() -> dict[str, Any]:
+    return {
+        "history": "",
+        "aggressive_history": "",
+        "conservative_history": "",
+        "neutral_history": "",
+        "latest_speaker": "",
+        "current_aggressive_response": "",
+        "current_conservative_response": "",
+        "current_neutral_response": "",
+        "judge_decision": "",
+        "count": 0,
+        "claims": [],
+        "focus_claim_ids": [],
+        "open_claim_ids": [],
+        "resolved_claim_ids": [],
+        "unresolved_claim_ids": [],
+        "round_summary": "",
+        "round_goal": default_round_goal("risk", 1),
+        "claim_counter": 0,
+    }

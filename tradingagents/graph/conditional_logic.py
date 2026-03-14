@@ -81,3 +81,13 @@ class ConditionalLogic:
         if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
             return "Neutral Analyst"
         return "Aggressive Analyst"
+
+    def should_revise_after_risk_judge(self, state: AgentState) -> str:
+        """Determine whether the trader must revise the plan after the risk judge."""
+        feedback = state.get("risk_feedback_state", {})
+        if (
+            feedback.get("revision_required")
+            and int(feedback.get("retry_count", 0) or 0) <= int(feedback.get("max_retries", 1) or 1)
+        ):
+            return "Trader"
+        return "END"

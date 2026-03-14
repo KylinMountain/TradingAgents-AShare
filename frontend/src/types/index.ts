@@ -68,6 +68,18 @@ export interface GameTheorySignals {
     confidence?: number
 }
 
+export interface RiskFeedbackState {
+    retry_count: number
+    max_retries: number
+    revision_required: boolean
+    latest_risk_verdict: string
+    hard_constraints: string[]
+    soft_constraints: string[]
+    execution_preconditions: string[]
+    de_risk_triggers: string[]
+    revision_reason: string
+}
+
 export interface AnalysisRequest {
     symbol: string
     trade_date: string
@@ -235,6 +247,7 @@ export interface AnalysisReport {
     game_theory_signals?: GameTheorySignals
     investment_plan?: string
     trader_investment_plan?: string
+    risk_feedback_state?: RiskFeedbackState
     final_trade_decision?: string
 }
 
