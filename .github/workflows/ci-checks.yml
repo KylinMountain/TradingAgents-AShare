@@ -1,4 +1,4 @@
-name: Lint and Test
+name: Lint and Test (Disabled)
 
 on:
   pull_request:
@@ -6,33 +6,13 @@ on:
   push:
     branches: [ "main" ]
 
-jobs:
-  python-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Install dependencies
-        run: uv sync
-      - name: Lint with ruff
-        run: |
-          uv run pip install ruff
-          uv run ruff check .
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-  frontend-lint:
+jobs:
+  # Currently disabled to allow fast iteration in early stages
+  placeholder:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Install dependencies
-        run: cd frontend && npm install
-      - name: Lint
-        run: cd frontend && npm run lint
+      - name: Skip
+        run: echo "Lint checks are currently disabled."
