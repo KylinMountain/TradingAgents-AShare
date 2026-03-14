@@ -398,16 +398,25 @@ class TradingAgentsGraph:
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
             "game_theory_report": final_state.get("game_theory_report", ""),
+            "game_theory_signals": final_state.get("game_theory_signals", {}),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],
                 "history": final_state["investment_debate_state"]["history"],
+                "current_speaker": final_state["investment_debate_state"].get("current_speaker", ""),
                 "current_response": final_state["investment_debate_state"][
                     "current_response"
                 ],
                 "judge_decision": final_state["investment_debate_state"][
                     "judge_decision"
                 ],
+                "claims": final_state["investment_debate_state"].get("claims", []),
+                "focus_claim_ids": final_state["investment_debate_state"].get("focus_claim_ids", []),
+                "open_claim_ids": final_state["investment_debate_state"].get("open_claim_ids", []),
+                "resolved_claim_ids": final_state["investment_debate_state"].get("resolved_claim_ids", []),
+                "unresolved_claim_ids": final_state["investment_debate_state"].get("unresolved_claim_ids", []),
+                "round_summary": final_state["investment_debate_state"].get("round_summary", ""),
+                "round_goal": final_state["investment_debate_state"].get("round_goal", ""),
             },
             "trader_investment_decision": final_state["trader_investment_plan"],
             "risk_debate_state": {
@@ -416,6 +425,13 @@ class TradingAgentsGraph:
                 "neutral_history": final_state["risk_debate_state"]["neutral_history"],
                 "history": final_state["risk_debate_state"]["history"],
                 "judge_decision": final_state["risk_debate_state"]["judge_decision"],
+                "claims": final_state["risk_debate_state"].get("claims", []),
+                "focus_claim_ids": final_state["risk_debate_state"].get("focus_claim_ids", []),
+                "open_claim_ids": final_state["risk_debate_state"].get("open_claim_ids", []),
+                "resolved_claim_ids": final_state["risk_debate_state"].get("resolved_claim_ids", []),
+                "unresolved_claim_ids": final_state["risk_debate_state"].get("unresolved_claim_ids", []),
+                "round_summary": final_state["risk_debate_state"].get("round_summary", ""),
+                "round_goal": final_state["risk_debate_state"].get("round_goal", ""),
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],

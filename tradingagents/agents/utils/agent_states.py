@@ -64,9 +64,18 @@ class InvestDebateState(TypedDict):
     bull_history: Annotated[str, "Bullish conversation history"]
     bear_history: Annotated[str, "Bearish conversation history"]
     history: Annotated[str, "Conversation history"]
+    current_speaker: Annotated[str, "Speaker that spoke last"]
     current_response: Annotated[str, "Latest response"]
     judge_decision: Annotated[str, "Final judge decision"]
     count: Annotated[int, "Length of the current conversation"]
+    claims: Annotated[list[dict[str, Any]], "Tracked research claims"]
+    focus_claim_ids: Annotated[list[str], "Claim ids that must be answered in the next round"]
+    open_claim_ids: Annotated[list[str], "Claim ids still open"]
+    resolved_claim_ids: Annotated[list[str], "Claim ids considered resolved"]
+    unresolved_claim_ids: Annotated[list[str], "Claim ids still materially disputed"]
+    round_summary: Annotated[str, "Summary of the latest debate round"]
+    round_goal: Annotated[str, "Current round objective"]
+    claim_counter: Annotated[int, "Claim counter for unique ids"]
 
 
 class RiskDebateState(TypedDict):
@@ -80,6 +89,14 @@ class RiskDebateState(TypedDict):
     current_neutral_response: Annotated[str, "Latest response by the neutral analyst"]
     judge_decision: Annotated[str, "Judge decision"]
     count: Annotated[int, "Length of the current conversation"]
+    claims: Annotated[list[dict[str, Any]], "Tracked risk claims"]
+    focus_claim_ids: Annotated[list[str], "Risk claim ids that must be answered next"]
+    open_claim_ids: Annotated[list[str], "Risk claim ids still open"]
+    resolved_claim_ids: Annotated[list[str], "Risk claim ids considered resolved"]
+    unresolved_claim_ids: Annotated[list[str], "Risk claim ids still materially disputed"]
+    round_summary: Annotated[str, "Summary of the latest debate round"]
+    round_goal: Annotated[str, "Current round objective"]
+    claim_counter: Annotated[int, "Claim counter for unique ids"]
 
 
 class AgentState(MessagesState):
@@ -111,6 +128,7 @@ class AgentState(MessagesState):
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
     game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
+    game_theory_signals: Annotated[dict[str, Any], "Structured game theory signals"]
 
     user_intent: Annotated[Optional[UserIntent], "Parsed user intent from natural language"]
     horizon: Annotated[str, "Current analysis horizon: short or medium"]

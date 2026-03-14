@@ -552,6 +552,7 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "macro_report": final_state.get("macro_report"),
         "smart_money_report": final_state.get("smart_money_report"),
         "game_theory_report": final_state.get("game_theory_report"),
+        "game_theory_signals": final_state.get("game_theory_signals"),
         "investment_plan": final_state.get("investment_plan"),
         "trader_investment_plan": final_state.get("trader_investment_plan"),
         "final_trade_decision": final_state.get("final_trade_decision"),

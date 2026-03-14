@@ -14,6 +14,7 @@ from tradingagents.agents.utils.context_utils import (
     summarize_market_context,
     summarize_user_context,
 )
+from tradingagents.agents.utils.debate_utils import default_round_goal
 
 
 class Propagator:
@@ -60,9 +61,18 @@ class Propagator:
                     "history": "",
                     "bull_history": "",
                     "bear_history": "",
+                    "current_speaker": "",
                     "current_response": "",
                     "judge_decision": "",
                     "count": 0,
+                    "claims": [],
+                    "focus_claim_ids": [],
+                    "open_claim_ids": [],
+                    "resolved_claim_ids": [],
+                    "unresolved_claim_ids": [],
+                    "round_summary": "",
+                    "round_goal": default_round_goal("investment", 1),
+                    "claim_counter": 0,
                 }
             ),
             "risk_debate_state": RiskDebateState(
@@ -77,6 +87,14 @@ class Propagator:
                     "current_neutral_response": "",
                     "judge_decision": "",
                     "count": 0,
+                    "claims": [],
+                    "focus_claim_ids": [],
+                    "open_claim_ids": [],
+                    "resolved_claim_ids": [],
+                    "unresolved_claim_ids": [],
+                    "round_summary": "",
+                    "round_goal": default_round_goal("risk", 1),
+                    "claim_counter": 0,
                 }
             ),
             "market_report": "",
@@ -86,6 +104,7 @@ class Propagator:
             "macro_report": "",
             "smart_money_report": "",
             "game_theory_report": "",
+            "game_theory_signals": {},
             "investment_plan": "",
             "trader_investment_plan": "",
             "final_trade_decision": "",

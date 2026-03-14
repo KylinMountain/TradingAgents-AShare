@@ -57,6 +57,17 @@ export interface WorkflowContext {
     selected_analysts: string[]
 }
 
+export interface GameTheorySignals {
+    board?: string
+    players?: string[]
+    player_states?: Record<string, string>
+    likely_actions?: Record<string, string[]>
+    dominant_strategy?: string
+    fragile_equilibrium?: string
+    counter_consensus_signal?: string
+    confidence?: number
+}
+
 export interface AnalysisRequest {
     symbol: string
     trade_date: string
@@ -221,6 +232,7 @@ export interface AnalysisReport {
     macro_report?: string
     smart_money_report?: string
     game_theory_report?: string
+    game_theory_signals?: GameTheorySignals
     investment_plan?: string
     trader_investment_plan?: string
     final_trade_decision?: string
