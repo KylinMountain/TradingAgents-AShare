@@ -1174,7 +1174,9 @@ def _run_job(
                     target_price_override=result["target_price"],
                     stop_loss_override=result["stop_loss_price"],
                 )
+                db.commit()
             except Exception as e:
+                db.rollback()
                 print(f"Failed to save report: {e}")
             finally:
                 db.close()
@@ -1226,6 +1228,13 @@ def _normalize_symbol(raw: str) -> str:
     m2 = re.search(r"([A-Z]{1,6}(?:\.[A-Z]{1,3})?)", s)
     if m2:
         return m2.group(1)
+        
+    # Final Fallback: Check Chinese Name Map (e.g. "三花智控" -> "002050.SZ")
+    from tradingagents.dataflows.trade_calendar import _load_cn_stock_map
+    stock_map = _load_cn_stock_map()
+    if raw in stock_map:
+        return stock_map[raw]
+        
     return s
 
 

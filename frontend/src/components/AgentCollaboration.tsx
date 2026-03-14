@@ -8,7 +8,23 @@ import {
 } from 'lucide-react'
 import { extractVerdict, type Verdict } from '@/utils/reportText'
 
-// ── Agent Metadata ────────────────────────────────────────────────────────────
+// ── 子组件：流动光路 ─────────────────────────────────────────────────────────
+
+function FlowingPath({ active, completed }: { active?: boolean; completed?: boolean }) {
+    return (
+        <div className="relative flex-1 h-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden mx-2">
+            {active && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-flowing-light" 
+                     style={{ backgroundSize: '200% 100%' }} />
+            )}
+            {completed && (
+                <div className="absolute inset-0 bg-emerald-500/30" />
+            )}
+        </div>
+    )
+}
+
+// ── Agent 元数据 (保持原有色彩与中文) ──────────────────────────────────────────
 
 interface AgentMeta {
     name: string
@@ -152,7 +168,7 @@ const VERDICT_COLORS: Record<string, string> = {
     _default: 'bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400',
 }
 
-// ── Agent Card ─────────────────────────────────────────────────────────────
+// ── 子组件：Agent 卡片 (恢复原始比例与高对比度) ──────────────────────────────────
 
 interface CardData extends AgentMeta { 
     status: AgentStatus; 
@@ -175,77 +191,76 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
             disabled={!clickable}
             onClick={() => clickable && onClick?.()}
             className={[
-                'group relative w-full text-left rounded-xl border transition-all duration-500 overflow-hidden',
-                !participating ? 'grayscale opacity-20 scale-[0.98] border-slate-100 dark:border-slate-800' : '',
+                'group relative w-full text-left rounded-xl border transition-all duration-300 overflow-hidden',
+                !participating ? 'grayscale opacity-30 scale-95 border-slate-100 dark:border-slate-800' : 'opacity-100',
                 selected
-                    ? 'border-blue-400 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-500/10 shadow-lg ring-1 ring-blue-300/50 dark:ring-blue-500/30'
+                    ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-500/10 shadow-lg ring-2 ring-blue-400/30'
                     : active
-                    ? 'border-blue-400/50 dark:border-blue-500/50 bg-white dark:bg-slate-800 shadow-xl z-20'
+                    ? 'border-blue-500 dark:border-blue-500 bg-white dark:bg-slate-800 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-[1.02] z-10'
                     : done
-                    ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 shadow-sm'
+                    ? 'border-emerald-300 dark:border-emerald-500/50 bg-emerald-50/30 dark:bg-slate-800/60 shadow-sm'
                     : skipped
                     ? 'border-slate-100 dark:border-slate-800 bg-transparent opacity-40'
-                    : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-800/20 opacity-55',
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm',
                 clickable ? 'cursor-pointer hover:border-slate-400 dark:hover:border-slate-500' : 'cursor-default',
             ].join(' ')}
         >
             {active && (
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-blue-500/10 animate-gradient-x pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-transparent to-blue-500/10 animate-pulse pointer-events-none" />
             )}
             
-            <div className="p-3 relative z-10">
-                <div className="flex items-start gap-2.5 mb-2.5">
-                    <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500 ${active ? 'scale-110 shadow-lg shadow-blue-200 dark:shadow-blue-900/40' : ''} ${card.badgeBg}`}>
+            <div className="p-4 relative z-10">
+                <div className="flex items-start gap-3 mb-3">
+                    <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500 ${active ? 'scale-110 shadow-blue-400/20' : ''} ${card.badgeBg}`}>
                         {active
                             ? <Loader2 className={`w-5 h-5 animate-spin ${card.badgeText}`} />
                             : <Icon className={`w-5 h-5 ${card.badgeText}`} />
                         }
                     </div>
                     <div className="min-w-0 flex-1 pt-0.5">
-                        <div className={`text-[13px] font-semibold leading-tight ${active ? 'text-blue-600 dark:text-blue-400' : card.badgeText}`}>
+                        <div className={`text-[14px] font-bold leading-tight transition-colors ${active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-slate-100'}`}>
                             {card.label}
                         </div>
-                        <div className="text-[11px] text-slate-400 dark:text-slate-500 leading-tight mt-0.5 line-clamp-1">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-1 line-clamp-1">
                             {card.goal}
                         </div>
                     </div>
                     <span className={[
-                        'shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium transition-all duration-300',
-                        active  ? 'bg-blue-500 text-white animate-pulse'
-                        : done  ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400'
-                        : skipped ? 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500'
-                        : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500',
+                        'shrink-0 mt-0.5 text-[10px] px-2 py-0.5 rounded-full font-bold transition-all duration-300 shadow-sm',
+                        active  ? 'bg-blue-600 text-white animate-pulse'
+                        : done  ? 'bg-emerald-500 text-white'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
                     ].join(' ')}>
                         {STATUS_LABEL[card.status]}
                     </span>
                 </div>
 
                 {(done || active) && (
-                    <div className={`rounded-lg border px-2.5 py-2 transition-all duration-500 ${
-                        active ? 'border-blue-200 bg-blue-50/50 dark:border-blue-500/30' : `${card.sumBorder} ${card.sumBg}`
+                    <div className={`rounded-lg border px-3 py-2.5 transition-all duration-500 ${
+                        active ? 'border-blue-200 bg-blue-50 dark:border-blue-500/30' : `${card.sumBorder} ${card.sumBg}`
                     }`}>
                         {active ? (
-                            <div className="flex items-center gap-1.5 py-0.5">
-                                <div className="flex gap-0.5">
-                                    <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                                    <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                                    <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" />
-                                </div>
-                                <span className={`text-[11px] font-medium text-blue-600 dark:text-blue-400`}>正在分析...</span>
+                            <div className="flex items-center gap-2 py-0.5">
+                                <span className="flex gap-1">
+                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" />
+                                </span>
+                                <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 tracking-wide">智能体正全力研判...</span>
                             </div>
                         ) : card.verdict ? (
-                            <div className="flex items-start gap-1.5 min-w-0">
-                                <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-tight ${VERDICT_COLORS[card.verdict.direction] ?? VERDICT_COLORS._default}`}>
+                            <div className="flex items-start gap-2 min-w-0">
+                                <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full leading-tight shadow-sm ${VERDICT_COLORS[card.verdict.direction] ?? VERDICT_COLORS._default}`}>
                                     {card.verdict.direction}
                                 </span>
-                                <span className={`text-[11px] leading-[1.4] ${card.sumText} line-clamp-2`}>
+                                <span className={`text-[12px] font-medium leading-[1.4] ${card.sumText} line-clamp-2`}>
                                     {card.verdict.reason}
                                 </span>
                             </div>
                         ) : (
-                            <div className="flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">研报已交付</span>
+                            <div className="flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-bold">交付深度研报完成</span>
                             </div>
                         )}
                     </div>
@@ -255,7 +270,7 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
     )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── 主组件 ────────────────────────────────────────────────────────────────────
 
 export default function AgentCollaboration({ onSelectSection, selectedSection }: AgentCollaborationProps) {
     const { agents, isAnalyzing, streamingSections, report, currentHorizon } = useAnalysisStore()
@@ -265,6 +280,8 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
         const streamState = meta.section ? streamingSections[meta.section] : undefined
         const stored      = meta.section ? (report?.[meta.section as keyof typeof report] as string | undefined) : undefined
         const src         = streamState?.displayed || stored || ''
+        
+        // 判定 Agent 是否参与：如果是分析中，且不是 skipped
         const isParticipating = isAnalyzing ? (agent ? agent.status !== 'skipped' : false) : true
 
         return {
@@ -281,81 +298,84 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
     const participatingCount = cards.filter(c => c.isParticipating).length
 
     return (
-        <section className="card relative overflow-hidden bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-            {/* Multi-horizon Badge overlay */}
+        <section className="card relative overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+            {/* 周期实时角标 */}
             {isAnalyzing && currentHorizon && (
                 <div className="absolute top-0 right-0 p-4 z-20">
-                    <div className={`px-3 py-1 rounded-bl-xl rounded-tr-lg text-[10px] font-bold tracking-widest uppercase shadow-lg border animate-in slide-in-from-right duration-500 ${
+                    <div className={`px-4 py-1.5 rounded-bl-2xl rounded-tr-lg text-[11px] font-black tracking-widest shadow-2xl border-2 animate-in slide-in-from-right duration-500 ${
                         currentHorizon === 'short' 
-                        ? 'bg-blue-600 text-white border-blue-400' 
-                        : 'bg-purple-700 text-white border-purple-500'
+                        ? 'bg-blue-600 text-white border-blue-400 shadow-blue-500/20' 
+                        : 'bg-purple-700 text-white border-purple-500 shadow-purple-500/20'
                     }`}>
-                        {currentHorizon === 'short' ? '⚡️ 短线视角' : '🔭 中线视角'}
+                        {currentHorizon === 'short' ? '⚡️ 短线视角 (TECHNICAL)' : '🔭 中线视角 (FUNDAMENTAL)'}
                     </div>
                 </div>
             )}
 
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8 relative z-10">
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between mb-8 relative z-10 border-b border-slate-100 dark:border-slate-800 pb-4">
                 <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <div className={`w-2 h-2 rounded-full ${isAnalyzing ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]' : 'bg-slate-300'}`} />
-                        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                    <div className="flex items-center gap-3 mb-1.5">
+                        <div className={`w-3 h-3 rounded-full ${isAnalyzing ? 'bg-blue-500 animate-pulse shadow-[0_0_12px_#3b82f6]' : 'bg-slate-300'}`} />
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tighter uppercase">
                             TradingAgents 协同工作流
                         </h3>
                     </div>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                        自动化投研流水线 · 数据共源 · 决策博弈
+                    <p className="text-[12px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest opacity-80">
+                        自动化投研流水线 · 数据共源 · 多智能体博弈
                     </p>
                 </div>
                 <div className="text-right">
-                    <div className="text-xl font-black text-slate-900 dark:text-slate-100 tabular-nums">
+                    <div className="text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
                         {participatingCount > 0 ? Math.round((doneN / participatingCount) * 100) : 0}%
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">分析进度</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">分析总进度</p>
                 </div>
             </div>
 
-            <div className="space-y-6 relative z-10">
+            <div className="space-y-8 relative z-10">
                 {GROUPS.map((group, gi) => {
                     const gc = group.agents.map(n => cardMap.get(n)).filter(Boolean) as CardData[]
                     const anyParticipating = gc.some(c => c.isParticipating)
                     const anyAct = gc.some(c => c.status === 'in_progress')
                     const allDone = gc.every(c => !c.isParticipating || c.status === 'completed' || c.status === 'skipped')
+                    
                     const nextGroupParticipating = gi < GROUPS.length - 1 && GROUPS[gi+1].agents.some(n => cardMap.get(n)?.isParticipating)
 
                     if (isAnalyzing && !anyParticipating) return null
 
                     return (
-                        <div key={group.title}>
-                            {/* Group Header with Flowing Path */}
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className={`relative flex items-center justify-center w-6 h-6 rounded-lg text-[10px] font-black transition-all duration-500 ${
-                                    anyAct ? 'bg-blue-600 text-white shadow-blue-200 dark:shadow-blue-900/40' : 
+                        <div key={group.title} className="animate-in fade-in duration-700">
+                            {/* 分组标题与预判光流 */}
+                            <div className="flex items-center gap-4 mb-5">
+                                <div className={`relative flex items-center justify-center w-8 h-8 rounded-xl text-[12px] font-black transition-all duration-500 shadow-sm ${
+                                    anyAct ? 'bg-blue-600 text-white rotate-6 shadow-blue-400/40' : 
                                     allDone && anyParticipating ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'
                                 }`}>
                                     {gi + 1}
+                                    {anyAct && <div className="absolute inset-0 rounded-xl border-2 border-blue-500 animate-ping opacity-30" />}
                                 </div>
-                                <span className={`text-xs font-black uppercase tracking-widest transition-colors duration-300 ${
+                                <span className={`text-sm font-black uppercase tracking-widest transition-colors duration-300 ${
                                     anyAct  ? 'text-blue-600 dark:text-blue-400'
                                     : allDone && anyParticipating ? 'text-emerald-600 dark:text-emerald-400'
-                                    : 'text-slate-400 dark:text-slate-500'
+                                    : 'text-slate-500 dark:text-slate-400'
                                 }`}>
                                     {group.title}
                                 </span>
-                                <div className="relative flex-1 h-px bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                                    {/* 预判流动逻辑：如果分析中且属于路径，线条立即流动 */}
+                                <div className="relative flex-1 h-[2px] bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden">
+                                    {/* 核心修复：预判流动连线，只要分析中且属于路径即全线开启流动 */}
                                     {isAnalyzing && anyParticipating && nextGroupParticipating && (
-                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-flowing-light" style={{ backgroundSize: '200% 100%' }} />
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-flowing-light" 
+                                             style={{ backgroundSize: '200% 100%' }} />
                                     )}
                                     {allDone && anyParticipating && (
-                                        <div className="absolute inset-0 bg-emerald-500/20" />
+                                        <div className="absolute inset-0 bg-emerald-500/40 shadow-[0_0_10px_#10b981]" />
                                     )}
                                 </div>
                             </div>
 
-                            {/* Grid Layout restored to original size */}
-                            <div className={`grid gap-4 ${group.cols}`}>
+                            {/* Agent 磁贴网格 */}
+                            <div className={`grid gap-5 ${group.cols}`}>
                                 {gc.map(card => (
                                     <AgentCard
                                         key={card.name}
@@ -385,7 +405,7 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
                 }
                 .animate-gradient-x {
                     background-size: 200% 200%;
-                    animation: gradient-x 10s ease infinite;
+                    animation: gradient-x 8s ease infinite;
                 }
             `}} />
         </section>
