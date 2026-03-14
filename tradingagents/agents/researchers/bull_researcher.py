@@ -3,19 +3,27 @@ import time
 import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.debate_utils import (
+    format_claim_subset_for_prompt,
+    format_claims_for_prompt,
+    update_debate_state_with_payload,
+)
 
 
 def create_bull_researcher(llm, memory):
     def bull_node(state) -> dict:
         investment_debate_state = state["investment_debate_state"]
         history = investment_debate_state.get("history", "")
-        bull_history = investment_debate_state.get("bull_history", "")
-
         current_response = investment_debate_state.get("current_response", "")
         market_research_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
+        claims = investment_debate_state.get("claims", [])
+        focus_claim_ids = investment_debate_state.get("focus_claim_ids", [])
+        unresolved_claim_ids = investment_debate_state.get("unresolved_claim_ids", [])
+        round_summary = investment_debate_state.get("round_summary", "")
+        round_goal = investment_debate_state.get("round_goal", "")
 
         curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}"
         past_memories = memory.get_memories(curr_situation, n_matches=2)
@@ -32,19 +40,27 @@ def create_bull_researcher(llm, memory):
             history=history,
             current_response=current_response,
             past_memory_str=past_memory_str,
+            focus_claims_text=format_claim_subset_for_prompt(claims, focus_claim_ids),
+            unresolved_claims_text=format_claim_subset_for_prompt(claims, unresolved_claim_ids),
+            claims_text=format_claims_for_prompt(claims),
+            round_summary=round_summary or "暂无轮次摘要，请先建立核心多头 claim。",
+            round_goal=round_goal,
         )
 
         response = llm.invoke(prompt)
 
-        argument = f"Bull Analyst: {response.content}"
-
-        new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bull_history": bull_history + "\n" + argument,
-            "bear_history": investment_debate_state.get("bear_history", ""),
-            "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
-        }
+        new_investment_debate_state = update_debate_state_with_payload(
+            state=investment_debate_state,
+            raw_response=response.content,
+            speaker_label="Bull Analyst",
+            speaker_key="Bull",
+            stance="bullish",
+            history_key="bull_history",
+            marker="DEBATE_STATE",
+            claim_prefix="INV",
+            domain="investment",
+            speaker_field="current_speaker",
+        )
 
         return {"investment_debate_state": new_investment_debate_state}
 

@@ -2,6 +2,7 @@ from langchain_core.messages import HumanMessage
 
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.debate_utils import extract_tagged_json, strip_tagged_json
 
 
 def create_game_theory_manager(llm):
@@ -22,7 +23,12 @@ def create_game_theory_manager(llm):
         )
 
         result = llm.invoke(prompt)
+        structured_signals = extract_tagged_json(result.content, "GAME_THEORY")
+        cleaned_report = strip_tagged_json(result.content, "GAME_THEORY")
         print(f"[Game Theory Manager] DONE, report length={len(result.content)}")
-        return {"game_theory_report": result.content}
+        return {
+            "game_theory_report": cleaned_report,
+            "game_theory_signals": structured_signals,
+        }
 
     return game_theory_manager_node

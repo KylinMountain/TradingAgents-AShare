@@ -1,81 +1,133 @@
-from typing import Annotated, Sequence
-from datetime import date, timedelta, datetime
-from typing_extensions import TypedDict, Optional
-from langchain_openai import ChatOpenAI
-from tradingagents.agents import *
-from langgraph.prebuilt import ToolNode
-from langgraph.graph import END, StateGraph, START, MessagesState
+from typing import Annotated, Any
+
+from typing_extensions import TypedDict
+from langgraph.graph import MessagesState
 
 
-# Researcher team state
+class InstrumentContext(TypedDict):
+    symbol: Annotated[str, "Normalized symbol"]
+    security_name: Annotated[str, "Display name or fallback symbol"]
+    market_country: Annotated[str, "Market country such as CN or US"]
+    exchange: Annotated[str, "Exchange code"]
+    currency: Annotated[str, "Trading currency"]
+    asset_type: Annotated[str, "Asset type"]
+
+
+class MarketContext(TypedDict):
+    trade_date: Annotated[str, "Requested trade date"]
+    timezone: Annotated[str, "Market timezone"]
+    market_country: Annotated[str, "Market country"]
+    exchange: Annotated[str, "Exchange code"]
+    market_session: Annotated[str, "Current session for the requested trade date"]
+    market_is_open: Annotated[bool, "Whether the market is currently open"]
+    analysis_mode: Annotated[str, "Analysis mode such as pre_market, intraday, post_market, t_plus_1"]
+    data_as_of: Annotated[str, "Latest date the analysis should treat as confirmed data"]
+    session_note: Annotated[str, "Explanation for the current session inference"]
+
+
+class UserContext(TypedDict, total=False):
+    objective: Annotated[str, "User's desired action"]
+    risk_profile: Annotated[str, "User's risk profile"]
+    investment_horizon: Annotated[str, "User's intended holding horizon"]
+    cash_available: Annotated[float, "Available cash"]
+    current_position: Annotated[float, "Current position size"]
+    current_position_pct: Annotated[float, "Current position percentage"]
+    average_cost: Annotated[float, "Average holding cost"]
+    max_loss_pct: Annotated[float, "Maximum tolerated loss percentage"]
+    constraints: Annotated[list[str], "Hard trading constraints"]
+    user_notes: Annotated[str, "Additional user notes"]
+
+
+class WorkflowContext(TypedDict):
+    context_version: Annotated[str, "Workflow context version"]
+    request_source: Annotated[str, "Request origin such as api or chat"]
+    selected_analysts: Annotated[list[str], "Requested analyst roster"]
+
+
 class InvestDebateState(TypedDict):
-    bull_history: Annotated[
-        str, "Bullish Conversation history"
-    ]  # Bullish Conversation history
-    bear_history: Annotated[
-        str, "Bearish Conversation history"
-    ]  # Bullish Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
-    current_response: Annotated[str, "Latest response"]  # Last response
-    judge_decision: Annotated[str, "Final judge decision"]  # Last response
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+    bull_history: Annotated[str, "Bullish conversation history"]
+    bear_history: Annotated[str, "Bearish conversation history"]
+    history: Annotated[str, "Conversation history"]
+    current_speaker: Annotated[str, "Speaker that spoke last"]
+    current_response: Annotated[str, "Latest response"]
+    judge_decision: Annotated[str, "Final judge decision"]
+    count: Annotated[int, "Length of the current conversation"]
+    claims: Annotated[list[dict[str, Any]], "Tracked research claims"]
+    focus_claim_ids: Annotated[list[str], "Claim ids that must be answered in the next round"]
+    open_claim_ids: Annotated[list[str], "Claim ids still open"]
+    resolved_claim_ids: Annotated[list[str], "Claim ids considered resolved"]
+    unresolved_claim_ids: Annotated[list[str], "Claim ids still materially disputed"]
+    round_summary: Annotated[str, "Summary of the latest debate round"]
+    round_goal: Annotated[str, "Current round objective"]
+    claim_counter: Annotated[int, "Claim counter for unique ids"]
 
 
-# Risk management team state
 class RiskDebateState(TypedDict):
-    aggressive_history: Annotated[
-        str, "Aggressive Agent's Conversation history"
-    ]  # Conversation history
-    conservative_history: Annotated[
-        str, "Conservative Agent's Conversation history"
-    ]  # Conversation history
-    neutral_history: Annotated[
-        str, "Neutral Agent's Conversation history"
-    ]  # Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
+    aggressive_history: Annotated[str, "Aggressive analyst history"]
+    conservative_history: Annotated[str, "Conservative analyst history"]
+    neutral_history: Annotated[str, "Neutral analyst history"]
+    history: Annotated[str, "Conversation history"]
     latest_speaker: Annotated[str, "Analyst that spoke last"]
-    current_aggressive_response: Annotated[
-        str, "Latest response by the aggressive analyst"
-    ]  # Last response
-    current_conservative_response: Annotated[
-        str, "Latest response by the conservative analyst"
-    ]  # Last response
-    current_neutral_response: Annotated[
-        str, "Latest response by the neutral analyst"
-    ]  # Last response
-    judge_decision: Annotated[str, "Judge's decision"]
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+    current_aggressive_response: Annotated[str, "Latest response by the aggressive analyst"]
+    current_conservative_response: Annotated[str, "Latest response by the conservative analyst"]
+    current_neutral_response: Annotated[str, "Latest response by the neutral analyst"]
+    judge_decision: Annotated[str, "Judge decision"]
+    count: Annotated[int, "Length of the current conversation"]
+    claims: Annotated[list[dict[str, Any]], "Tracked risk claims"]
+    focus_claim_ids: Annotated[list[str], "Risk claim ids that must be answered next"]
+    open_claim_ids: Annotated[list[str], "Risk claim ids still open"]
+    resolved_claim_ids: Annotated[list[str], "Risk claim ids considered resolved"]
+    unresolved_claim_ids: Annotated[list[str], "Risk claim ids still materially disputed"]
+    round_summary: Annotated[str, "Summary of the latest debate round"]
+    round_goal: Annotated[str, "Current round objective"]
+    claim_counter: Annotated[int, "Claim counter for unique ids"]
+
+
+class RiskFeedbackState(TypedDict):
+    retry_count: Annotated[int, "How many times the trader has been sent back for revision"]
+    max_retries: Annotated[int, "Maximum number of allowed revisions"]
+    revision_required: Annotated[bool, "Whether the trader must revise the plan"]
+    latest_risk_verdict: Annotated[str, "Risk judge verdict such as pass, revise, reject"]
+    hard_constraints: Annotated[list[str], "Non-negotiable constraints from the risk judge"]
+    soft_constraints: Annotated[list[str], "Advisory constraints from the risk judge"]
+    execution_preconditions: Annotated[list[str], "Conditions that must hold before execution"]
+    de_risk_triggers: Annotated[list[str], "Triggers that require immediate de-risking"]
+    revision_reason: Annotated[str, "Why the plan was sent back"]
 
 
 class AgentState(MessagesState):
     company_of_interest: Annotated[str, "Company that we are interested in trading"]
     trade_date: Annotated[str, "What date we are trading at"]
-
     sender: Annotated[str, "Agent that sent this message"]
 
-    # research step
+    instrument_context: Annotated[InstrumentContext, "Normalized instrument context"]
+    market_context: Annotated[MarketContext, "Market session and timing context"]
+    user_context: Annotated[UserContext, "User-specific holdings and constraints"]
+    workflow_context: Annotated[WorkflowContext, "Workflow metadata for the current run"]
+
     market_report: Annotated[str, "Report from the Market Analyst"]
     sentiment_report: Annotated[str, "Report from the Social Media Analyst"]
-    news_report: Annotated[
-        str, "Report from the News Researcher of current world affairs"
-    ]
+    news_report: Annotated[str, "Report from the News Researcher of current world affairs"]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
 
-    # researcher team discussion step
     investment_debate_state: Annotated[
         InvestDebateState, "Current state of the debate on if to invest or not"
     ]
     investment_plan: Annotated[str, "Plan generated by the Analyst"]
-
     trader_investment_plan: Annotated[str, "Plan generated by the Trader"]
 
-    # risk management team discussion step
     risk_debate_state: Annotated[
         RiskDebateState, "Current state of the debate on evaluating risk"
     ]
+    risk_feedback_state: Annotated[
+        RiskFeedbackState, "Risk-judge feedback used for trader revision"
+    ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
 
-    # game theory layer reports
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
     game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
+    game_theory_signals: Annotated[dict[str, Any], "Structured game theory signals"]
+
+    # LangGraph state can carry provider-specific metadata as needed.
+    metadata: Annotated[dict[str, Any], "Optional runtime metadata"]

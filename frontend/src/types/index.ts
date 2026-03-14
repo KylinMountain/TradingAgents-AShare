@@ -17,10 +17,83 @@ export interface AgentTeam {
 }
 
 // Analysis Types
+export interface InstrumentContext {
+    symbol: string
+    security_name: string
+    market_country: string
+    exchange: string
+    currency: string
+    asset_type: string
+}
+
+export interface MarketContext {
+    trade_date: string
+    timezone: string
+    market_country: string
+    exchange: string
+    market_session: string
+    market_is_open: boolean
+    analysis_mode: string
+    data_as_of: string
+    session_note: string
+}
+
+export interface UserContext {
+    objective?: string
+    risk_profile?: string
+    investment_horizon?: string
+    cash_available?: number
+    current_position?: number
+    current_position_pct?: number
+    average_cost?: number
+    max_loss_pct?: number
+    constraints?: string[]
+    user_notes?: string
+}
+
+export interface WorkflowContext {
+    context_version: string
+    request_source: string
+    selected_analysts: string[]
+}
+
+export interface GameTheorySignals {
+    board?: string
+    players?: string[]
+    player_states?: Record<string, string>
+    likely_actions?: Record<string, string[]>
+    dominant_strategy?: string
+    fragile_equilibrium?: string
+    counter_consensus_signal?: string
+    confidence?: number
+}
+
+export interface RiskFeedbackState {
+    retry_count: number
+    max_retries: number
+    revision_required: boolean
+    latest_risk_verdict: string
+    hard_constraints: string[]
+    soft_constraints: string[]
+    execution_preconditions: string[]
+    de_risk_triggers: string[]
+    revision_reason: string
+}
+
 export interface AnalysisRequest {
     symbol: string
     trade_date: string
     selected_analysts: string[]
+    objective?: string
+    risk_profile?: string
+    investment_horizon?: string
+    cash_available?: number
+    current_position?: number
+    current_position_pct?: number
+    average_cost?: number
+    max_loss_pct?: number
+    constraints?: string[]
+    user_notes?: string
     config_overrides?: Record<string, unknown>
     dry_run?: boolean
 }
@@ -160,6 +233,10 @@ export interface AnalysisReport {
     trade_date: string
     decision?: string
     direction?: string
+    instrument_context?: InstrumentContext
+    market_context?: MarketContext
+    user_context?: UserContext
+    workflow_context?: WorkflowContext
     market_report?: string
     sentiment_report?: string
     news_report?: string
@@ -167,8 +244,10 @@ export interface AnalysisReport {
     macro_report?: string
     smart_money_report?: string
     game_theory_report?: string
+    game_theory_signals?: GameTheorySignals
     investment_plan?: string
     trader_investment_plan?: string
+    risk_feedback_state?: RiskFeedbackState
     final_trade_decision?: string
 }
 
