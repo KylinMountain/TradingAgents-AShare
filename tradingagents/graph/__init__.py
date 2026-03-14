@@ -3,7 +3,7 @@
 from .trading_graph import TradingAgentsGraph
 from .conditional_logic import ConditionalLogic
 from .data_collector import DataCollector
-from .intent_parser import parse_intent, build_intent_from_query, build_horizon_context
+from .intent_parser import parse_intent, build_horizon_context
 from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector

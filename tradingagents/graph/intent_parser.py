@@ -44,9 +44,13 @@ def parse_intent(
             HumanMessage(content=query),
         ])
         raw = result.content.strip()
-        # Strip markdown code fences if present
+        # Clean markdown code fences and handle potential trailing commas or minor issues
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
+        
+        # Simple cleanup for common LLM JSON errors (like trailing commas before closing braces)
+        raw = re.sub(r",\s*([\]}])", r"\1", raw)
+        
         parsed = json.loads(raw)
         return {
             "raw_query": query,
@@ -63,63 +67,6 @@ def parse_intent(
             "focus_areas": [],
             "specific_questions": [],
         }
-
-
-_SHORT_KEYWORDS = [
-    "短线", "短期", "近期", "未来几天", "几天", "本周", "下周", "明天", "今天",
-    "日线", "短炒", "T+", "波段短", "近几日",
-]
-_MEDIUM_KEYWORDS = [
-    "中线", "中期", "几个月", "季度", "半年", "中长", "波段", "趋势",
-]
-_FOCUS_MAP = {
-    "量价": ["量价关系", "成交量"],
-    "技术": ["技术面", "K线", "均线", "MACD", "RSI"],
-    "基本面": ["基本面", "财报", "业绩"],
-    "资金": ["主力资金", "龙虎榜", "资金流向"],
-    "消息": ["新闻", "公告", "利好", "利空"],
-    "宏观": ["宏观", "板块", "行业"],
-}
-
-
-def build_intent_from_query(
-    query: str,
-    ticker: str,
-) -> Dict[str, Any]:
-    """Build user intent from query using keyword matching — no LLM call.
-
-    Reuses ticker already extracted by _ai_extract_symbol_and_date.
-    """
-    text = query.lower()
-
-    has_short = any(kw in query for kw in _SHORT_KEYWORDS)
-    has_medium = any(kw in query for kw in _MEDIUM_KEYWORDS)
-
-    if has_short and not has_medium:
-        horizons = ["short"]
-    elif has_medium and not has_short:
-        horizons = ["medium"]
-    else:
-        horizons = ["short", "medium"]
-
-    focus_areas: List[str] = []
-    for label, keywords in _FOCUS_MAP.items():
-        if any(kw in query for kw in keywords):
-            focus_areas.append(label)
-
-    # Extract "能否达到X%" style specific questions
-    specific_questions: List[str] = []
-    import re as _re
-    price_q = _re.findall(r"能否[^，。？\n]{0,20}[%％涨跌]", query)
-    specific_questions.extend(price_q)
-
-    return {
-        "raw_query": query,
-        "ticker": ticker,
-        "horizons": horizons,
-        "focus_areas": focus_areas,
-        "specific_questions": specific_questions,
-    }
 
 
 def build_horizon_context(

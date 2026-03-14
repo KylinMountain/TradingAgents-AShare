@@ -193,6 +193,8 @@ class AnalyzeRequest(BaseModel):
     # When set, triggers intent-driven analysis via streaming dual-horizon path
     query: Optional[str] = Field(default=None, description="自然语言查询，如：分析贵州茅台短线机会")
     horizons: List[str] = Field(default_factory=lambda: ["short"], description="分析周期列表，如 ['short'] 或 ['short','medium']")
+    # Pre-parsed intent from _ai_extract_symbol_and_date (avoids second LLM call in _run_job)
+    user_intent: Optional[Dict[str, Any]] = Field(default=None, description="预解析的用户意图，由 chat_completions 传入")
 
 
 class AnalyzeResponse(BaseModel):
@@ -864,14 +866,27 @@ def _run_job(
         )
         final_state: Optional[Dict[str, Any]] = None
 
+        # Ensure horizons is never empty
+        if not request.horizons:
+            request.horizons = ["short"]
+
         # ── Dual-horizon intent-driven path ──────────────────────────────────
         if request.query:
-            from tradingagents.graph.intent_parser import build_intent_from_query as _build_intent
-
-            # 1. 组装用户意图（ticker 和 horizons 已由 chat/completions 的 LLM 解析好）
+            # 1. 组装用户意图
             ticker = request.symbol or display_name
-            user_intent = _build_intent(request.query, ticker)
-            user_intent["horizons"] = request.horizons  # 覆盖为 LLM 解析的周期
+
+            # 优先使用已由 chat_completions 预解析的 intent（单次 LLM），避免二次调用
+            if request.user_intent:
+                user_intent = dict(request.user_intent)
+                user_intent["ticker"] = ticker
+                user_intent["horizons"] = request.horizons
+            else:
+                # 直接 POST /v1/analyze 时的兜底（无预解析 intent）
+                from tradingagents.graph.intent_parser import parse_intent as _parse_intent
+                user_intent = _parse_intent(request.query, graph.quick_thinking_llm, fallback_ticker=ticker)
+                if "horizons" not in request.__fields_set__:
+                    request.horizons = user_intent["horizons"]
+                user_intent["horizons"] = request.horizons
 
             # 2. 一次性采集数据，短线/中线共用缓存
             # 先把所有 analyst 设为 in_progress，让前端看到"正在获取数据"
@@ -988,9 +1003,10 @@ def _run_job(
 
             graph.data_collector.evict(ticker, request.trade_date)
 
-            short_r = graph._build_horizon_result("short", horizon_states["short"] or {})
-            medium_r = graph._build_horizon_result("medium", horizon_states["medium"] or {})
-            decision = graph.process_signal(short_r.get("final_trade_decision", "")) or "UNKNOWN"
+            short_r = graph._build_horizon_result("short", horizon_states.get("short") or {})
+            medium_r = graph._build_horizon_result("medium", horizon_states.get("medium") or {})
+            primary_r = short_r if horizon_states.get("short") else medium_r
+            decision = graph.process_signal(primary_r.get("final_trade_decision", "")) or "UNKNOWN"
             result = {
                 "symbol": ticker,
                 "trade_date": request.trade_date,
@@ -999,7 +1015,7 @@ def _run_job(
                 "short_term": short_r,
                 "medium_term": medium_r,
                 "decision": decision,
-                "final_trade_decision": short_r.get("final_trade_decision", ""),
+                "final_trade_decision": primary_r.get("final_trade_decision", ""),
                 "analyst_traces": (
                     short_r.get("analyst_traces", []) + medium_r.get("analyst_traces", [])
                 ),
@@ -1673,20 +1689,24 @@ def stream_job_events(job_id: str, current_user: UserDB = Depends(_require_api_u
     )
 
 
-def _ai_extract_symbol_and_date(text: str, config: Dict[str, Any]) -> tuple[Optional[str], Optional[str], List[str]]:
+def _ai_extract_symbol_and_date(
+    text: str, config: Dict[str, Any]
+) -> tuple[Optional[str], Optional[str], List[str], List[str], List[str]]:
     """
-    Two-step extraction:
-    1. LLM extracts the company name/ticker and date from natural language.
-    2. Use the extracted name to look up the authoritative stock code from akshare.
+    Single-LLM extraction: stock name, date, horizons, focus_areas, specific_questions.
+    Then resolves the stock name to an authoritative code via akshare.
+    Returns (symbol, date, horizons, focus_areas, specific_questions).
     """
     from tradingagents.llm_clients.factory import create_llm_client
     import json as _json
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # ── Step 1: LLM extracts company name + date ──────────────────────────────
     llm_name: Optional[str] = None
     llm_date: Optional[str] = None
+    llm_horizons: List[str] = ["short"]
+    llm_focus_areas: List[str] = []
+    llm_specific_questions: List[str] = []
     try:
         client = create_llm_client(
             provider=config.get("llm_provider", "openai"),
@@ -1694,19 +1714,22 @@ def _ai_extract_symbol_and_date(text: str, config: Dict[str, Any]) -> tuple[Opti
             base_url=config.get("backend_url"),
             api_key=config.get("api_key"),
         )
-        prompt = f"""你是金融数据助手。从用户消息中提取股票标的名称、交易日期和分析周期。
+        prompt = f"""你是金融数据助手。从用户消息中提取以下字段并以 JSON 输出。
 
-规则：
-- stock_name：提取用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）。
-- 如果是美股，stock_name 直接填 ticker（如"AAPL"）。
-- date：使用 YYYY-MM-DD 格式。今天是 {today}，如未提及日期则填今天。
-- horizons：分析周期，数组，规则如下：
-  * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"等 → ["medium"]
-  * 用户同时提到短期和中期 → ["short", "medium"]
-  * 其他所有情况（包括未提及周期）→ 默认 ["short"]
-  * 短线/短期指1-2周维度，中线指1-3个月维度
-- 仅输出 JSON，不要任何其他文字：{{"stock_name": "...", "date": "YYYY-MM-DD", "horizons": ["short"]}}
-- 如果无法识别任何股票标的，返回：{{"stock_name": null, "date": null, "horizons": ["short"]}}
+字段说明：
+- stock_name：用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）；美股直接填 ticker。
+- date：YYYY-MM-DD 格式。今天是 {today}，如未提及则填今天。
+- horizons：分析周期数组：
+  * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"→ ["medium"]
+  * 同时提到短期和中期 → ["short", "medium"]
+  * 其他所有情况（含未提及）→ ["short"]
+- focus_areas：用户关注的分析维度关键词列表，如 ["技术面", "资金面", "业绩"]，未提及则 []。
+- specific_questions：用户提出的具体问题列表，如 ["近期有无催化剂？", "主力是否出货？"]，未提及则 []。
+
+仅输出 JSON，不要任何其他文字：
+{{"stock_name": "...", "date": "YYYY-MM-DD", "horizons": ["short"], "focus_areas": [], "specific_questions": []}}
+
+如果无法识别股票标的：{{"stock_name": null, "date": null, "horizons": ["short"], "focus_areas": [], "specific_questions": []}}
 
 用户消息："{text}"
 """
@@ -1719,12 +1742,14 @@ def _ai_extract_symbol_and_date(text: str, config: Dict[str, Any]) -> tuple[Opti
             llm_name = (data.get("stock_name") or "").strip() or None
             llm_date = data.get("date") or today
             llm_horizons = data.get("horizons") or ["short"]
+            llm_focus_areas = data.get("focus_areas") or []
+            llm_specific_questions = data.get("specific_questions") or []
     except Exception as e:
         print(f"[StockExtract] LLM failed: {e}")
 
     if not llm_name:
         print(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
-        return None, None, ["short"]
+        return None, None, llm_horizons, llm_focus_areas, llm_specific_questions
 
     print(f"[StockExtract] LLM extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
 
@@ -1732,22 +1757,22 @@ def _ai_extract_symbol_and_date(text: str, config: Dict[str, Any]) -> tuple[Opti
     if re.match(r"^\d{6}$", llm_name) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
         symbol = _normalize_symbol(llm_name)
         print(f"[StockExtract] Direct code: {symbol}")
-        return symbol or None, llm_date, llm_horizons
+        return symbol or None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions
 
     # ── Step 3: Search akshare A-share name database ──────────────────────────
     local_code = _search_cn_stock_by_name(llm_name)
     if local_code:
         print(f"[StockExtract] akshare match: '{llm_name}' → {local_code}")
-        return local_code, llm_date, llm_horizons
+        return local_code, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions
 
     # ── Step 4: Last resort — treat LLM name as a raw code ────────────────────
     fallback = _normalize_symbol(llm_name)
     if fallback:
         print(f"[StockExtract] Fallback normalize: '{llm_name}' → {fallback}")
-        return fallback, llm_date, llm_horizons
+        return fallback, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions
 
     print(f"[StockExtract] Could not resolve '{llm_name}' to a stock code")
-    return None, llm_date, llm_horizons
+    return None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions
 
 @app.post("/v1/chat/completions")
 def chat_completions(
@@ -1757,8 +1782,8 @@ def chat_completions(
     text = _extract_chat_text(request.messages)
     config = _build_runtime_config(request.config_overrides, user_id=current_user.id)
 
-    # 仅使用 LLM 解析，避免本地正则误判后缀
-    symbol, trade_date, horizons = _ai_extract_symbol_and_date(text, config)
+    # 单次 LLM 调用提取全部意图（避免 _run_job 里二次 LLM）
+    symbol, trade_date, horizons, focus_areas, specific_questions = _ai_extract_symbol_and_date(text, config)
 
     if not symbol:
         message = "抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 600519.SH）或可识别的公司名称。"
@@ -1773,6 +1798,13 @@ def chat_completions(
             )
         raise HTTPException(status_code=400, detail=message)
 
+    pre_intent = {
+        "raw_query": text,
+        "ticker": symbol,
+        "horizons": horizons,
+        "focus_areas": focus_areas,
+        "specific_questions": specific_questions,
+    }
 
     analyze_req = AnalyzeRequest(
         symbol=symbol,
@@ -1782,6 +1814,7 @@ def chat_completions(
         dry_run=request.dry_run,
         query=text,
         horizons=horizons,
+        user_intent=pre_intent,
     )
     job_id = uuid4().hex
     now = _utcnow_iso()
