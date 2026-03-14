@@ -10,7 +10,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # Currently disabled to allow fast iteration in early stages
   placeholder:
     runs-on: ubuntu-latest
     steps:
