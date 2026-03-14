@@ -3,6 +3,7 @@ import time
 import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.context_utils import build_agent_context_view
 
 
 def create_trader(llm, memory):
@@ -25,11 +26,15 @@ def create_trader(llm, memory):
             past_memory_str = "No past memories found."
 
         config = get_config()
+        context_view = build_agent_context_view(state, "trader")
         context = {
             "role": "user",
             "content": get_prompt("trader_user_prompt", config=config).format(
                 company_name=company_name,
                 investment_plan=investment_plan,
+                instrument_context_summary=context_view["instrument_context_summary"],
+                market_context_summary=context_view["market_context_summary"],
+                user_context_summary=context_view["user_context_summary"],
             ),
         }
 
@@ -37,7 +42,9 @@ def create_trader(llm, memory):
             {
                 "role": "system",
                 "content": get_prompt("trader_system_prompt", config=config).format(
-                    past_memory_str=past_memory_str
+                    past_memory_str=past_memory_str,
+                    market_context_summary=context_view["market_context_summary"],
+                    user_context_summary=context_view["user_context_summary"],
                 ),
             },
             context,

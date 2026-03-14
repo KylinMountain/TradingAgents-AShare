@@ -1,11 +1,20 @@
 # TradingAgents/graph/propagation.py
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Mapping
 from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
     RiskDebateState,
 )
+from tradingagents.agents.utils.context_utils import (
+    build_market_context,
+    infer_instrument_context,
+    normalize_user_context,
+    summarize_instrument_context,
+    summarize_market_context,
+    summarize_user_context,
+)
+from tradingagents.agents.utils.debate_utils import default_round_goal
 
 
 class Propagator:
@@ -16,33 +25,89 @@ class Propagator:
         self.max_recur_limit = max_recur_limit
 
     def create_initial_state(
-        self, company_name: str, trade_date: str
+        self,
+        company_name: str,
+        trade_date: str,
+        user_context: Optional[Mapping[str, Any]] = None,
+        selected_analysts: Optional[List[str]] = None,
+        request_source: str = "api",
     ) -> Dict[str, Any]:
         """Create the initial state for the agent graph."""
-        user_context = (
-            f"Symbol: {company_name}\n"
-            f"Trade date: {trade_date}"
+        instrument_context = infer_instrument_context(company_name)
+        market_context = build_market_context(company_name, str(trade_date))
+        normalized_user_context = normalize_user_context(user_context)
+        user_context_summary = summarize_user_context(normalized_user_context)
+        user_prompt_context = (
+            f"{summarize_instrument_context(instrument_context)}\n"
+            f"{summarize_market_context(market_context)}\n"
+            f"{user_context_summary}"
         )
         return {
-            "messages": [("human", user_context)],
+            "messages": [("human", user_prompt_context)],
             "company_of_interest": company_name,
             "trade_date": str(trade_date),
+            "instrument_context": instrument_context,
+            "market_context": market_context,
+            "user_context": normalized_user_context,
+            "workflow_context": {
+                "context_version": "v1",
+                "request_source": request_source,
+                "selected_analysts": selected_analysts or [],
+            },
             "investment_debate_state": InvestDebateState(
-                {"history": "", "current_response": "", "count": 0}
+                {
+                    "history": "",
+                    "bull_history": "",
+                    "bear_history": "",
+                    "current_speaker": "",
+                    "current_response": "",
+                    "judge_decision": "",
+                    "count": 0,
+                    "claims": [],
+                    "focus_claim_ids": [],
+                    "open_claim_ids": [],
+                    "resolved_claim_ids": [],
+                    "unresolved_claim_ids": [],
+                    "round_summary": "",
+                    "round_goal": default_round_goal("investment", 1),
+                    "claim_counter": 0,
+                }
             ),
             "risk_debate_state": RiskDebateState(
                 {
                     "history": "",
+                    "aggressive_history": "",
+                    "conservative_history": "",
+                    "neutral_history": "",
+                    "latest_speaker": "",
                     "current_aggressive_response": "",
                     "current_conservative_response": "",
                     "current_neutral_response": "",
+                    "judge_decision": "",
                     "count": 0,
+                    "claims": [],
+                    "focus_claim_ids": [],
+                    "open_claim_ids": [],
+                    "resolved_claim_ids": [],
+                    "unresolved_claim_ids": [],
+                    "round_summary": "",
+                    "round_goal": default_round_goal("risk", 1),
+                    "claim_counter": 0,
                 }
             ),
             "market_report": "",
             "fundamentals_report": "",
             "sentiment_report": "",
             "news_report": "",
+            "macro_report": "",
+            "smart_money_report": "",
+            "game_theory_report": "",
+            "game_theory_signals": {},
+            "investment_plan": "",
+            "trader_investment_plan": "",
+            "final_trade_decision": "",
+            "sender": "",
+            "metadata": {},
         }
 
     def get_graph_args(self, callbacks: Optional[List] = None) -> Dict[str, Any]:
