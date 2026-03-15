@@ -127,3 +127,13 @@ curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" 
 - **轮询频率**：每次轮询间隔不低于 15 秒
 - **数据健壮性**：若部分数据源缺失，系统将基于宏观与行业逻辑进行外溢分析
 - **短线模式**：输入"分析 XX 短线"时，系统自动切换为 14 天技术面分析，跳过财报数据，速度更快
+
+---
+
+## English Overview
+
+**TradingAgents** is a professional multi-agent investment research system for A-Share and US stocks. A pipeline of **15 AI analysts** collaborates across 5 stages — market analysis, game theory, bull/bear debate, trade execution, and risk management — to deliver structured, risk-controlled trading recommendations.
+
+**Workflow**: Submit symbol → agents research in parallel → poll for completion → receive decision with target price, stop-loss, confidence score, risk items, and key metrics.
+
+**Supported**: A-Share names (`贵州茅台`) or codes (`600519.SH`), US tickers (`AAPL`, `TSLA`).
