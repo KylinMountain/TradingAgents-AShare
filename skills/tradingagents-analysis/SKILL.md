@@ -1,17 +1,24 @@
 ---
 name: tradingagents-analysis
-description: Professional multi-agent investment research tool for A-Share and US stocks. Analyzes market, technicals, fundamentals, sentiment, and smart money.
+description: 专业 A 股多智能体投研工具。15 名 AI 分析师五阶段协作，深度分析技术面、基本面、市场情绪与资金流向，提供结构化交易建议。Professional multi-agent investment research for A-Share & US stocks — market, fundamentals, sentiment, smart money.
 homepage: https://app.510168.xyz
 repository: https://github.com/KylinMountain/TradingAgents-AShare
+tags:
+  - A股
+  - 股票分析
+  - 量化投研
+  - A-share
+  - stock-analysis
+  - China
 env:
   TRADINGAGENTS_API_URL:
-    description: "TradingAgents API base URL"
+    description: "后端 API 地址 (TradingAgents API base URL)"
     default: "https://api.510168.xyz"
   TRADINGAGENTS_TOKEN:
-    description: "Bearer token starts with ta-sk-"
+    description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
     required: true
 primary_credential: TRADINGAGENTS_TOKEN
-metadata: {"clawdbot":{"emoji":"📉"}}
+metadata: {"clawdbot":{"emoji":"📈"}}
 ---
 
 # tradingagents-analysis
