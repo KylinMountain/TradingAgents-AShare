@@ -8,22 +8,6 @@ import {
 } from 'lucide-react'
 import { extractVerdict, type Verdict } from '@/utils/reportText'
 
-// ── 子组件：流动光路 ─────────────────────────────────────────────────────────
-
-function FlowingPath({ active, completed }: { active?: boolean; completed?: boolean }) {
-    return (
-        <div className="relative flex-1 h-1.5 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden mx-2">
-            {active && (
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-flowing-light" 
-                     style={{ backgroundSize: '200% 100%' }} />
-            )}
-            {completed && (
-                <div className="absolute inset-0 bg-emerald-500/30" />
-            )}
-        </div>
-    )
-}
-
 // ── Agent 元数据 (保持原有色彩与中文) ──────────────────────────────────────────
 
 interface AgentMeta {
@@ -265,6 +249,11 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
+
+interface AgentCollaborationProps {
+    onSelectSection: (section?: string) => void
+    selectedSection?: string
+}
 
 export default function AgentCollaboration({ onSelectSection, selectedSection }: AgentCollaborationProps) {
     const { agents, isAnalyzing, streamingSections, report, currentHorizon } = useAnalysisStore()
