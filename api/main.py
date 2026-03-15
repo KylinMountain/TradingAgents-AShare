@@ -914,12 +914,14 @@ def _run_job(
             ticker = user_intent.get("ticker") or ticker
 
             # 2. 一次性采集数据，短线/中线共用缓存
+            lookback_label = "14天关键行情" if request.horizons == ["short"] else "90天全量行情、财务、新闻、资金"
             _emit_job_event(job_id, "agent.tool_call", {
                 "agent": "数据采集", "tool": "data_collector",
-                "description": f"预加载 {ticker} 近90天行情、财务、新闻、资金数据…",
+                "description": f"预加载 {ticker} 近{lookback_label}数据…",
             })
-            print(f"[DualHorizon] Collecting data for {ticker} {request.trade_date}…")
+            print(f"[DualHorizon] Collecting data for {ticker} {request.trade_date} (horizons={request.horizons})…")
             graph.data_collector.collect(ticker, request.trade_date, horizons=request.horizons)
+
             _emit_job_event(job_id, "agent.tool_call", {
                 "agent": "数据采集", "tool": "data_collector",
                 "description": "数据采集完成，开始多维度分析",
