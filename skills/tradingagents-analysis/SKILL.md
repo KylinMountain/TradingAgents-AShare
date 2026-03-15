@@ -38,6 +38,22 @@ metadata: {"clawdbot":{"emoji":"📈"}}
 | 4. 执行决策 | 交易员 | 综合研判生成操作建议 |
 | 5. 风险管控 | 激进/中性/保守分析师 + 组合经理 | 多维度风控审核 |
 
+---
+
+# TradingAgents Multi-Agent Investment Research
+
+Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, five-stage collaborative research on A-Share and US stocks, delivering structured trading recommendations.
+
+## 🤖 System Architecture: 5 Stages · 15 Agents
+
+| Stage | Agents | Role |
+|-------|--------|------|
+| 1. Analyst Team | Market / News / Sentiment / Fundamentals / Macro / Smart Money | Multi-dimensional raw data analysis |
+| 2. Game Theory | Game Theory Manager | Main-force vs. retail expectation gap |
+| 3. Bull/Bear Debate | Bull & Bear Researchers + Judge | Adversarial viewpoint debate |
+| 4. Trade Execution | Trader | Synthesize research into actionable decision |
+| 5. Risk Control | Aggressive / Neutral / Conservative + Portfolio Manager | Multi-layer risk review |
+
 ## 🔒 隐私与安全
 
 - **数据传输**：本技能仅向后端发送股票代码和分析参数，不读取本地文件或隐私数据。
@@ -127,13 +143,3 @@ curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" 
 - **轮询频率**：每次轮询间隔不低于 15 秒
 - **数据健壮性**：若部分数据源缺失，系统将基于宏观与行业逻辑进行外溢分析
 - **短线模式**：输入"分析 XX 短线"时，系统自动切换为 14 天技术面分析，跳过财报数据，速度更快
-
----
-
-## English Overview
-
-**TradingAgents** is a professional multi-agent investment research system for A-Share and US stocks. A pipeline of **15 AI analysts** collaborates across 5 stages — market analysis, game theory, bull/bear debate, trade execution, and risk management — to deliver structured, risk-controlled trading recommendations.
-
-**Workflow**: Submit symbol → agents research in parallel → poll for completion → receive decision with target price, stop-loss, confidence score, risk items, and key metrics.
-
-**Supported**: A-Share names (`贵州茅台`) or codes (`600519.SH`), US tickers (`AAPL`, `TSLA`).
