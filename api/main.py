@@ -906,9 +906,12 @@ def _run_job(
             else:
                 # 直接 POST /v1/analyze 时的兜底（无预解析 intent）
                 user_intent = _parse_intent(request.query, graph.quick_thinking_llm, fallback_ticker=ticker)
-                if "horizons" not in request.__fields_set__:
+                if not request.horizons:
                     request.horizons = user_intent["horizons"]
                 user_intent["horizons"] = request.horizons
+
+            # Use normalized ticker from intent parser if available
+            ticker = user_intent.get("ticker") or ticker
 
             # 2. 一次性采集数据，短线/中线共用缓存
             _emit_job_event(job_id, "agent.tool_call", {
@@ -916,7 +919,7 @@ def _run_job(
                 "description": f"预加载 {ticker} 近90天行情、财务、新闻、资金数据…",
             })
             print(f"[DualHorizon] Collecting data for {ticker} {request.trade_date}…")
-            graph.data_collector.collect(ticker, request.trade_date)
+            graph.data_collector.collect(ticker, request.trade_date, horizons=request.horizons)
             _emit_job_event(job_id, "agent.tool_call", {
                 "agent": "数据采集", "tool": "data_collector",
                 "description": "数据采集完成，开始多维度分析",
@@ -1323,8 +1326,8 @@ def _normalize_symbol(raw: str) -> str:
     # Final Fallback: Check Chinese Name Map (e.g. "三花智控" -> "002050.SZ")
     from tradingagents.dataflows.trade_calendar import _load_cn_stock_map
     stock_map = _load_cn_stock_map()
-    if raw in stock_map:
-        return stock_map[raw]
+    if s in stock_map:
+        return stock_map[s]
         
     return s
 

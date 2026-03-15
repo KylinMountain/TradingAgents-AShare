@@ -14,7 +14,6 @@ __all__ = [
     "ConditionalLogic",
     "DataCollector",
     "parse_intent",
-    "build_intent_from_query",
     "build_horizon_context",
     "GraphSetup",
     "Propagator",

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 from pathlib import Path
 import json
 from datetime import date
@@ -334,6 +335,11 @@ class TradingAgentsGraph:
             "smart_money_report": final_state.get("smart_money_report", ""),
         }
 
+    @staticmethod
+    def _safe_ticker(ticker: str) -> str:
+        """Sanitize ticker for use in filesystem paths."""
+        return re.sub(r"[^A-Za-z0-9._-]", "_", ticker) or "unknown"
+
     def _log_state_dual(
         self,
         trade_date: str,
@@ -342,7 +348,9 @@ class TradingAgentsGraph:
         user_intent: Dict[str, Any],
     ) -> None:
         """Log dual-horizon results to a JSON file."""
-        ticker = short_result.get("company_of_interest") or self.ticker or "unknown"
+        ticker = self._safe_ticker(
+            short_result.get("company_of_interest") or self.ticker or "unknown"
+        )
         entry = {
             "user_intent": user_intent,
             "short_term": short_result,
@@ -391,11 +399,12 @@ class TradingAgentsGraph:
         }
 
         # Save to file
-        directory = Path(f"eval_results/{self.ticker}/TradingAgentsStrategy_logs/")
+        safe_ticker = self._safe_ticker(self.ticker or "unknown")
+        directory = Path(f"eval_results/{safe_ticker}/TradingAgentsStrategy_logs/")
         directory.mkdir(parents=True, exist_ok=True)
 
         with open(
-            f"eval_results/{self.ticker}/TradingAgentsStrategy_logs/full_states_log_{trade_date}.json",
+            f"eval_results/{safe_ticker}/TradingAgentsStrategy_logs/full_states_log_{trade_date}.json",
             "w",
         ) as f:
             json.dump(self.log_states_dict, f, indent=4)
