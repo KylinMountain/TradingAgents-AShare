@@ -44,20 +44,20 @@ def parse_intent(
             HumanMessage(content=query),
         ])
         raw = result.content.strip()
-        # Clean markdown code fences and handle potential trailing commas or minor issues
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
+        # Clean markdown code fences more robustly (handle potential whitespace/newlines)
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.MULTILINE)
+        raw = re.sub(r"\s*```$", "", raw, flags=re.MULTILINE)
         
-        # Simple cleanup for common LLM JSON errors (like trailing commas before closing braces)
+        # Simple cleanup for common LLM JSON errors
         raw = re.sub(r",\s*([\]}])", r"\1", raw)
         
-        parsed = json.loads(raw)
+        parsed = json.loads(raw) or {}
         return {
             "raw_query": query,
             "ticker": parsed.get("ticker") or fallback_ticker or "",
-            "horizons": parsed.get("horizons") or ["short", "medium"],
-            "focus_areas": parsed.get("focus_areas") or [],
-            "specific_questions": parsed.get("specific_questions") or [],
+            "horizons": parsed.get("horizons") if isinstance(parsed.get("horizons"), list) else ["short", "medium"],
+            "focus_areas": parsed.get("focus_areas") if isinstance(parsed.get("focus_areas"), list) else [],
+            "specific_questions": parsed.get("specific_questions") if isinstance(parsed.get("specific_questions"), list) else [],
         }
     except Exception:
         return {

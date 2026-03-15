@@ -97,12 +97,13 @@ class DataCollector:
     def collect(self, ticker: str, trade_date: str, horizons: Optional[List[str]] = None) -> Dict[str, Any]:
         """Fetch data and store in cache.
 
-        Passes short_only=True when horizons == ['short'] to use a 14-day lookback
+        Passes short_only=True when horizons is EXACTLY ['short'] to use a 14-day lookback
         and skip financial statements, speeding up short-term-only analysis.
         """
         key = make_cache_key(ticker, trade_date)
         if key not in self._cache:
-            short_only = horizons is not None and horizons == ["short"]
+            # Only use short_only optimization if we only have one horizon and it's 'short'
+            short_only = horizons is not None and len(horizons) == 1 and horizons[0] == "short"
             self._cache[key] = _fetch_all(ticker, trade_date, short_only=short_only)
         return self._cache[key]
 

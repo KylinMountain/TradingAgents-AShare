@@ -35,6 +35,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.dataflows.trade_calendar import cn_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.graph.intent_parser import parse_intent as _parse_intent
 
 
 def _cors_allow_origins() -> list[str]:
@@ -171,6 +172,15 @@ ANALYST_AGENT_NAMES = {
     "fundamentals": "Fundamentals Analyst",
     "macro": "Macro Analyst",
     "smart_money": "Smart Money Analyst",
+    "game_theory": "Game Theory Manager",
+    "bull": "Bull Researcher",
+    "bear": "Bear Researcher",
+    "research_manager": "Research Manager",
+    "trader": "Trader",
+    "aggressive": "Aggressive Analyst",
+    "neutral": "Neutral Analyst",
+    "conservative": "Conservative Analyst",
+    "portfolio_manager": "Portfolio Manager",
 }
 ANALYST_REPORT_MAP = {
     "market": "market_report",
@@ -895,7 +905,6 @@ def _run_job(
                 user_intent["horizons"] = request.horizons
             else:
                 # 直接 POST /v1/analyze 时的兜底（无预解析 intent）
-                from tradingagents.graph.intent_parser import parse_intent as _parse_intent
                 user_intent = _parse_intent(request.query, graph.quick_thinking_llm, fallback_ticker=ticker)
                 if "horizons" not in request.__fields_set__:
                     request.horizons = user_intent["horizons"]
@@ -975,31 +984,30 @@ def _run_job(
                     # 2. game_theory_report 出现 → GTM completed, Bull 开始
                     if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
                         seen["game_theory_report"] = True
-                        tracker._set_status("Game Theory Manager", "completed")
-                        tracker._set_status("Bull Researcher", "in_progress")
+                        tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
 
                     # 3. research judge → 研究团队完成, Trader 开始
                     debate = chunk.get("investment_debate_state") or {}
                     if debate.get("judge_decision") and not seen.get("judge_decision"):
                         seen["judge_decision"] = True
-                        for r in ["Bull Researcher", "Bear Researcher", "Research Manager"]:
-                            tracker._set_status(r, "completed")
-                        tracker._set_status("Trader", "in_progress")
-                        tracker._emit_writing_status("Trader", "trader_investment_plan")
+                        for r_key in ["bull", "bear", "research_manager"]:
+                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
+                        tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
 
                     # 4. trader plan → Trader completed, 风控开始
                     if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
                         seen["trader_investment_plan"] = True
-                        tracker._set_status("Trader", "completed")
-                        tracker._set_status("Aggressive Analyst", "in_progress")
+                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
 
                     # 5. risk judge → 风控全部完成
                     risk = chunk.get("risk_debate_state") or {}
                     if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
                         seen["risk_judge_decision"] = True
-                        for r in ["Aggressive Analyst", "Conservative Analyst",
-                                  "Neutral Analyst", "Portfolio Manager"]:
-                            tracker._set_status(r, "completed")
+                        for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
+                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
                     # ── end 并行感知 ────────────────────────────────────────────
 
                     # 报告分片推送
