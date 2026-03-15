@@ -232,9 +232,7 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
                 </div>
 
                 {(done || active) && (
-                    <div className={`rounded-lg border px-3 py-2.5 transition-all duration-500 ${
-                        active ? 'border-blue-200 bg-blue-50 dark:border-blue-500/30' : `${card.sumBorder} ${card.sumBg}`
-                    }`}>
+                    <div className={`rounded-lg border px-3 py-2.5 transition-all duration-500 ${card.sumBorder} ${card.sumBg}`}>
                         {active ? (
                             <div className="flex items-center gap-2 py-0.5">
                                 <span className="flex gap-1">
