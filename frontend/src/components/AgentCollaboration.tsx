@@ -196,7 +196,7 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
                 selected
                     ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-500/10 shadow-lg ring-2 ring-blue-400/30'
                     : active
-                    ? 'border-blue-500 dark:border-blue-500 bg-white dark:bg-slate-800 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-[1.02] z-10'
+                    ? 'border-blue-400/60 dark:border-blue-500/60 bg-white dark:bg-slate-800 shadow-[0_0_12px_rgba(59,130,246,0.2)] z-10'
                     : done
                     ? 'border-emerald-300 dark:border-emerald-500/50 bg-emerald-50/30 dark:bg-slate-800/60 shadow-sm'
                     : skipped
@@ -205,10 +205,6 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
                 clickable ? 'cursor-pointer hover:border-slate-400 dark:hover:border-slate-500' : 'cursor-default',
             ].join(' ')}
         >
-            {active && (
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-transparent to-blue-500/10 animate-pulse pointer-events-none" />
-            )}
-            
             <div className="p-4 relative z-10">
                 <div className="flex items-start gap-3 mb-3">
                     <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500 ${active ? 'scale-110 shadow-blue-400/20' : ''} ${card.badgeBg}`}>
@@ -295,42 +291,38 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
 
     const cardMap = new Map(cards.map(c => [c.name, c]))
     const doneN = cards.filter(c => c.status === 'completed').length
-    const participatingCount = cards.filter(c => c.isParticipating).length
+    // 进度分母：排除 skipped，无论是否正在分析
+    const participatingCount = cards.filter(c => c.status !== 'skipped').length
 
     return (
         <section className="card relative overflow-hidden bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-            {/* 周期实时角标 */}
-            {isAnalyzing && currentHorizon && (
-                <div className="absolute top-0 right-0 p-4 z-20">
-                    <div className={`px-4 py-1.5 rounded-bl-2xl rounded-tr-lg text-[11px] font-black tracking-widest shadow-2xl border-2 animate-in slide-in-from-right duration-500 ${
-                        currentHorizon === 'short' 
-                        ? 'bg-blue-600 text-white border-blue-400 shadow-blue-500/20' 
-                        : 'bg-purple-700 text-white border-purple-500 shadow-purple-500/20'
-                    }`}>
-                        {currentHorizon === 'short' ? '⚡️ 短线视角 (TECHNICAL)' : '🔭 中线视角 (FUNDAMENTAL)'}
-                    </div>
-                </div>
-            )}
-
             {/* 标题栏 */}
             <div className="flex items-center justify-between mb-8 relative z-10 border-b border-slate-100 dark:border-slate-800 pb-4">
-                <div>
-                    <div className="flex items-center gap-3 mb-1.5">
-                        <div className={`w-3 h-3 rounded-full ${isAnalyzing ? 'bg-blue-500 animate-pulse shadow-[0_0_12px_#3b82f6]' : 'bg-slate-300'}`} />
-                        <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tighter uppercase">
-                            TradingAgents 协同工作流
-                        </h3>
-                    </div>
-                    <p className="text-[12px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest opacity-80">
-                        自动化投研流水线 · 数据共源 · 多智能体博弈
-                    </p>
+                <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${isAnalyzing ? 'bg-blue-500 animate-pulse shadow-[0_0_12px_#3b82f6]' : 'bg-slate-300'}`} />
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tighter uppercase">
+                        TradingAgents 协同工作流
+                    </h3>
                 </div>
-                <div className="text-right">
-                    <div className="text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
-                        {participatingCount > 0 ? Math.round((doneN / participatingCount) * 100) : 0}%
+                {isAnalyzing && (
+                    <div className="flex items-center gap-4">
+                        {currentHorizon && (
+                            <span className={`px-3 py-1 rounded-full text-[11px] font-black tracking-widest border animate-in fade-in duration-300 ${
+                                currentHorizon === 'short'
+                                ? 'bg-blue-600/10 text-blue-600 dark:text-blue-400 border-blue-400/30'
+                                : 'bg-purple-600/10 text-purple-600 dark:text-purple-400 border-purple-400/30'
+                            }`}>
+                                {currentHorizon === 'short' ? '⚡ 短线视角' : '🔭 中线视角'}
+                            </span>
+                        )}
+                        <div className="text-right">
+                            <div className="text-2xl font-black text-blue-600 dark:text-blue-400 tabular-nums">
+                                {participatingCount > 0 ? Math.round((doneN / participatingCount) * 100) : 0}%
+                            </div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">分析总进度</p>
+                        </div>
                     </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">分析总进度</p>
-                </div>
+                )}
             </div>
 
             <div className="space-y-8 relative z-10">

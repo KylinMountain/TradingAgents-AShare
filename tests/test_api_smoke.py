@@ -151,7 +151,7 @@ class TestChatCompletionsEndpoint:
     def test_unrecognizable_stock_returns_error(self):
         """Non-stock text returns 400 with Chinese error message."""
         # Mock the LLM used for stock extraction to return no stock
-        with patch("api.main._ai_extract_symbol_and_date", return_value=(None, None, ["short"])):
+        with patch("api.main._ai_extract_symbol_and_date", return_value=(None, None, ["short"], [], [])):
             r = self.client.post("/v1/chat/completions", headers=self.headers, json={
                 "messages": [{"role": "user", "content": "今天天气真好"}],
                 "stream": False,
@@ -162,7 +162,7 @@ class TestChatCompletionsEndpoint:
 
     def test_valid_stock_dry_run_creates_job(self):
         """Valid stock message with dry_run creates and completes a job."""
-        with patch("api.main._ai_extract_symbol_and_date", return_value=("600519.SH", "2024-01-15", ["short"])):
+        with patch("api.main._ai_extract_symbol_and_date", return_value=("600519.SH", "2024-01-15", ["short"], [], [])):
             r = self.client.post("/v1/chat/completions", headers=self.headers, json={
                 "messages": [{"role": "user", "content": "分析600519短线机会"}],
                 "stream": False,

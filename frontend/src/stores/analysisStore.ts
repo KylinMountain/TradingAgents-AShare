@@ -71,6 +71,9 @@ interface AnalysisState {
     isAnalyzing: boolean
     isConnected: boolean
 
+    // Current analysis horizon (for badge display)
+    currentHorizon: string | null
+
     // Actions
     setCurrentJobId: (jobId: string | null) => void
     setCurrentSymbol: (symbol: string) => void
@@ -93,6 +96,7 @@ interface AnalysisState {
     }) => void
     setIsAnalyzing: (isAnalyzing: boolean) => void
     setIsConnected: (isConnected: boolean) => void
+    setCurrentHorizon: (horizon: string | null) => void
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
     clearChatMessages: () => void
@@ -144,6 +148,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     logs: [],
     isAnalyzing: false,
     isConnected: false,
+    currentHorizon: null,
 
     setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
 
@@ -277,6 +282,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         logs: [],
         isAnalyzing: false,
         isConnected: false,
+        currentHorizon: null,
     }),
 
     addLog: (log) => set((state) => ({
@@ -300,6 +306,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
 
     setIsConnected: (isConnected) => set({ isConnected }),
 
+    setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
+
     reset: () => set((state) => ({
         currentJobId: null,
         currentSymbol: state.currentSymbol,
@@ -316,7 +324,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         // 注意：reset时不清空chatMessages，保持对话历史
         logs: [],
         isAnalyzing: false,
-        isConnected: false
+        isConnected: false,
+        currentHorizon: null,
     }))
 }), {
     name: 'tradingagents-analysis',

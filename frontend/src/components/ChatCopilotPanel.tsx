@@ -127,6 +127,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setCurrentSymbol,
         setIsAnalyzing,
         setIsConnected,
+        setCurrentHorizon,
         updateAgentStatus,
         updateAgentSnapshot,
         addAgentReport,
@@ -248,7 +249,16 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.running':
                 setIsAnalyzing(true)
                 break
+            case 'agent.horizon_start': {
+                const h = String(data.horizon || '')
+                setCurrentHorizon(h || null)
+                break
+            }
+            case 'agent.horizon_done':
+                // keep currentHorizon until job completes so badge stays visible
+                break
             case 'job.completed':
+                setCurrentHorizon(null)
                 setIsAnalyzing(false)
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
@@ -276,6 +286,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 }
                 break
             case 'job.failed':
+                setCurrentHorizon(null)
                 setIsAnalyzing(false)
                 pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
                 break

@@ -55,6 +55,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        data_collector: Optional["DataCollector"] = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -63,6 +64,7 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            data_collector: Optional pre-existing DataCollector to reuse (shares cached data across horizons)
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
@@ -111,7 +113,7 @@ class TradingAgentsGraph:
         self.tool_nodes = self._create_tool_nodes()
 
         # Data collector — fetches once, shared across dual-horizon runs
-        self.data_collector = DataCollector()
+        self.data_collector = data_collector if data_collector is not None else DataCollector()
 
         # Initialize components
         self.conditional_logic = ConditionalLogic()
