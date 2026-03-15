@@ -1,48 +1,68 @@
 ---
 name: tradingagents-analysis
-description: Use when the user asks to analyze a stock, research market trends, or has any investment-related questions for TradingAgents. Supports natural language queries.
+description: 专业 A 股多智能体投研分析工具。集成 15 名 AI 分析师进行 5 阶段深度协作，深度解析技术面、基本面、市场情绪与聪明钱流向，为投资者提供结构化、风控严密的交易建议。Professional multi-agent investment research tool for A-Share stocks using a 15-agent pipeline system.
+homepage: https://app.510168.xyz
+repository: https://github.com/KylinMountain/TradingAgents-AShare
 env:
-  TRADINGAGENTS_API_URL: "TradingAgents API base URL (default: https://api.510168.xyz)"
-  TRADINGAGENTS_TOKEN: "Bearer token — login at https://app.510168.xyz → Settings → create an API Token"
+  TRADINGAGENTS_API_URL:
+    description: "后端 API 地址 (TradingAgents API base URL)"
+    default: "https://api.510168.xyz"
+  TRADINGAGENTS_TOKEN:
+    description: "API 访问令牌 (Bearer token starts with ta-sk-)"
+    required: true
+primary_credential: TRADINGAGENTS_TOKEN
+metadata: {"clawdbot":{"emoji":"📈"}}
 ---
 
-# TradingAgents Analysis Skill (Natural Language)
+# tradingagents-analysis (A 股多智能体分析)
 
-Ask questions like "How is CATL doing?", "Analyze 600519.SH", or "Is it a good time to buy semiconductors?".
+使用 TradingAgents API 对 A 股进行深度多维度分析，获取基于 **15 名智能体**（5 阶段：分析、博弈、辩论、执行、风控）博弈后的结构化投资建议。
 
-## ⚠️ Performance Expectation
-- **Duration**: Deep analysis takes **1 to 5 minutes**.
-- **User Feedback**: Always inform the user that a multi-agent investigation has started.
+## 🔒 隐私与安全 (Privacy & Security)
 
-## API Reference
+- **数据传输**：本技能仅将您提供的**股票标的**发送至配置的后端进行意图识别与分析。
+- **自托管方案**：为保障极致隐私，建议参考 [Docker 部署文档](https://github.com/KylinMountain/TradingAgents-AShare#4-docker-一键部署-推荐) 自行托管后端。
 
-### 1. Intent Detection & Quick Chat (POST /v1/chat/completions)
-Send the user's message directly to the TradingAgents backend. The backend will automatically detect the symbol and start an analysis job if needed.
+## ⚙️ 设置 (Setup)
 
-**Request:**
-```json
-{
-  "messages": [
-    {"role": "user", "content": "帮我看看阳光电源目前的表现，适合买入吗？"}
-  ],
-  "stream": false
-}
+1. 登录 https://app.510168.xyz
+2. 进入 **Settings** → **API Tokens** 创建令牌。
+3. 配置环境变量：
+```bash
+export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
 ```
 
-**Response (Intent Detected):**
-If the backend detects an analysis intent, it returns a message like `[Analysis Started: 300274.SZ @ 2026-03-13] job_id: <id>`.
+## 🚀 常用操作 (Common Operations)
 
-### 2. Job Lifecycle (for Analysis Jobs)
-- **Status**: `GET /v1/jobs/{job_id}`
-- **Result**: `GET /v1/jobs/{job_id}/result`
+**1. 提交分析任务 (Submit Analysis Job)**
+支持通过**中文名称**或**标准代码**查询。
+```bash
+# 示例：分析一下贵州茅台 (Analyze Moutai)
+curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
+  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "贵州茅台"}'
+```
 
-## AI Implementation Strategy
-1. **Chat First**: Instead of trying to extract the symbol yourself, send the user's full query to `/v1/chat/completions`.
-2. **Handle Job ID**: Look for a `job_id` in the chat response. If found, start the polling loop.
-3. **Wait & Poll**: Use a 30s interval to poll `/v1/jobs/{id}` until status is `completed`.
-4. **Final Summary**: Retrieve the full report from `/v1/jobs/{id}/result` and provide a high-level expert summary.
+**2. 轮询状态与获取结果 (Poll & Retrieve)**
+- 状态查询: `GET /v1/jobs/{job_id}`
+- 获取结果: `GET /v1/jobs/{job_id}/result`
 
-## Common Symbols
-- Supports Chinese names (e.g., 贵州茅台)
-- Supports 6-digit codes (e.g., 000001)
-- Prefers suffixes for accuracy (.SH / .SZ)
+## 🔄 任务执行流程 (Execution Workflow)
+
+深度分析涉及 **15 名专业智能体** 的多轮博弈，通常耗时 **1 至 5 分钟**：
+
+1. **意图识别**：自动从对话上下文中锁定分析目标标的。
+2. **任务提交**：向分析引擎异步提交 `POST /v1/analyze` 任务。
+3. **状态同步**：向用户反馈任务已受理，并提供预期的分析耗时。
+4. **智能监测**：后台持续轮询任务进度（建议每 30 秒），直至任务完成。
+5. **研报萃取**：提取并展示 **决策 (BUY/SELL/HOLD)**、**市场方向**、**目标价**及**风险约束**。
+
+## 📌 支持范围 (Supported Inputs)
+
+- **中文名称 (Chinese Names)**：如 "阳光电源", "三花智控", "比亚迪"。
+- **标准代码 (Standard Codes)**：如 `002594.SZ`, `601012.SH`。
+
+## 💡 注意事项 (Notes)
+- **数据健壮性**：若个股新闻等数据源缺失，系统将基于宏观与行业逻辑进行外溢效应分析。
+- **轮询频率**：请勿高于每 15 秒一次。
