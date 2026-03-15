@@ -13,6 +13,11 @@ tags:
   - stock-analysis
   - China
   - Multi-Agent
+  - 选股
+  - 研报
+  - 资金流向
+  - 技术分析
+  - 基本面分析
 env:
   TRADINGAGENTS_API_URL:
     description: "后端 API 地址 (TradingAgents API base URL)"
@@ -27,6 +32,18 @@ metadata: {"clawdbot":{"emoji":"📈"}}
 # TradingAgents 多智能体 A 股投研分析
 
 使用 TradingAgents API，让 **15 名专业 AI 分析师**对 A 股进行五阶段深度协作研判，输出结构化投资建议。
+
+## 🎯 快速上手
+
+**直接对我说：**
+- "帮我分析一下贵州茅台"
+- "宁德时代值得买入吗"
+- "分析一下 600519 的技术面"
+- "推荐几只新能源股票"
+
+**我会调用 15 个 AI 分析师，从市场、技术、基本面、情绪、资金五个维度深度分析，给你专业的投资建议。**
+
+---
 
 ## 🤖 系统架构：五阶段 15 智能体
 
@@ -53,6 +70,20 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 | 3. Bull/Bear Debate | Bull & Bear Researchers + Judge | Adversarial viewpoint debate |
 | 4. Trade Execution | Trader | Synthesize research into actionable decision |
 | 5. Risk Control | Aggressive / Neutral / Conservative + Portfolio Manager | Multi-layer risk review |
+
+## 📋 适用场景
+
+✅ **适合使用：**
+- 个股深度分析（技术面 + 基本面）
+- 投资决策参考
+- 盘后复盘分析
+- 选股策略研究
+- 风险评估
+
+❌ **不适合：**
+- 盘中实时盯盘（分析需要 1-5 分钟）
+- 超短线交易（分钟级决策）
+- 加密货币分析（仅支持 A 股/美股）
 
 ## 🔒 隐私与安全
 
