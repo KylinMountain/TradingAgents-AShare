@@ -1,8 +1,15 @@
 # TradingAgents-AShare：A股智能投研多智能体系统
+**A-Share Intelligent Investment Research Terminal**
 
-这是一个基于 12 个 AI Agent 协作的深度股票分析与决策系统，专为 A 股场景打造。系统已接入 A 股行情、新闻、情绪、基本面与技术面等多维数据，模拟专业交易机构的协作模式，对单只股票或股票池进行自动化推演，并通过结构化辩论收敛出最终的交易建议。
+本项目是基于多智能体协作 (Multi-Agent Collaboration) 的 A 股深度分析系统。它模拟顶级投研机构的决策闭环，通过 15名专业分析师的博弈与辩论，为投资者提供结构化的交易建议。
 
-> 让 OpenClaw 不只会聊天，也能真正调用 A 股数据和多智能体投研流程，替你盯盘、选股、分析和回收结论。
+**🚀 **TradingAgents 已正式上线 OpenClaw**！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。**
+
+## 🌟 核心能力 (V0.4.0+)
+- **🧠 意图驱动解析**：无需精准代码，自然语言对话（如“调研茅台短线”）即可触发自动标的识别与周期视角切换。
+- **📊 15 专家协作流**：集成技术面、基本面、舆情、新闻、宏观及主力资金 6 大维度，经过 5 阶段严密博弈产出研报。
+- **⚡️ 极致数据效能**：统一并行采集底座，彻底解决 API 频率限制，实现分析流程的秒级启动。
+- **🐳 生产级容器化**：全架构 Docker 支持，前后端合一托管，具备完善的路径安全防护与自动构建 CI。
 
 ## ✨ 现代化 Web 交互
 
@@ -32,6 +39,8 @@ TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解
   <img src="assets/schema.png" style="width: 100%; height: auto;">
 </p>
 
+*图中仅展示核心节点，完整流程包含 15 名智能体。
+
 ### 1. 分析师团队 (Analyst Team)
 基本面、情绪、新闻、技术四大维度分析师同步作业，对市场数据进行深度提取与初步评估。
 <p align="center">
@@ -54,7 +63,23 @@ TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解
 
 ## 🚀 快速上手
 
-### 1. 环境准备
+### 1. Docker 一键部署 (推荐)
+如果您想快速运行完整服务（前后端合一），可以直接使用我们提供的 Docker 镜像：
+
+```bash
+docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
+docker run -d -p 8000:8000 \
+  --name tradingagents \
+  -v $(pwd)/tradingagents.db:/app/tradingagents.db \
+  -e TA_API_KEY="你的密钥" \
+  -e TA_BASE_URL="https://api.openai.com/v1" \
+  ghcr.io/kylinmountain/tradingagents-ashare:latest
+```
+访问 `http://localhost:8000` 即可使用。
+
+### 2. 源码安装
+
+#### 2.1 环境准备
 克隆项目：
 ```bash
 git clone https://github.com/KylinMountain/TradingAgents-AShare.git
@@ -71,7 +96,7 @@ uv sync
 cd frontend && npm install
 ```
 
-### 2. 精简配置
+#### 2.2 精简配置
 复制 `.env.example` 到 `.env` 并填写核心模型接入信息：
 ```env
 # 核心模型接入 (建议使用 DeepSeek 或 GPT-4o 等强模型)
@@ -84,7 +109,7 @@ TA_LLM_DEEP=gpt-4o
 DATABASE_URL=sqlite:///./tradingagents.db
 ```
 
-### 3. 启动运行
+#### 2.3 启动运行
 **启动后端 API**：
 ```bash
 uv run python -m uvicorn api.main:app --port 8000
@@ -95,20 +120,6 @@ uv run python -m uvicorn api.main:app --port 8000
 cd frontend && npm run dev
 ```
 访问 `http://localhost:5173` 即可开始您的 AI 投研之旅。
-
-### 4. Docker 一键部署 (推荐)
-如果您想快速运行完整服务（前后端合一），可以直接使用我们提供的 Docker 镜像：
-
-```bash
-docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
-docker run -d -p 8000:8000 \
-  --name tradingagents \
-  -v $(pwd)/tradingagents.db:/app/tradingagents.db \
-  -e TA_API_KEY="你的密钥" \
-  -e TA_BASE_URL="https://api.openai.com/v1" \
-  ghcr.io/kylinmountain/tradingagents-ashare:latest
-```
-访问 `http://localhost:8000` 即可使用。
 
 
 ## 🛠 API 集成
@@ -136,9 +147,8 @@ curl -X POST 'https://app.510168.xyz/v1/analyze' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
   -d '{
-    "symbol": "600519.SH",
-    "trade_date": "2026-03-11",
-    "selected_analysts": ["market", "social", "news", "fundamentals"]
+    "symbol": "分析一下600519.SH短期趋势",
+    "trade_date": "2026-03-11"
   }'
 ```
 
@@ -159,34 +169,26 @@ curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
 推荐接法：
 
 1. 在本站生成 API Key
-2. 在 OpenClaw 中配置一个 HTTP 工作流或自定义工具
-3. 让 OpenClaw 按下面流程调用：
-   - `POST https://app.510168.xyz/v1/analyze`
-   - `GET https://app.510168.xyz/v1/jobs/{job_id}`
-   - `GET https://app.510168.xyz/v1/jobs/{job_id}/result`
+2. 在 OpenClaw 中安装技能`tradingagents-analysis`
 
 一个典型任务可以是：
 
 - “分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。”
 
-OpenClaw 拿到结果后，可以继续做这些事情：
 
-- 汇总成一段更适合业务人员阅读的结论
-- 把多只股票的结果做横向对比
-- 结合你自己的策略规则，自动筛选出候选标的
-- 接到定时任务后，自动跑每日股票池分析
+## 🙏 特别鸣谢 (Credits)
 
-如果你希望 OpenClaw 直接从自然语言驱动，也可以让它先把用户输入解析成股票代码和交易日期，再按上述 API 流程调用 TradingAgents。
+本项目作为二次开发作品，核心架构灵感与部分基础逻辑源自[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。
 
+## ⚖️ 许可说明
+- 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache 2.0) 二次开发。
+- 新增模块 (`api/`, `frontend/`) 及对核心逻辑的深度修改采用 `PolyForm Noncommercial 1.0.0` 协议。
+- 详情请参阅根目录下的 [LICENSE](./LICENSE) 文件。
 
-
-## 许可与引用
-
-- 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发。
-- 新增组件（前端、API层）采用 `PolyForm Noncommercial 1.0.0` 协议，仅限非商业用途。
-
-
-
+## ⚠️ 重要声明 (Disclaimer)
+- **仅供学习研究**：本项目仅用于学术研究、技术演示及学习交流目的，不构成任何形式的投资建议。
+- **实盘风险**：证券市场有风险，投资需谨慎。基于本系统智能体生成的任何观点、建议或计划，仅代表算法博弈结果，不对实际投资损益负责。
+- **数据延迟**：分析所依赖的数据源可能存在延迟或偏差，请以交易所实时公告为准。
 
 <div align="center">
 <a href="https://www.star-history.com/#KylinMountain/TradingAgents-AShare&Date">
@@ -197,3 +199,4 @@ OpenClaw 拿到结果后，可以继续做这些事情：
  </picture>
 </a>
 </div>
+
