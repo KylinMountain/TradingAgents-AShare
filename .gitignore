@@ -240,3 +240,4 @@ deploy/deploy.env
 .vercel
 .env*.local
 frontend/node_modules/
+.vite/
