@@ -7,7 +7,6 @@ import KlinePanel from '@/components/KlinePanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
-import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 
 function mapDecision(decision?: string): 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch' | undefined {
@@ -54,8 +53,6 @@ export default function Analysis() {
         report,
         currentSymbol,
         setCurrentSymbol,
-        loadReportData,
-        clearReportData,
         jobConfidence,
         jobTargetPrice,
         jobStopLoss,
@@ -79,26 +76,6 @@ export default function Analysis() {
             setActiveSymbol(currentSymbol)
         }
     }, [currentSymbol])
-
-    // Restore state from backend when the active symbol changes or no matching report is loaded
-    useEffect(() => {
-        if (!activeSymbol || report?.symbol === activeSymbol) return
-
-        let cancelled = false
-        api.getLatestAnalysis(activeSymbol)
-            .then((data) => {
-                if (!cancelled && data) loadReportData(data)
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    clearReportData(activeSymbol)
-                }
-            })
-
-        return () => {
-            cancelled = true
-        }
-    }, [activeSymbol, report?.symbol, loadReportData, clearReportData])
 
     const finalDecision = report?.final_trade_decision
     // Prefer LLM-extracted structured values, fall back to regex parsing

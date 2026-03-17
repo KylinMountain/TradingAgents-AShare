@@ -2,7 +2,7 @@ import { FormEvent, useState, useRef, useEffect } from 'react'
 import { Bot, Loader2, Send, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { api, getBaseUrl } from '@/services/api'
+import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import type {
     AgentReportEvent,
@@ -117,15 +117,12 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money']
     })
     // track which section IDs have been added to chatMessages and whether they're done
-    const reconnectingJobRef = useRef<string | null>(null)
     const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
 
     const {
         chatMessages,
-        currentJobId,
-        isAnalyzing,
         setCurrentJobId,
         setCurrentSymbol,
         setIsAnalyzing,
@@ -155,7 +152,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
             if (status.status === 'completed') {
                 const result = await api.getJobResult(currentJobId)
-                setCurrentJobId(null)
                 setReport(result.result)
 
                 const symbol = result.result.symbol
@@ -188,7 +184,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             }
 
             if (status.status === 'failed') {
-                setCurrentJobId(null)
                 pushAssistant(`分析失败：${status.error || 'unknown error'}`)
                 return true
             }
@@ -265,7 +260,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
-                setCurrentJobId(null)
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
                     if (symbol) {
@@ -294,7 +288,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.failed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
-                setCurrentJobId(null)
                 pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
                 break
             case 'agent.status':
@@ -364,22 +357,16 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         }
     }
 
-    const listenToJobEvents = async (jobId: string) => {
-        const url = `${getBaseUrl()}/v1/jobs/${jobId}/events`
-        const token = localStorage.getItem('ta-access-token')
-        
-        const response = await fetch(url, {
-            headers: {
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            }
-        })
+    const streamChat = async (prompt: string) => {
+        const response = await api.chatCompletion(
+            [{ role: 'user', content: prompt }],
+            true,
+            selectedAnalysts,
+        )
 
         if (!response.body) throw new Error('SSE stream unavailable')
-        await processSSEStream(response.body)
-    }
 
-    const processSSEStream = async (body: ReadableStream<Uint8Array>) => {
-        const reader = body.getReader()
+        const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
         let currentEvent = 'message'
@@ -409,7 +396,9 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     return
                 }
                 
-                if (currentEvent === 'ping') continue
+                if (currentEvent === 'ping') {
+                    continue
+                }
 
                 try {
                     const data = JSON.parse(dataLine) as Record<string, unknown>
@@ -419,34 +408,10 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 }
             }
         }
+
+        setIsConnected(false)
+        setIsAnalyzing(false)
     }
-
-    const streamChat = async (prompt: string) => {
-        const response = await api.chatCompletion(
-            [{ role: 'user', content: prompt }],
-            true,
-            selectedAnalysts,
-        )
-
-        if (!response.body) throw new Error('SSE stream unavailable')
-        await processSSEStream(response.body)
-    }
-
-    // Reconnect SSE whenever persisted in-flight job state becomes available.
-    useEffect(() => {
-        if (!currentJobId || !isAnalyzing || streaming) return
-        if (reconnectingJobRef.current === currentJobId) return
-
-        reconnectingJobRef.current = currentJobId
-        console.log('🔄 Reconnecting to job events:', currentJobId)
-        setStreaming(true)
-        listenToJobEvents(currentJobId).finally(() => {
-            if (reconnectingJobRef.current === currentJobId) {
-                reconnectingJobRef.current = null
-            }
-            setStreaming(false)
-        })
-    }, [currentJobId, isAnalyzing, streaming])
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault()

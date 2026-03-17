@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Sparkles, Megaphone } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Megaphone } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
+import type { Announcement } from '@/types'
 
 type ThemeMode = 'system' | 'light' | 'dark'
-
-const APP_VERSION = 'v1.2.0'
-const LATEST_UPDATES = [
-    { title: '任务状态持久化', detail: '实时保存分析进度，支持断点续传与失败溯源。' },
-    { title: 'Agent 架构升级', detail: '辩论逻辑增强，支持风控打回修订。' },
-    { title: '打字机效果', detail: '更丝滑的报告生成体验。' }
-]
 
 function getInitials(email?: string | null): string {
     if (!email) return 'TA'
     return email.slice(0, 2).toUpperCase()
+}
+
+function formatAnnouncementTime(value?: string): string {
+    if (!value) return ''
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return value
+    return parsed.toLocaleDateString('zh-CN', {
+        month: 'numeric',
+        day: 'numeric',
+    })
 }
 
 export default function Header() {
@@ -24,6 +29,7 @@ export default function Header() {
     const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default')
     const [menuOpen, setMenuOpen] = useState(false)
     const [announcementOpen, setAnnouncementOpen] = useState(false)
+    const [announcement, setAnnouncement] = useState<Announcement | null>(null)
     const menuRef = useRef<HTMLDivElement | null>(null)
     const announceRef = useRef<HTMLDivElement | null>(null)
 
@@ -34,6 +40,21 @@ export default function Header() {
         applyTheme(mode)
         if ('Notification' in window) setNotifPermission(Notification.permission)
     }, [])
+
+    useEffect(() => {
+        if (!user) return
+        let cancelled = false
+        api.getLatestAnnouncement()
+            .then((data) => {
+                if (!cancelled) setAnnouncement(data)
+            })
+            .catch(() => {
+                if (!cancelled) setAnnouncement(null)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [user])
 
     useEffect(() => {
         const onClick = (event: MouseEvent) => {
@@ -76,6 +97,20 @@ export default function Header() {
     const themeLabel = themeMode === 'system' ? '跟随系统' : themeMode === 'light' ? '浅色' : '深色'
     const ThemeIcon = themeMode === 'system' ? Monitor : themeMode === 'light' ? Sun : Moon
     const accountTone = useMemo(() => getInitials(user?.email), [user?.email])
+    const announcementStorageKey = announcement ? `ta-announcement-read:${announcement.id}` : null
+    const hasUnreadAnnouncement = Boolean(
+        announcement &&
+        announcementStorageKey &&
+        localStorage.getItem(announcementStorageKey) !== '1'
+    )
+
+    const handleAnnouncementToggle = () => {
+        const next = !announcementOpen
+        setAnnouncementOpen(next)
+        if (next && announcementStorageKey) {
+            localStorage.setItem(announcementStorageKey, '1')
+        }
+    }
 
     return (
         <header className="h-16 sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/88 dark:bg-slate-950/78 backdrop-blur-xl">
@@ -85,41 +120,6 @@ export default function Header() {
                         <div className="flex items-center gap-2.5">
                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_16px_rgba(16,185,129,0.4)]" />
                             <div className="text-sm font-semibold tracking-[0.04em] text-slate-900 dark:text-slate-100">A 股投研终端</div>
-                            <div className="relative" ref={announceRef}>
-                                <button 
-                                    onClick={() => setAnnouncementOpen(!announcementOpen)}
-                                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group"
-                                >
-                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 group-hover:text-blue-500 transition-colors">{APP_VERSION}</span>
-                                    <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
-                                </button>
-                                
-                                {announcementOpen && (
-                                    <div className="absolute left-0 top-full mt-3 w-80 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.18)] z-50">
-                                        <div className="flex items-center gap-2 mb-3">
-                                            <Megaphone className="w-4 h-4 text-blue-500" />
-                                            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">新版本功能预览</span>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {LATEST_UPDATES.map((u, i) => (
-                                                <div key={i} className="group">
-                                                    <div className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 group-hover:scale-125 transition-transform" />
-                                                        {u.title}
-                                                    </div>
-                                                    <div className="mt-0.5 pl-3 text-[12px] text-slate-500 dark:text-slate-500 leading-relaxed">{u.detail}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <button 
-                                            onClick={() => navigate('/settings')}
-                                            className="mt-4 w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
-                                        >
-                                            查看完整更新日志
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
                         </div>
                         <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
                         <div className="text-xs tracking-[0.18em] text-slate-400 dark:text-slate-500">工作台在线</div>
@@ -127,6 +127,74 @@ export default function Header() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {announcement && (
+                        <div className="relative" ref={announceRef}>
+                            <button
+                                onClick={handleAnnouncementToggle}
+                                className="group relative flex items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-all"
+                                title={announcement.title}
+                            >
+                                <Megaphone className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                                <span className="hidden sm:inline text-[13px] font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white">
+                                    {announcement.tag || '公告'}
+                                </span>
+                                {hasUnreadAnnouncement && (
+                                    <span className="absolute right-2 top-1.5 w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.6)]" />
+                                )}
+                            </button>
+
+                            {announcementOpen && (
+                                <div className="absolute right-0 top-full mt-3 w-[360px] p-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.18)] z-50">
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
+                                                    {announcement.tag || '公告'}
+                                                </span>
+                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                    {formatAnnouncementTime(announcement.published_at)}
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                                                {announcement.title}
+                                            </div>
+                                            {announcement.summary && (
+                                                <div className="mt-1 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">
+                                                    {announcement.summary}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {announcement.items.map((item) => (
+                                            <div key={item.title} className="group">
+                                                <div className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 group-hover:scale-125 transition-transform" />
+                                                    {item.title}
+                                                </div>
+                                                <div className="mt-0.5 pl-3 text-[12px] text-slate-500 dark:text-slate-500 leading-relaxed">
+                                                    {item.detail}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {announcement.cta_label && announcement.cta_path && (
+                                        <button
+                                            onClick={() => {
+                                                setAnnouncementOpen(false)
+                                                navigate(announcement.cta_path!)
+                                            }}
+                                            className="mt-4 w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
+                                        >
+                                            {announcement.cta_label}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <a
                         href="https://github.com/KylinMountain/TradingAgents-AShare"
                         target="_blank"

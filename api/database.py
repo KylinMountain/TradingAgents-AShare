@@ -55,6 +55,12 @@ def _ensure_report_schema() -> None:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN error TEXT"))
             if "analyst_traces" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN analyst_traces JSON"))
+            if "macro_report" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN macro_report TEXT"))
+            if "smart_money_report" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN smart_money_report TEXT"))
+            if "game_theory_report" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN game_theory_report TEXT"))
     except Exception as e:
         print(f"Warning: Failed to ensure report schema: {e}")
 
@@ -94,6 +100,9 @@ class ReportDB(Base):
     sentiment_report = Column(Text, nullable=True)
     news_report = Column(Text, nullable=True)
     fundamentals_report = Column(Text, nullable=True)
+    macro_report = Column(Text, nullable=True)
+    smart_money_report = Column(Text, nullable=True)
+    game_theory_report = Column(Text, nullable=True)
     investment_plan = Column(Text, nullable=True)
     trader_investment_plan = Column(Text, nullable=True)
     final_trade_decision = Column(Text, nullable=True)
@@ -122,6 +131,9 @@ class ReportDB(Base):
             "sentiment_report": self.sentiment_report,
             "news_report": self.news_report,
             "fundamentals_report": self.fundamentals_report,
+            "macro_report": self.macro_report,
+            "smart_money_report": self.smart_money_report,
+            "game_theory_report": self.game_theory_report,
             "investment_plan": self.investment_plan,
             "trader_investment_plan": self.trader_investment_plan,
             "final_trade_decision": self.final_trade_decision,

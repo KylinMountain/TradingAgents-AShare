@@ -158,7 +158,6 @@ interface CardData extends AgentMeta {
     status: AgentStatus; 
     isStreaming: boolean; 
     verdict: Verdict | null;
-    description?: string;
     isParticipating: boolean; 
 }
 
@@ -169,19 +168,6 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
     const participating = card.isParticipating
     const clickable = !!card.section && (done || active)
     const { Icon } = card
-
-    // Helper to parse description into verdict format
-    const displayVerdict = useMemo(() => {
-        if (card.verdict) return card.verdict
-        if (card.description) {
-            const parts = card.description.split(/[:：]/)
-            if (parts.length >= 2) {
-                return { direction: parts[0].trim(), reason: parts.slice(1).join(':').trim() }
-            }
-            return { direction: '结论', reason: card.description }
-        }
-        return null
-    }, [card.verdict, card.description])
 
     return (
         <button
@@ -240,13 +226,13 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
                                 </span>
                                 <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 tracking-wide">智能体正全力研判...</span>
                             </div>
-                        ) : displayVerdict ? (
+                        ) : card.verdict ? (
                             <div className="flex items-start gap-2 min-w-0">
-                                <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full leading-tight shadow-sm ${VERDICT_COLORS[displayVerdict.direction] ?? VERDICT_COLORS._default}`}>
-                                    {displayVerdict.direction}
+                                <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full leading-tight shadow-sm ${VERDICT_COLORS[card.verdict.direction] ?? VERDICT_COLORS._default}`}>
+                                    {card.verdict.direction}
                                 </span>
                                 <span className={`text-[12px] font-medium leading-[1.4] ${card.sumText} line-clamp-2`}>
-                                    {displayVerdict.reason}
+                                    {card.verdict.reason}
                                 </span>
                             </div>
                         ) : (
@@ -284,7 +270,6 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
         return {
             ...meta,
             status:      (agent?.status ?? 'pending') as AgentStatus,
-            description: agent?.description,
             isStreaming: !!streamState?.isTyping,
             verdict:     extractVerdict(src),
             isParticipating,

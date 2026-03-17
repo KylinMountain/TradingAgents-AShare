@@ -198,6 +198,21 @@ HORIZON_ANALYSTS = {
     "medium": ["market", "news", "fundamentals", "macro"],
 }
 
+LATEST_ANNOUNCEMENT: Optional[Dict[str, Any]] = {
+    "id": "2026-03-17-report-persistence",
+    "tag": "公告",
+    "title": "报告持久化能力升级",
+    "summary": "已完成任务结果会继续保留，建议统一从“我的报告”查看与追踪。",
+    "published_at": "2026-03-17T10:00:00+08:00",
+    "items": [
+        {"title": "结果自动保存", "detail": "分析完成后的正文、关键指标与风险信息会自动进入报告中心。"},
+        {"title": "失败信息可追踪", "detail": "任务失败会记录错误信息，便于排查和回溯。"},
+        {"title": "查看入口统一", "detail": "已完成分析建议从“我的报告”集中查看，不再依赖页面内临时恢复。"},
+    ],
+    "cta_label": "前往我的报告",
+    "cta_path": "/reports",
+}
+
 
 def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
     """Return the subset of available analysts relevant for the given horizon."""
@@ -312,6 +327,9 @@ class ReportDetailResponse(ReportResponse):
     sentiment_report: Optional[str]
     news_report: Optional[str]
     fundamentals_report: Optional[str]
+    macro_report: Optional[str]
+    smart_money_report: Optional[str]
+    game_theory_report: Optional[str]
     investment_plan: Optional[str]
     trader_investment_plan: Optional[str]
     final_trade_decision: Optional[str]
@@ -321,6 +339,26 @@ class ReportDetailResponse(ReportResponse):
 class ReportListResponse(BaseModel):
     total: int
     reports: List[ReportResponse]
+
+
+class AnnouncementItemResponse(BaseModel):
+    title: str
+    detail: str
+
+
+class AnnouncementResponse(BaseModel):
+    id: str
+    tag: Optional[str] = None
+    title: str
+    summary: Optional[str] = None
+    published_at: str
+    items: List[AnnouncementItemResponse]
+    cta_label: Optional[str] = None
+    cta_path: Optional[str] = None
+
+
+class LatestAnnouncementResponse(BaseModel):
+    announcement: Optional[AnnouncementResponse] = None
 
 
 class UserResponse(BaseModel):
@@ -2185,81 +2223,12 @@ def create_report_endpoint(
     return report
 
 
-@app.get("/v1/analyze/latest/{symbol}")
-async def get_latest_analysis(
-    symbol: str,
-    db: Session = Depends(get_db),
+@app.get("/v1/announcements/latest", response_model=LatestAnnouncementResponse)
+def get_latest_announcement(
     current_user: UserDB = Depends(_require_api_user),
 ):
-    """Get the most recent analysis report including agent message history."""
-    normalized = _normalize_symbol(symbol)
-    report = db.query(ReportDB).filter(
-        ReportDB.symbol == normalized,
-        ReportDB.user_id == current_user.id
-    ).order_by(ReportDB.created_at.desc()).first()
-    
-    if not report:
-        raise HTTPException(status_code=404, detail="No analysis found for this symbol")
-    
-    # Try to fetch message history from LangGraph checkpointer
-    history = []
-    try:
-        # We need a graph instance to access the checkpointer
-        # Use default config for this transient instance
-        graph = TradingAgentsGraph(selected_analysts=["market"])
-        
-        # Try both direct job_id and suffixed ID (for dual-horizon)
-        state = graph.get_state(report.id)
-        if not state.values and "_" not in report.id:
-            # Try short horizon suffix as fallback
-            state = graph.get_state(f"{report.id}_short")
-            
-        if state.values and "messages" in state.values:
-            for msg in state.values["messages"]:
-                content = getattr(msg, "content", "")
-                if isinstance(content, list): # Handle multimodal/tool formats
-                    content = _extract_message_text(content)
-                
-                history.append({
-                    "role": "assistant" if msg.type == "ai" else "user",
-                    "content": content,
-                    "name": getattr(msg, "name", None),
-                    "timestamp": datetime.now(timezone.utc).isoformat() # Approx
-                })
-    except Exception as e:
-        print(f"Warning: Failed to fetch message history from graph: {e}")
-
-    # Convert to dict and add messages
-    result = {
-        "id": report.id,
-        "symbol": report.symbol,
-        "trade_date": report.trade_date,
-        "status": report.status,
-        "error": report.error,
-        "decision": report.decision,
-        "direction": report.direction,
-        "confidence": report.confidence,
-        "target_price": report.target_price,
-        "stop_loss_price": report.stop_loss_price,
-        "market_report": report.market_report,
-        "sentiment_report": report.sentiment_report,
-        "news_report": report.news_report,
-        "fundamentals_report": report.fundamentals_report,
-        "macro_report": report.macro_report,
-        "smart_money_report": report.smart_money_report,
-        "game_theory_report": report.game_theory_report,
-        "investment_plan": report.investment_plan,
-        "trader_investment_plan": report.trader_investment_plan,
-        "final_trade_decision": report.final_trade_decision,
-        "risk_items": report.risk_items,
-        "key_metrics": report.key_metrics,
-        "analyst_traces": report.analyst_traces,
-        "created_at": report.created_at,
-        "updated_at": report.updated_at,
-        "history": history # The added reasoning path
-    }
-    
-    return result
+    _ = current_user
+    return {"announcement": LATEST_ANNOUNCEMENT}
 
 
 @app.get("/v1/reports", response_model=ReportListResponse)

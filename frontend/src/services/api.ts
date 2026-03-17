@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, HotStock, UserToken, UserTokenCreateRequest } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, HotStock, UserToken, UserTokenCreateRequest } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -107,8 +107,9 @@ class ApiService {
         return this.request<ReportDetail>(`/v1/reports/${reportId}`)
     }
 
-    async getLatestAnalysis(symbol: string): Promise<ReportDetail> {
-        return this.request<ReportDetail>(`/v1/analyze/latest/${symbol}`)
+    async getLatestAnnouncement(): Promise<Announcement | null> {
+        const data = await this.request<LatestAnnouncementResponse>('/v1/announcements/latest')
+        return data.announcement
     }
 
     async deleteReport(reportId: string): Promise<{ message: string }> {

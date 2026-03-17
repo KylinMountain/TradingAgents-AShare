@@ -339,6 +339,26 @@ export interface ReportListResponse {
     reports: Report[]
 }
 
+export interface AnnouncementItem {
+    title: string
+    detail: string
+}
+
+export interface Announcement {
+    id: string
+    tag?: string
+    title: string
+    summary?: string
+    published_at: string
+    items: AnnouncementItem[]
+    cta_label?: string
+    cta_path?: string
+}
+
+export interface LatestAnnouncementResponse {
+    announcement: Announcement | null
+}
+
 // Hot stock from market hot rank
 export interface HotStock {
     rank: number
