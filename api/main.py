@@ -78,7 +78,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
 _jobs_lock = Lock()
 _jobs: Dict[str, Dict[str, Any]] = {}
 
