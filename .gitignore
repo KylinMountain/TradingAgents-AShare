@@ -1,3 +1,8 @@
+# LangGraph Checkpoints
+graph_checkpoints.db
+graph_checkpoints.db-shm
+graph_checkpoints.db-wal
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
