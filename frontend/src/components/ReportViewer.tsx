@@ -47,10 +47,31 @@ interface ReportViewerProps {
     activeSection?: string
 }
 
-export default function ReportViewer({ reportData, activeSection }: ReportViewerProps = {}) {
+export default function ReportViewer({ reportData, activeSection: propActiveSection }: ReportViewerProps = {}) {
     const { report, streamingSections, isAnalyzing } = useAnalysisStore()
     const [expandedSections, setExpandedSections] = useState<string[]>([])
+    const [localActiveSection, setLocalActiveSection] = useState<string | undefined>()
     const isHistorical = !!reportData
+
+    // Sync propActiveSection to local state
+    useEffect(() => {
+        if (propActiveSection) setLocalActiveSection(propActiveSection)
+    }, [propActiveSection])
+
+    // If no section is active, auto-select the first one with content
+    useEffect(() => {
+        if (localActiveSection || isHistorical) return
+        
+        const firstWithContent = REPORT_SECTIONS.find(s => {
+            const hasStreaming = streamingSections[s.key]?.displayed?.length > 0
+            const hasStatic = !!(report?.[s.key as keyof typeof report])
+            return hasStreaming || hasStatic
+        })
+
+        if (firstWithContent) setLocalActiveSection(firstWithContent.key)
+    }, [localActiveSection, report, streamingSections, isHistorical])
+
+    const activeSection = propActiveSection || localActiveSection
 
     const getSectionContent = (key: string): string => {
         if (isHistorical) {

@@ -7,8 +7,10 @@ from pathlib import Path
 import json
 from datetime import date
 from typing import Dict, Any, Tuple, List, Optional
+import sqlite3
 
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from tradingagents.llm_clients import create_llm_client
 
@@ -50,6 +52,10 @@ from .signal_processing import SignalProcessor
 class TradingAgentsGraph:
     """Main class that orchestrates the trading agents framework."""
 
+    # Class-level cache for persistence to handle concurrency
+    _shared_checkpointer = None
+    _shared_conn = None
+
     def __init__(
         self,
         selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
@@ -58,21 +64,28 @@ class TradingAgentsGraph:
         callbacks: Optional[List] = None,
         data_collector: Optional["DataCollector"] = None,
     ):
-        """Initialize the trading agents graph and components.
-
-        Args:
-            selected_analysts: List of analyst types to include
-            debug: Whether to run in debug mode
-            config: Configuration dictionary. If None, uses default config
-            callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
-            data_collector: Optional pre-existing DataCollector to reuse (shares cached data across horizons)
-        """
+        """Initialize the trading agents graph and components."""
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
 
         # Update the interface's config
         set_config(self.config)
+
+        # Initialize persistence (Singleton Pattern for concurrency)
+        if TradingAgentsGraph._shared_checkpointer is None:
+            checkpoint_db_path = os.path.join(self.config["project_dir"], "graph_checkpoints.db")
+            # timeout=30 enables retry logic when database is locked
+            conn = sqlite3.connect(checkpoint_db_path, check_same_thread=False, timeout=30)
+            
+            # Enable WAL mode for significantly better concurrency
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            
+            TradingAgentsGraph._shared_conn = conn
+            TradingAgentsGraph._shared_checkpointer = SqliteSaver(conn)
+        
+        self.checkpointer = TradingAgentsGraph._shared_checkpointer
 
         # Create necessary directories
         os.makedirs(
@@ -145,8 +158,13 @@ class TradingAgentsGraph:
         self.ticker = None
         self.log_states_dict = {}  # date to full state dict
 
-        # Set up the graph
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        # Set up the graph with checkpointer
+        self.graph = self.graph_setup.setup_graph(selected_analysts, checkpointer=self.checkpointer)
+
+    def get_state(self, thread_id: str):
+        """Retrieve the current state for a given thread_id."""
+        config = {"configurable": {"thread_id": thread_id}}
+        return self.graph.get_state(config)
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -234,6 +252,7 @@ class TradingAgentsGraph:
         user_context: Optional[Dict[str, Any]] = None,
         selected_analysts: Optional[List[str]] = None,
         request_source: str = "api",
+        thread_id: Optional[str] = None,
     ):
         """Run the trading agents graph for a company on a specific date."""
 
@@ -248,6 +267,13 @@ class TradingAgentsGraph:
             request_source=request_source,
         )
         args = self.propagator.get_graph_args()
+
+        # Use thread_id for checkpointer
+        if thread_id:
+            args["config"]["configurable"] = {"thread_id": thread_id}
+        elif not args["config"].get("configurable"):
+            # Default fallback for standalone runs
+            args["config"]["configurable"] = {"thread_id": f"{company_name}_{trade_date}"}
 
         if self.debug:
             # Debug mode with tracing

@@ -1,6 +1,6 @@
 # TradingAgents/graph/setup.py
 
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
@@ -40,16 +40,14 @@ class GraphSetup:
         self.data_collector = data_collector
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
+        checkpointer=None
     ):
         """Set up and compile the agent workflow graph.
 
         Args:
-            selected_analysts (list): List of analyst types to include. Options are:
-                - "market": Market analyst
-                - "social": Social media analyst
-                - "news": News analyst
-                - "fundamentals": Fundamentals analyst
+            selected_analysts (list): List of analyst types to include.
+            checkpointer: Optional LangGraph checkpointer for state persistence.
         """
         if len(selected_analysts) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
@@ -232,4 +230,4 @@ class GraphSetup:
         )
 
         # Compile and return
-        return workflow.compile()
+        return workflow.compile(checkpointer=checkpointer)

@@ -107,6 +107,10 @@ class ApiService {
         return this.request<ReportDetail>(`/v1/reports/${reportId}`)
     }
 
+    async getLatestAnalysis(symbol: string): Promise<ReportDetail> {
+        return this.request<ReportDetail>(`/v1/analyze/latest/${symbol}`)
+    }
+
     async deleteReport(reportId: string): Promise<{ message: string }> {
         return this.request<{ message: string }>(`/v1/reports/${reportId}`, {
             method: 'DELETE',

@@ -87,6 +87,8 @@ interface AnalysisState {
     addMilestone: (event: AgentMilestoneEvent) => void
     addLog: (log: LogEntry) => void
     setReport: (report: AnalysisReport | null) => void
+    loadReportData: (report: any) => void
+    clearReportData: (symbol?: string) => void
     setStructuredData: (data: {
         riskItems?: RiskItem[]
         keyMetrics?: KeyMetric[]
@@ -294,6 +296,117 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         currentSymbol: report?.symbol || state.currentSymbol,
     })),
 
+    loadReportData: (report) => set((state) => {
+        if (!report) return state
+        
+        // Map DB fields back to AnalysisReport structure
+        const analysisReport: AnalysisReport = {
+            symbol: report.symbol,
+            trade_date: report.trade_date,
+            decision: report.decision,
+            direction: report.direction,
+            market_report: report.market_report,
+            sentiment_report: report.sentiment_report,
+            news_report: report.news_report,
+            fundamentals_report: report.fundamentals_report,
+            macro_report: report.macro_report,
+            smart_money_report: report.smart_money_report,
+            game_theory_report: report.game_theory_report,
+            investment_plan: report.investment_plan,
+            trader_investment_plan: report.trader_investment_plan,
+            final_trade_decision: report.final_trade_decision,
+        }
+
+        // Map report keys to agent IDs for status inference
+        const keyToAgentId: Record<string, string> = {
+            market_report: 'market',
+            sentiment_report: 'social',
+            news_report: 'news',
+            fundamentals_report: 'fundamentals',
+            macro_report: 'macro',
+            smart_money_report: 'smart_money',
+            game_theory_report: 'game_theory',
+            investment_plan: 'research_manager', // Simplified
+            trader_investment_plan: 'trader',
+            final_trade_decision: 'portfolio_manager'
+        }
+
+        const updatedAgents = state.agents.map(agent => {
+            // Find if any key corresponding to this agent has data
+            const hasData = Object.entries(keyToAgentId).some(([key, id]) => 
+                id === agent.id && report[key]
+            )
+            
+            // Find summary reasoning from analyst_traces
+            const trace = Array.isArray(report.analyst_traces) 
+                ? report.analyst_traces.find((t: any) => t.agent.toLowerCase().includes(agent.id.toLowerCase()))
+                : null
+            
+            const summary = trace ? `${trace.verdict || ''} ${trace.key_finding || ''}`.trim() : undefined
+
+            if (hasData) return { ...agent, status: 'completed' as const, description: summary || agent.description }
+
+            // Special handling for research team: if investment_plan exists, bull/bear are done
+            if (['bull', 'bear', 'game_theory'].includes(agent.id) && report.investment_plan) {
+                return { ...agent, status: 'completed' as const, description: summary || agent.description }
+            }
+
+            // Special handling for risk team: if final_trade_decision exists, they are done
+            if (['aggressive', 'conservative', 'neutral'].includes(agent.id) && report.final_trade_decision) {
+                return { ...agent, status: 'completed' as const, description: summary || agent.description }
+            }
+            
+            // If overall task is completed but this agent has no data, it was likely skipped
+            if (report.status === 'completed') return { ...agent, status: 'skipped' as const }
+            
+            return agent
+        })
+
+        // Restore chat history if provided
+        let newChatMessages = state.chatMessages
+        if (report.history && Array.isArray(report.history) && report.history.length > 0) {
+            newChatMessages = report.history.map((h: any, i: number) => ({
+                id: `hist-${i}`,
+                role: h.role,
+                content: h.name ? `**${h.name}**: ${h.content}` : h.content,
+                timestamp: h.timestamp || new Date().toISOString()
+            }))
+        }
+
+        return {
+            currentJobId: report.status === 'running' || report.status === 'pending' ? report.id : null,
+            currentSymbol: report.symbol,
+            report: analysisReport,
+            riskItems: report.risk_items || [],
+            keyMetrics: report.key_metrics || [],
+            jobConfidence: report.confidence,
+            jobTargetPrice: report.target_price,
+            jobStopLoss: report.stop_loss_price,
+            isAnalyzing: report.status === 'running' || report.status === 'pending',
+            agents: updatedAgents,
+            chatMessages: newChatMessages
+        }
+    }),
+
+    clearReportData: (symbol) => set((state) => ({
+        currentJobId: null,
+        currentSymbol: symbol || state.currentSymbol,
+        jobStatus: null,
+        agents: initialAgents.map(a => ({ ...a, status: 'pending' as const })),
+        report: null,
+        riskItems: [],
+        keyMetrics: [],
+        jobConfidence: null,
+        jobTargetPrice: null,
+        jobStopLoss: null,
+        streamingSections: {},
+        milestones: [],
+        logs: [],
+        isAnalyzing: false,
+        isConnected: false,
+        currentHorizon: null,
+    })),
+
     setStructuredData: (data) => set({
         riskItems: data.riskItems ?? [],
         keyMetrics: data.keyMetrics ?? [],
@@ -332,6 +445,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     version: 1,
     storage: createJSONStorage(() => localStorage),
     partialize: (state) => ({
+        currentJobId: state.currentJobId,
         currentSymbol: state.currentSymbol,
         report: state.report,
         riskItems: state.riskItems,
@@ -343,16 +457,20 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>
+        const isAnalyzing = Boolean(persisted.currentJobId)
         return {
             ...currentState,
             ...persisted,
-            currentJobId: null,
+            currentJobId: persisted.currentJobId ?? null,
             jobStatus: null,
-            agents: initialAgents.map(a => ({ ...a, status: 'pending' })),
+            // If we have a report, mark agents as completed to avoid "pending" state on reload
+            agents: (persisted.report && !persisted.currentJobId)
+                ? currentState.agents.map(a => ({ ...a, status: 'completed' as const }))
+                : initialAgents.map(a => ({ ...a, status: 'pending' as const })),
             streamingSections: {},
             milestones: [],
             logs: [],
-            isAnalyzing: false,
+            isAnalyzing: isAnalyzing,
             isConnected: false,
             chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
         }

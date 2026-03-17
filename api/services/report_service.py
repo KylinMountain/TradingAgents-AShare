@@ -187,6 +187,63 @@ def resolve_report_fields(
 
 # ─── CRUD ────────────────────────────────────────────────────────────────────
 
+def init_report(
+    db: Session,
+    report_id: str,
+    symbol: str,
+    trade_date: str,
+    user_id: Optional[str] = None,
+) -> ReportDB:
+    """Create a pending report record when a job is submitted."""
+    now = datetime.now(timezone.utc)
+    db_report = ReportDB(
+        id=report_id,
+        user_id=user_id,
+        symbol=symbol,
+        trade_date=trade_date,
+        status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(db_report)
+    db.commit()
+    db.refresh(db_report)
+    return db_report
+
+
+def update_report_partial(
+    db: Session,
+    report_id: str,
+    status: Optional[str] = None,
+    **fields: Any
+) -> Optional[ReportDB]:
+    """Update specific fields of an existing report (e.g., partial analyst reports)."""
+    db_report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
+    if not db_report:
+        return None
+    
+    if status:
+        db_report.status = status
+    
+    for key, value in fields.items():
+        if hasattr(db_report, key):
+            setattr(db_report, key, value)
+    
+    db_report.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(db_report)
+    return db_report
+
+
+def mark_report_failed(
+    db: Session,
+    report_id: str,
+    error_message: str
+) -> Optional[ReportDB]:
+    """Mark a report as failed with an error message."""
+    return update_report_partial(db, report_id, status="failed", error=error_message)
+
+
 def create_report(
     db: Session,
     symbol: str,
@@ -196,12 +253,13 @@ def create_report(
     user_id: Optional[str] = None,
     risk_items: Optional[List[dict]] = None,
     key_metrics: Optional[List[dict]] = None,
+    analyst_traces: Optional[List[dict]] = None,
     confidence_override: Optional[int] = None,
     target_price_override: Optional[float] = None,
     stop_loss_override: Optional[float] = None,
+    report_id: Optional[str] = None,  # If provided, update existing
 ) -> ReportDB:
-    """Create a new report."""
-    report_id = str(uuid4())
+    """Create or finalize a report."""
     resolved = resolve_report_fields(
         result_data=result_data,
         confidence_override=confidence_override,
@@ -210,31 +268,61 @@ def create_report(
     )
 
     now = datetime.now(timezone.utc)
-    db_report = ReportDB(
-        id=report_id,
-        user_id=user_id,
-        symbol=symbol,
-        trade_date=trade_date,
-        decision=decision,
-        direction=resolved["direction"],
-        confidence=resolved["confidence"],
-        target_price=resolved["target_price"],
-        stop_loss_price=resolved["stop_loss_price"],
-        result_data=result_data,
-        risk_items=risk_items,
-        key_metrics=key_metrics,
-        market_report=resolved["market_report"],
-        sentiment_report=resolved["sentiment_report"],
-        news_report=resolved["news_report"],
-        fundamentals_report=resolved["fundamentals_report"],
-        investment_plan=resolved["investment_plan"],
-        trader_investment_plan=resolved["trader_investment_plan"],
-        final_trade_decision=resolved["final_trade_decision"],
-        created_at=now,
-        updated_at=now,
-    )
+    
+    # Check if we should update an existing record (initialized via init_report)
+    db_report = None
+    if report_id:
+        db_report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
 
-    db.add(db_report)
+    if db_report:
+        # Update existing
+        db_report.status = "completed"
+        db_report.decision = decision
+        db_report.direction = resolved["direction"]
+        db_report.confidence = resolved["confidence"]
+        db_report.target_price = resolved["target_price"]
+        db_report.stop_loss_price = resolved["stop_loss_price"]
+        db_report.result_data = result_data
+        db_report.risk_items = risk_items
+        db_report.key_metrics = key_metrics
+        db_report.analyst_traces = analyst_traces
+        db_report.market_report = resolved["market_report"]
+        db_report.sentiment_report = resolved["sentiment_report"]
+        db_report.news_report = resolved["news_report"]
+        db_report.fundamentals_report = resolved["fundamentals_report"]
+        db_report.investment_plan = resolved["investment_plan"]
+        db_report.trader_investment_plan = resolved["trader_investment_plan"]
+        db_report.final_trade_decision = resolved["final_trade_decision"]
+        db_report.updated_at = now
+    else:
+        # Create new
+        db_report = ReportDB(
+            id=report_id or str(uuid4()),
+            user_id=user_id,
+            symbol=symbol,
+            trade_date=trade_date,
+            status="completed",
+            decision=decision,
+            direction=resolved["direction"],
+            confidence=resolved["confidence"],
+            target_price=resolved["target_price"],
+            stop_loss_price=resolved["stop_loss_price"],
+            result_data=result_data,
+            risk_items=risk_items,
+            key_metrics=key_metrics,
+            analyst_traces=analyst_traces,
+            market_report=resolved["market_report"],
+            sentiment_report=resolved["sentiment_report"],
+            news_report=resolved["news_report"],
+            fundamentals_report=resolved["fundamentals_report"],
+            investment_plan=resolved["investment_plan"],
+            trader_investment_plan=resolved["trader_investment_plan"],
+            final_trade_decision=resolved["final_trade_decision"],
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(db_report)
+
     db.commit()
     db.refresh(db_report)
     return db_report

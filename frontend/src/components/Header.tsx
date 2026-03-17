@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Sparkles, Megaphone } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 
 type ThemeMode = 'system' | 'light' | 'dark'
+
+const APP_VERSION = 'v1.2.0'
+const LATEST_UPDATES = [
+    { title: '任务状态持久化', detail: '实时保存分析进度，支持断点续传与失败溯源。' },
+    { title: 'Agent 架构升级', detail: '辩论逻辑增强，支持风控打回修订。' },
+    { title: '打字机效果', detail: '更丝滑的报告生成体验。' }
+]
 
 function getInitials(email?: string | null): string {
     if (!email) return 'TA'
@@ -16,7 +23,9 @@ export default function Header() {
     const [themeMode, setThemeMode] = useState<ThemeMode>('system')
     const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default')
     const [menuOpen, setMenuOpen] = useState(false)
+    const [announcementOpen, setAnnouncementOpen] = useState(false)
     const menuRef = useRef<HTMLDivElement | null>(null)
+    const announceRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const saved = (localStorage.getItem('ta-theme') || 'system') as ThemeMode
@@ -28,9 +37,11 @@ export default function Header() {
 
     useEffect(() => {
         const onClick = (event: MouseEvent) => {
-            if (!menuRef.current) return
-            if (!menuRef.current.contains(event.target as Node)) {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
                 setMenuOpen(false)
+            }
+            if (announceRef.current && !announceRef.current.contains(event.target as Node)) {
+                setAnnouncementOpen(false)
             }
         }
         document.addEventListener('mousedown', onClick)
@@ -74,6 +85,41 @@ export default function Header() {
                         <div className="flex items-center gap-2.5">
                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_16px_rgba(16,185,129,0.4)]" />
                             <div className="text-sm font-semibold tracking-[0.04em] text-slate-900 dark:text-slate-100">A 股投研终端</div>
+                            <div className="relative" ref={announceRef}>
+                                <button 
+                                    onClick={() => setAnnouncementOpen(!announcementOpen)}
+                                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group"
+                                >
+                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 group-hover:text-blue-500 transition-colors">{APP_VERSION}</span>
+                                    <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
+                                </button>
+                                
+                                {announcementOpen && (
+                                    <div className="absolute left-0 top-full mt-3 w-80 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-[0_24px_80px_rgba(15,23,42,0.18)] z-50">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <Megaphone className="w-4 h-4 text-blue-500" />
+                                            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">新版本功能预览</span>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {LATEST_UPDATES.map((u, i) => (
+                                                <div key={i} className="group">
+                                                    <div className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 group-hover:scale-125 transition-transform" />
+                                                        {u.title}
+                                                    </div>
+                                                    <div className="mt-0.5 pl-3 text-[12px] text-slate-500 dark:text-slate-500 leading-relaxed">{u.detail}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button 
+                                            onClick={() => navigate('/settings')}
+                                            className="mt-4 w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 transition-colors"
+                                        >
+                                            查看完整更新日志
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
                         <div className="text-xs tracking-[0.18em] text-slate-400 dark:text-slate-500">工作台在线</div>

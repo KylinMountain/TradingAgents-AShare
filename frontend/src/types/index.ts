@@ -307,6 +307,8 @@ export interface Report {
     user_id?: string
     symbol: string
     trade_date: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    error?: string
     decision?: string
     direction?: string
     confidence?: number

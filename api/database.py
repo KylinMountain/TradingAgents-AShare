@@ -49,6 +49,12 @@ def _ensure_report_schema() -> None:
             columns = {row[1] for row in conn.execute(text("PRAGMA table_info(reports)"))}
             if "direction" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN direction VARCHAR(50)"))
+            if "status" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN status VARCHAR(20) DEFAULT 'completed'"))
+            if "error" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN error TEXT"))
+            if "analyst_traces" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN analyst_traces JSON"))
     except Exception as e:
         print(f"Warning: Failed to ensure report schema: {e}")
 
@@ -64,6 +70,10 @@ class ReportDB(Base):
     symbol = Column(String(20), index=True, nullable=False)
     trade_date = Column(String(10), nullable=False)
     
+    # Task lifecycle info
+    status = Column(String(20), default="completed", index=True)  # pending, running, completed, failed
+    error = Column(Text, nullable=True)
+    
     # Decision info
     decision = Column(String(50), nullable=True)  # BUY, SELL, HOLD, etc.
     direction = Column(String(50), nullable=True)  # 看多、看空、中性、谨慎
@@ -77,6 +87,7 @@ class ReportDB(Base):
     # LLM-extracted structured data
     risk_items = Column(JSON, nullable=True)   # [{"name": "...", "level": "high|medium|low", "description": "..."}]
     key_metrics = Column(JSON, nullable=True)  # [{"name": "...", "value": "...", "status": "good|neutral|bad"}]
+    analyst_traces = Column(JSON, nullable=True) # [{"agent": "...", "verdict": "...", "key_finding": "..."}]
 
     # Individual reports (for quick access)
     market_report = Column(Text, nullable=True)
@@ -106,6 +117,7 @@ class ReportDB(Base):
             "result_data": self.result_data,
             "risk_items": self.risk_items,
             "key_metrics": self.key_metrics,
+            "analyst_traces": self.analyst_traces,
             "market_report": self.market_report,
             "sentiment_report": self.sentiment_report,
             "news_report": self.news_report,

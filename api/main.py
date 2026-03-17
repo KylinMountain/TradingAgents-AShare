@@ -287,6 +287,8 @@ class ReportResponse(BaseModel):
     user_id: Optional[str]
     symbol: str
     trade_date: str
+    status: Literal["pending", "running", "completed", "failed"] = "completed"
+    error: Optional[str] = None
     decision: Optional[str]
     direction: Optional[str]
     confidence: Optional[int]
@@ -294,6 +296,7 @@ class ReportResponse(BaseModel):
     stop_loss_price: Optional[float]
     risk_items: Optional[List[Dict[str, Any]]] = None
     key_metrics: Optional[List[Dict[str, Any]]] = None
+    analyst_traces: Optional[List[Dict[str, Any]]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -562,6 +565,7 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "smart_money_report": final_state.get("smart_money_report"),
         "game_theory_report": final_state.get("game_theory_report"),
         "game_theory_signals": final_state.get("game_theory_signals"),
+        "analyst_traces": final_state.get("analyst_traces"),
         "investment_plan": final_state.get("investment_plan"),
         "trader_investment_plan": final_state.get("trader_investment_plan"),
         "risk_feedback_state": final_state.get("risk_feedback_state"),
@@ -886,7 +890,27 @@ def _run_job(
     display_name = request.symbol
     normalized_symbol = _normalize_symbol(request.symbol)
     
+    # ── Step 0: Initialize report in DB immediately ──
+    db = SessionLocal()
+    try:
+        report_service.init_report(
+            db=db,
+            report_id=job_id,
+            symbol=normalized_symbol,
+            trade_date=request.trade_date,
+            user_id=user_id,
+        )
+        report_service.update_report_partial(db, job_id, status="running")
+        db.commit()
+    except Exception as e:
+        print(f"CRITICAL: Failed to initialize report in DB: {e}")
+        # We don't raise here to allow the job to run even if DB is down, 
+        # but visibility will be lost.
+    finally:
+        db.close()
+
     _set_job(job_id, status="running", started_at=_utcnow_iso(), symbol=normalized_symbol)
+    
     _emit_job_event(
         job_id,
         "job.running",
@@ -1014,6 +1038,12 @@ def _run_job(
                         tracker._emit_writing_status(aname, ANALYST_REPORT_MAP[analyst_key])
 
                 args = horizon_graph.propagator.get_graph_args()
+                
+                # Use thread_id for LangGraph checkpointer persistence
+                if "config" not in args:
+                    args["config"] = {}
+                args["config"]["configurable"] = {"thread_id": f"{job_id}_{horizon}"}
+
                 init_state = horizon_graph.propagator.create_initial_state(
                     ticker, request.trade_date,
                     user_context=user_context_payload,
@@ -1025,58 +1055,67 @@ def _run_job(
                 seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
                 horizon_final = None
 
-                for chunk in horizon_graph.graph.stream(init_state, **args):
-                    horizon_final = chunk
-                    active_keys = [k for k, v in chunk.items() if v and k != "messages"]
-                    if active_keys:
-                        print(f"[Graph Chunk/{horizon}] keys={active_keys}")
+                db = SessionLocal()
+                try:
+                    for chunk in horizon_graph.graph.stream(init_state, **args):
+                        horizon_final = chunk
+                        active_keys = [k for k, v in chunk.items() if v and k != "messages"]
+                        if active_keys:
+                            print(f"[Graph Chunk/{horizon}] keys={active_keys}")
 
-                    # ── 并行感知的状态推进（替代 apply_chunk）──────────────────
-                    # 1. 每个 analyst 报告首次出现 → completed
-                    for analyst_key in ANALYST_ORDER:
-                        if analyst_key not in horizon_analysts:
-                            continue
-                        rkey = ANALYST_REPORT_MAP[analyst_key]
-                        aname = ANALYST_AGENT_NAMES[analyst_key]
-                        if chunk.get(rkey) and not seen.get(rkey):
-                            seen[rkey] = True
-                            tracker._set_status(aname, "completed")
+                        # ── 并行感知的状态推进 ──────────────────
+                        # 1. 每个 analyst 报告首次出现 → completed
+                        for analyst_key in ANALYST_ORDER:
+                            if analyst_key not in horizon_analysts:
+                                continue
+                            rkey = ANALYST_REPORT_MAP[analyst_key]
+                            aname = ANALYST_AGENT_NAMES[analyst_key]
+                            if chunk.get(rkey) and not seen.get(rkey):
+                                seen[rkey] = True
+                                tracker._set_status(aname, "completed")
 
-                    # 2. game_theory_report 出现 → GTM completed, Bull 开始
-                    if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
-                        seen["game_theory_report"] = True
-                        tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
-                        tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
+                        # 2. game_theory_report 出现 → GTM completed, Bull 开始
+                        if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
+                            seen["game_theory_report"] = True
+                            tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                            tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
 
-                    # 3. research judge → 研究团队完成, Trader 开始
-                    debate = chunk.get("investment_debate_state") or {}
-                    if debate.get("judge_decision") and not seen.get("judge_decision"):
-                        seen["judge_decision"] = True
-                        for r_key in ["bull", "bear", "research_manager"]:
-                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
-                        tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
+                        # 3. research judge → 研究团队完成, Trader 开始
+                        debate = chunk.get("investment_debate_state") or {}
+                        if debate.get("judge_decision") and not seen.get("judge_decision"):
+                            seen["judge_decision"] = True
+                            for r_key in ["bull", "bear", "research_manager"]:
+                                tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                            tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
+                            tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
 
-                    # 4. trader plan → Trader completed, 风控开始
-                    if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
-                        seen["trader_investment_plan"] = True
-                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
-                        tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
+                        # 4. trader plan → Trader completed, 风控开始
+                        if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
+                            seen["trader_investment_plan"] = True
+                            tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
+                            tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
 
-                    # 5. risk judge → 风控全部完成
-                    risk = chunk.get("risk_debate_state") or {}
-                    if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
-                        seen["risk_judge_decision"] = True
-                        for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
-                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                    # ── end 并行感知 ────────────────────────────────────────────
+                        # 5. risk judge → 风控全部完成
+                        risk = chunk.get("risk_debate_state") or {}
+                        if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
+                            seen["risk_judge_decision"] = True
+                            for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
+                                tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                        # ── end 并行感知 ────────────────────────────────────────────
 
-                    # 报告分片推送
-                    for key in report_keys:
-                        value = chunk.get(key)
-                        if value and value != last_report.get(key):
-                            last_report[key] = value
-                            tracker._emit_report_chunked(job_id, key, str(value))
+                        # 报告分片推送与数据库即时更新
+                        db_updates = {}
+                        for key in report_keys:
+                            value = chunk.get(key)
+                            if value and value != last_report.get(key):
+                                last_report[key] = value
+                                db_updates[key] = str(value)
+                                tracker._emit_report_chunked(job_id, key, str(value))
+                        
+                        if db_updates:
+                            report_service.update_report_partial(db, job_id, **db_updates)
+                finally:
+                    db.close()
 
                 horizon_states[horizon] = horizon_final
                 for agent, st in tracker.status.items():
@@ -1155,6 +1194,8 @@ def _run_job(
                         confidence_override=result["confidence"],
                         target_price_override=result["target_price"],
                         stop_loss_override=result["stop_loss_price"],
+                        report_id=job_id,
+                        analyst_traces=result.get("analyst_traces"),
                     )
                     db.commit()
                 except Exception as e:
@@ -1188,6 +1229,12 @@ def _run_job(
                 request_source=request_source,
             )
             args = graph.propagator.get_graph_args()
+            
+            # Pass job_id as thread_id for LangGraph checkpointer persistence
+            if "config" not in args:
+                args["config"] = {}
+            args["config"]["configurable"] = {"thread_id": job_id}
+
             report_keys = (
                 "market_report",
                 "sentiment_report",
@@ -1201,66 +1248,108 @@ def _run_job(
                 "final_trade_decision",
             )
             last_report: Dict[str, str] = {}
+            seen: Dict[str, bool] = {}
 
-            for chunk in graph.graph.stream(init_state, **args):
-                final_state = chunk
-                tracker.apply_chunk(chunk)
-                # 打印当前 chunk 包含哪些 key，方便追踪 agent 执行进度
-                active_keys = [k for k, v in chunk.items() if v and k != "messages"]
-                if active_keys:
-                    print(f"[Graph Chunk] keys={active_keys}")
-                messages = chunk.get("messages", [])
-                if messages:
-                    msg = messages[-1]
-                    content = _extract_message_text(getattr(msg, "content", ""))
-                    agent_name = getattr(msg, "name", None)
+            db = SessionLocal()
+            try:
+                for chunk in graph.graph.stream(init_state, **args):
+                    final_state = chunk
+                    # ── 并行感知的状态推进 ──────────────────
+                    # 1. 每个 analyst 报告首次出现 → completed
+                    for analyst_key in ANALYST_ORDER:
+                        if analyst_key not in request.selected_analysts:
+                            continue
+                        rkey = ANALYST_REPORT_MAP[analyst_key]
+                        aname = ANALYST_AGENT_NAMES[analyst_key]
+                        if chunk.get(rkey) and not seen.get(rkey):
+                            seen[rkey] = True
+                            tracker._set_status(aname, "completed")
+
+                    # 2. 其他团队状态推进
+                    if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
+                        seen["game_theory_report"] = True
+                        tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
+
+                    debate = chunk.get("investment_debate_state") or {}
+                    if debate.get("judge_decision") and not seen.get("judge_decision"):
+                        seen["judge_decision"] = True
+                        for r_key in ["bull", "bear", "research_manager"]:
+                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
+
+                    if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
+                        seen["trader_investment_plan"] = True
+                        tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
+                        tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
+
+                    risk = chunk.get("risk_debate_state") or {}
+                    if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
+                        seen["risk_judge_decision"] = True
+                        for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
+                            tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                    # ────────────────────────────────────────────
+
+                    # ── Partial DB Persistence & UI Streaming ──
+                    db_updates = {}
+                    for key in report_keys:
+                        value = chunk.get(key)
+                        if value and value != last_report.get(key):
+                            last_report[key] = value
+                            db_updates[key] = str(value)
+                            # 立即推送报告分片，前端即可“即产即看”
+                            tracker._emit_report_chunked(job_id, key, str(value))
                     
-                    # 服务器日志
-                    if content:
-                        print(f"[Agent Message] {agent_name}: {content[:200]}...")
+                    if db_updates:
+                        report_service.update_report_partial(db, job_id, **db_updates)
+                    
+                    # 打印当前 chunk 包含哪些 key，方便追踪 agent 执行进度
+                    active_keys = [k for k, v in chunk.items() if v and k != "messages"]
+                    if active_keys:
+                        print(f"[Graph Chunk] keys={active_keys}")
 
-                    # 发送工具调用到前端，让用户看到系统正在做什么
-                    for tool_call in getattr(msg, "tool_calls", []) or []:
-                        tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else getattr(tool_call, "name", "unknown")
-                        tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
-                        print(f"[Tool Call] {agent_name}: {tool_name}")
-                        
-                        # 根据工具名推断是哪个Agent在调用
-                        agent_display = agent_name
-                        if not agent_display:
-                            # 根据工具名推断Agent
-                            tool_to_agent = {
-                                "get_stock_data": "数据获取",
-                                "get_indicators": "技术分析师",
-                                "get_fundamentals": "基本面分析师",
-                                "get_income_statement": "基本面分析师",
-                                "get_balance_sheet": "基本面分析师",
-                                "get_cash_flow": "基本面分析师",
-                                "get_news": "新闻分析师",
-                                "get_social_sentiment": "舆情分析师",
-                            }
-                            agent_display = tool_to_agent.get(tool_name, "系统")
-                        
-                        # 生成工具调用的描述（包含具体指标）
-                        tool_description = _generate_tool_description(tool_name, tool_args)
-                        
-                        # 发送给用户可见的工具调用事件
-                        _emit_job_event(
-                            job_id,
-                            "agent.tool_call",
-                            {
-                                "agent": agent_display,
-                                "tool": tool_name,
-                                "description": tool_description,
-                            },
-                        )
+                    # ── Message & Tool Call Handling ──
+                    messages = chunk.get("messages", [])
+                    if messages:
+                        msg = messages[-1]
+                        content = _extract_message_text(getattr(msg, "content", ""))
+                        agent_name = getattr(msg, "name", None)
 
-                for key in report_keys:
-                    value = chunk.get(key)
-                    if value and value != last_report.get(key):
-                        last_report[key] = value
-                        # 使用分片推送，支持打字机效果
-                        tracker._emit_report_chunked(job_id, key, str(value))
+                        if content:
+                            print(f"[Agent Message] {agent_name}: {content[:200]}...")
+
+                        for tool_call in getattr(msg, "tool_calls", []) or []:
+                            tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else getattr(tool_call, "name", "unknown")
+                            tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+                            print(f"[Tool Call] {agent_name}: {tool_name}")
+
+                            agent_display = agent_name
+                            if not agent_display:
+                                tool_to_agent = {
+                                    "get_stock_data": "数据获取",
+                                    "get_indicators": "技术分析师",
+                                    "get_fundamentals": "基本面分析师",
+                                    "get_income_statement": "基本面分析师",
+                                    "get_balance_sheet": "基本面分析师",
+                                    "get_cash_flow": "基本面分析师",
+                                    "get_news": "新闻分析师",
+                                    "get_social_sentiment": "舆情分析师",
+                                }
+                                agent_display = tool_to_agent.get(tool_name, "系统")
+
+                            tool_description = _generate_tool_description(tool_name, tool_args)
+                            _emit_job_event(
+                                job_id,
+                                "agent.tool_call",
+                                {
+                                    "agent": agent_display,
+                                    "tool": tool_name,
+                                    "description": tool_description,
+                                },
+                            )
+                
+            finally:
+                db.close()
         else:
             final_state, _ = graph.propagate(
                 request.symbol,
@@ -1268,6 +1357,7 @@ def _run_job(
                 user_context=user_context_payload,
                 selected_analysts=request.selected_analysts,
                 request_source=request_source,
+                thread_id=job_id,
             )
 
         if not final_state:
@@ -1307,14 +1397,14 @@ def _run_job(
             "direction": resolved["direction"],
             "confidence": resolved["confidence"],
             "target_price": resolved["target_price"],
-            "stop_loss_price": resolved["stop_loss_price"]
+            "stop_loss_price": resolved["stop_loss_price"],
         })
 
-        # 自动保存报告到数据库
+        # 自动保存/收口报告到数据库
         if save_report:
             db = SessionLocal()
             try:
-                # 传入已解析的值，避免重复开销
+                # 传入已解析的值，并指定 report_id 进行更新
                 report_service.create_report(
                     db=db,
                     symbol=request.symbol,
@@ -1327,11 +1417,13 @@ def _run_job(
                     confidence_override=result["confidence"],
                     target_price_override=result["target_price"],
                     stop_loss_override=result["stop_loss_price"],
+                    report_id=job_id,
+                    analyst_traces=result.get("analyst_traces"),
                 )
                 db.commit()
             except Exception as e:
                 db.rollback()
-                print(f"Failed to save report: {e}")
+                print(f"Failed to finalize report: {e}")
             finally:
                 db.close()
 
@@ -1359,17 +1451,26 @@ def _run_job(
             },
         )
     except Exception as exc:
+        err_msg = f"{type(exc).__name__}: {exc}"
         _set_job(
             job_id,
             status="failed",
-            error=f"{type(exc).__name__}: {exc}",
+            error=err_msg,
             traceback=traceback.format_exc(),
             finished_at=_utcnow_iso(),
         )
+        
+        # ── Persistent failure recording ──
+        db = SessionLocal()
+        try:
+            report_service.mark_report_failed(db, job_id, f"{err_msg}\n\n{traceback.format_exc()}")
+        finally:
+            db.close()
+
         _emit_job_event(
             job_id,
             "job.failed",
-            {"job_id": job_id, "error": f"{type(exc).__name__}: {exc}"},
+            {"job_id": job_id, "error": err_msg},
         )
 
 
@@ -2082,6 +2183,83 @@ def create_report_endpoint(
         user_id=current_user.id,
     )
     return report
+
+
+@app.get("/v1/analyze/latest/{symbol}")
+async def get_latest_analysis(
+    symbol: str,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Get the most recent analysis report including agent message history."""
+    normalized = _normalize_symbol(symbol)
+    report = db.query(ReportDB).filter(
+        ReportDB.symbol == normalized,
+        ReportDB.user_id == current_user.id
+    ).order_by(ReportDB.created_at.desc()).first()
+    
+    if not report:
+        raise HTTPException(status_code=404, detail="No analysis found for this symbol")
+    
+    # Try to fetch message history from LangGraph checkpointer
+    history = []
+    try:
+        # We need a graph instance to access the checkpointer
+        # Use default config for this transient instance
+        graph = TradingAgentsGraph(selected_analysts=["market"])
+        
+        # Try both direct job_id and suffixed ID (for dual-horizon)
+        state = graph.get_state(report.id)
+        if not state.values and "_" not in report.id:
+            # Try short horizon suffix as fallback
+            state = graph.get_state(f"{report.id}_short")
+            
+        if state.values and "messages" in state.values:
+            for msg in state.values["messages"]:
+                content = getattr(msg, "content", "")
+                if isinstance(content, list): # Handle multimodal/tool formats
+                    content = _extract_message_text(content)
+                
+                history.append({
+                    "role": "assistant" if msg.type == "ai" else "user",
+                    "content": content,
+                    "name": getattr(msg, "name", None),
+                    "timestamp": datetime.now(timezone.utc).isoformat() # Approx
+                })
+    except Exception as e:
+        print(f"Warning: Failed to fetch message history from graph: {e}")
+
+    # Convert to dict and add messages
+    result = {
+        "id": report.id,
+        "symbol": report.symbol,
+        "trade_date": report.trade_date,
+        "status": report.status,
+        "error": report.error,
+        "decision": report.decision,
+        "direction": report.direction,
+        "confidence": report.confidence,
+        "target_price": report.target_price,
+        "stop_loss_price": report.stop_loss_price,
+        "market_report": report.market_report,
+        "sentiment_report": report.sentiment_report,
+        "news_report": report.news_report,
+        "fundamentals_report": report.fundamentals_report,
+        "macro_report": report.macro_report,
+        "smart_money_report": report.smart_money_report,
+        "game_theory_report": report.game_theory_report,
+        "investment_plan": report.investment_plan,
+        "trader_investment_plan": report.trader_investment_plan,
+        "final_trade_decision": report.final_trade_decision,
+        "risk_items": report.risk_items,
+        "key_metrics": report.key_metrics,
+        "analyst_traces": report.analyst_traces,
+        "created_at": report.created_at,
+        "updated_at": report.updated_at,
+        "history": history # The added reasoning path
+    }
+    
+    return result
 
 
 @app.get("/v1/reports", response_model=ReportListResponse)

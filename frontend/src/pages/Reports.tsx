@@ -24,6 +24,39 @@ const getDecisionColor = (decision?: string) => {
     return 'text-slate-600 dark:text-slate-400'
 }
 
+const renderStatusBadge = (report: Report) => {
+    switch (report.status) {
+        case 'pending':
+            return (
+                <div className="flex items-center gap-1.5 text-slate-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="text-xs font-medium">排队中</span>
+                </div>
+            )
+        case 'running':
+            return (
+                <div className="flex items-center gap-1.5 text-blue-500">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="text-xs font-medium">分析中...</span>
+                </div>
+            )
+        case 'failed':
+            return (
+                <div className="group relative flex items-center gap-1.5 text-rose-500" title={report.error?.split('\n')[0]}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    <span className="text-xs font-medium">任务失败</span>
+                </div>
+            )
+        default:
+            const { label } = parseDecision(report.decision)
+            return (
+                <span className={`font-medium ${getDecisionColor(report.decision)}`}>
+                    {label}
+                </span>
+            )
+    }
+}
+
 function exportReport(report: ReportDetail) {
     const sections = [
         { key: 'market_report', title: '市场分析报告' },
@@ -215,15 +248,29 @@ export default function Reports() {
 
                 {/* 主体：概要卡片 + 报告全文 */}
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                    <DecisionCard
-                        symbol={selectedReport.symbol}
-                        decision={action}
-                        direction={selectedReport.direction}
-                        confidence={selectedReport.confidence ?? undefined}
-                        targetPrice={selectedReport.target_price ?? undefined}
-                        stopLoss={selectedReport.stop_loss_price ?? undefined}
-                        reasoning={selectedReport.final_trade_decision?.slice(0, 300) ?? undefined}
-                    />
+                    {selectedReport.status === 'completed' ? (
+                        <DecisionCard
+                            symbol={selectedReport.symbol}
+                            decision={action}
+                            direction={selectedReport.direction}
+                            confidence={selectedReport.confidence ?? undefined}
+                            targetPrice={selectedReport.target_price ?? undefined}
+                            stopLoss={selectedReport.stop_loss_price ?? undefined}
+                            reasoning={selectedReport.final_trade_decision?.slice(0, 300) ?? undefined}
+                        />
+                    ) : (
+                        <div className="card h-full flex flex-col items-center justify-center p-8 text-center min-h-[320px]">
+                            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                                {selectedReport.status === 'failed' ? '分析失败' : '深度分析中...'}
+                            </h3>
+                            <p className="text-sm text-slate-500 mt-2 max-w-[200px]">
+                                {selectedReport.status === 'failed' 
+                                    ? (selectedReport.error?.slice(0, 50) || '未知错误')
+                                    : '正在汇总各路 Agent 的观点，请稍后。'}
+                            </p>
+                        </div>
+                    )}
                     <RiskRadar items={selectedReport.risk_items ?? undefined} />
                     <KeyMetrics items={selectedReport.key_metrics ?? undefined} />
                 </div>
@@ -300,7 +347,6 @@ export default function Reports() {
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                                 {filteredReports.map((report) => {
-                                    const { label } = parseDecision(report.decision)
                                     return (
                                         <tr
                                             key={report.id}
@@ -317,9 +363,7 @@ export default function Reports() {
                                             </td>
                                             <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{report.trade_date}</td>
                                             <td className="py-3 px-4">
-                                                <span className={`font-medium ${getDecisionColor(report.decision)}`}>
-                                                    {label}
-                                                </span>
+                                                {renderStatusBadge(report)}
                                             </td>
                                             <td className="py-3 px-4">
                                                 {report.confidence != null ? (
