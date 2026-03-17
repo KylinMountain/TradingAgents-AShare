@@ -7,6 +7,7 @@ import re
 import traceback
 from contextlib import asynccontextmanager
 from io import StringIO
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -198,27 +199,39 @@ HORIZON_ANALYSTS = {
     "medium": ["market", "news", "fundamentals", "macro"],
 }
 
-LATEST_ANNOUNCEMENT: Optional[Dict[str, Any]] = {
-    "id": "2026-03-17-report-persistence",
-    "tag": "公告",
-    "title": "报告持久化能力升级",
-    "summary": "已完成任务结果会继续保留，建议统一从“我的报告”查看与追踪。",
-    "published_at": "2026-03-17T10:00:00+08:00",
-    "items": [
-        {"title": "结果自动保存", "detail": "分析完成后的正文、关键指标与风险信息会自动进入报告中心。"},
-        {"title": "失败信息可追踪", "detail": "任务失败会记录错误信息，便于排查和回溯。"},
-        {"title": "查看入口统一", "detail": "已完成分析建议从“我的报告”集中查看，不再依赖页面内临时恢复。"},
-    ],
-    "cta_label": "前往我的报告",
-    "cta_path": "/reports",
-}
-
 
 def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
     """Return the subset of available analysts relevant for the given horizon."""
     relevant = set(HORIZON_ANALYSTS.get(horizon, available))
     filtered = [a for a in available if a in relevant]
     return filtered if filtered else list(available)
+
+
+def _announcements_file() -> Path:
+    return Path(__file__).resolve().parents[1] / "announcements.json"
+
+
+def _load_latest_announcement() -> Optional[Dict[str, Any]]:
+    path = _announcements_file()
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[Announcements] Failed to read {path.name}: {exc}")
+        return None
+
+    announcements = raw.get("announcements") if isinstance(raw, dict) else raw
+    if not isinstance(announcements, list):
+        return None
+
+    for item in announcements:
+        if not isinstance(item, dict):
+            continue
+        if item.get("enabled", True) is False:
+            continue
+        return item
+    return None
 
 
 class UserContextInput(BaseModel):
@@ -2228,7 +2241,7 @@ def get_latest_announcement(
     current_user: UserDB = Depends(_require_api_user),
 ):
     _ = current_user
-    return {"announcement": LATEST_ANNOUNCEMENT}
+    return {"announcement": _load_latest_announcement()}
 
 
 @app.get("/v1/reports", response_model=ReportListResponse)

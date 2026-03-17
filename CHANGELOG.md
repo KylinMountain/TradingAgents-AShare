@@ -5,41 +5,59 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added Chinese README: `README.zh-CN.md`.
-- Added this changelog file.
-
-## [2026-03-02]
-
-### Added
-- Added centralized prompt catalog with bilingual templates:
-  - `tradingagents/prompts/en.py`
-  - `tradingagents/prompts/zh.py`
-  - `tradingagents/prompts/catalog.py`
-- Added prompt language controls in config:
-  - `prompt_language`
-  - `prompt_language_by_provider`
-- Added runtime artifact ignore rules in `.gitignore`:
-  - `eval_results/`
-  - `reports/`
-  - `results/`
+- Added persistent report lifecycle fields, including `status`, `error`, and richer section-level report storage.
+- Added structured analyst trace persistence to support future report-side insight displays.
+- Added header announcement support backed by `announcements.json` and `/v1/announcements/latest`.
 
 ### Changed
-- Default prompt language switched to Chinese (`zh`).
-- Refactored agents/managers/risk/trader/reflection/signal nodes to load prompts via catalog.
-- Improved vendor routing fallback behavior in `tradingagents/dataflows/interface.py`:
-  - Provider runtime errors now fallback to next provider in chain.
-  - Error message now includes last provider error context.
-- Enhanced `cn_akshare` provider:
-  - Added in-provider market data fallback chain:
-    1. Eastmoney `stock_zh_a_hist`
-    2. Sina `stock_zh_a_daily`
-    3. Tencent `stock_zh_a_hist_tx`
-  - Normalized mixed source columns into unified OHLCV schema.
-  - Hardened indicator computation to avoid `KeyError('date')` on non-trading dates.
-  - Localized CN news/global news output text.
-- Localized yfinance data/indicator textual outputs to Chinese for CN workflow consistency.
+- Changed the report flow to initialize records earlier and update report content incrementally during long-running analysis jobs.
+- Changed the header announcement entry to load from backend data instead of hard-coded preview text.
 
 ### Fixed
-- Fixed intermittent indicator failures (`boll_ub`, `atr`) caused by provider-specific date-column mismatch.
-- Fixed frequent hard-fail behavior when primary provider throws non-`NotImplementedError` exceptions.
+- Fixed report serialization gaps so newly persisted lifecycle and extended section fields can be returned consistently.
+- Fixed report finalization and failure recording so completed and failed jobs leave clearer artifacts for follow-up inspection.
 
+## [v0.4.2] - 2026-03-16
+
+### Added
+- Added user-context grounding so analysis can incorporate objective, risk preference, investment horizon, and holding constraints.
+- Added local Docker one-click deployment script for easier self-hosted setup.
+
+### Changed
+- Upgraded the debate workflow to a claim-driven flow for stronger argument organization and downstream judgment.
+- Improved multi-horizon analysis wording and parameter handling.
+
+### Fixed
+- Fixed structured extraction prompts by explicitly restoring missing JSON keywords that caused 400 errors.
+- Removed mistakenly committed runtime artifacts such as `deploy` and `.vite` from version control.
+
+## [v0.4.1] - 2026-03-15
+
+### Added
+- Added intent-driven multi-horizon analysis with streaming progress updates.
+- Added integrated frontend-backend Docker packaging and multi-architecture CI/CD automation.
+- Added restored A-share analysis skills with a hardened CI environment.
+
+### Changed
+- Re-applied missing dependency updates including `marshmallow` and `python-socketio`.
+
+### Fixed
+- Fixed review issues raised during the v0.4.1 stabilization cycle.
+- Improved SKILL metadata and SEO-related presentation.
+
+## [v0.4.0] - 2026-03-13
+
+### Added
+- Added monorepo synchronization and the new game-theory agent integration.
+- Added report `direction` field and UTC timestamp serialization.
+- Added frontend commit message support.
+- Added skills support for using TradingAgents through reusable skill workflows.
+
+### Fixed
+- Fixed default agent settings.
+- Fixed stock symbol normalization at task startup and during K-line data retrieval.
+
+## [v0.3.0] - 2026-03-12
+
+### Changed
+- Removed the redundant `frontend_backup/` tree from the main branch to simplify the repository layout.
