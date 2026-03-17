@@ -1,3 +1,5 @@
+from langchain_core.tools import tool
+
 from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
@@ -49,3 +51,9 @@ def create_msg_delete():
 
 
         
+
+@tool
+def get_seat_history(seat_name: str, limit: int = 10) -> str:
+    """Queries the historical performance and style of a specific trading seat."""
+    return f"Seat {seat_name} history: [Simulated] Frequently appears in hot stocks, 2-day exit pattern."
+
