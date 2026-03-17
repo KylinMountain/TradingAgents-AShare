@@ -1,7 +1,8 @@
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.graph.intent_parser import build_horizon_context
+from tradingagents.agents.utils.agent_utils import get_seat_history
 
 
 def _extract_verdict(text):
@@ -17,6 +18,8 @@ def _extract_verdict(text):
 
 
 def create_smart_money_analyst(llm, data_collector=None):
+    llm_with_tools = llm.bind_tools([get_seat_history])
+
     def _safe(tool, payload):
         try:
             return tool.invoke(payload)
@@ -26,7 +29,6 @@ def create_smart_money_analyst(llm, data_collector=None):
     def smart_money_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
-        print(f"[Smart Money Analyst] START {ticker} {current_date}")
         horizon = state.get("horizon", "short")
         user_intent = state.get("user_intent") or {}
         focus_areas = user_intent.get("focus_areas", [])
@@ -53,7 +55,8 @@ def create_smart_money_analyst(llm, data_collector=None):
                 "curr_date": current_date, "look_back_days": 20,
             })
 
-        messages = [
+        # Base context messages
+        base_messages = [
             SystemMessage(content=(
                 horizon_ctx + system_message
                 + "\n\n请严格基于提供的量化数据输出分析，全程使用中文。"
@@ -66,19 +69,39 @@ def create_smart_money_analyst(llm, data_collector=None):
             )),
         ]
 
-        result = llm.invoke(messages)
-        print(f"[Smart Money Analyst] DONE {ticker}, report length={len(result.content)}")
-        verdict, confidence = _extract_verdict(result.content)
-        return {
-            "smart_money_report": result.content,
-            "analyst_traces": [{
-                "agent": "smart_money_analyst",
-                "horizon": horizon,
-                "data_window": "近期可用",
-                "key_finding": f"主力资金分析结论：{verdict}",
-                "verdict": verdict,
-                "confidence": confidence,
-            }],
-        }
+        # Extract previous ReAct messages for this specific node
+        react_messages = []
+        for msg in state.get("messages", []):
+            if isinstance(msg, AIMessage) and msg.name == "Smart Money Analyst":
+                react_messages.append(msg)
+            elif isinstance(msg, ToolMessage) and msg.name == "get_seat_history":
+                react_messages.append(msg)
+
+        # Combine
+        messages_to_invoke = base_messages + react_messages
+
+        print(f"[Smart Money Analyst] Invoking LLM (history: {len(react_messages)} msgs)...")
+        result = llm_with_tools.invoke(messages_to_invoke)
+        result.name = "Smart Money Analyst"
+
+        if result.tool_calls:
+            print(f"[Smart Money Analyst] Tool call requested: {result.tool_calls}")
+            # If there are tool calls, we return them in messages to trigger the ToolNode
+            return {"messages": [result]}
+        else:
+            print(f"[Smart Money Analyst] DONE {ticker}, report length={len(result.content)}")
+            verdict, confidence = _extract_verdict(result.content)
+            # Final output, don't return messages to avoid polluting global state, just return reports
+            return {
+                "smart_money_report": result.content,
+                "analyst_traces": [{
+                    "agent": "smart_money_analyst",
+                    "horizon": horizon,
+                    "data_window": "近期可用",
+                    "key_finding": f"主力资金分析结论：{verdict}",
+                    "verdict": verdict,
+                    "confidence": confidence,
+                }],
+            }
 
     return smart_money_analyst_node
