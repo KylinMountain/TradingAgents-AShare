@@ -76,6 +76,27 @@ class ConditionalLogic:
             return "continue"
         return "done"
 
+    def should_continue_gt_debate(self, state: AgentState) -> str:
+        """Determine if the game theory (Smart Money vs Retail) debate should continue."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        
+        # 1. Handle tool calls within the debate
+        if getattr(last_message, "tool_calls", None):
+            # We need to know which agent called the tool to route back
+            if state["game_theory_debate_state"].get("current_speaker", "").startswith("Smart Money"):
+                return "smart_money_tools"
+            return "retail_tools"
+
+        # 2. Handle round rotation
+        # Limit to 2 rounds (4 messages total) for GT debate
+        if state["game_theory_debate_state"]["count"] >= 2:
+            return "Game Theory Manager"
+            
+        if state["game_theory_debate_state"].get("current_speaker", "").startswith("Smart Money"):
+            return "Retail Investor Analyst"
+        return "Smart Money Analyst"
+
     def should_continue_debate(self, state: AgentState) -> str:
         """Determine if debate should continue."""
 

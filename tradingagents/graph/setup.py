@@ -144,7 +144,14 @@ class GraphSetup:
         workflow = StateGraph(AgentState)
 
         def analyst_display_name(analyst_type: str) -> str:
-            """Convert analyst_type key to display name, e.g. 'smart_money' -> 'Smart Money'."""
+            """Convert analyst_type key to display name."""
+            mapping = {
+                "smart_money": "Smart Money",
+                "retail": "Retail Investor",
+                "ecosystem": "Ecounter", # Just kidding, handle below
+            }
+            if analyst_type == "retail":
+                return "Retail Investor"
             return analyst_type.replace("_", " ").title()
 
         # Add analyst nodes to the graph
@@ -186,11 +193,35 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
-        # All analysts complete → Game Theory Manager
+        # All analysts complete → Start GT Debate with Smart Money
         workflow.add_edge(
             [f"{analyst_display_name(analyst_type)} Analyst Done" for analyst_type in selected_analysts],
-            "Game Theory Manager",
+            "Smart Money Analyst",
         )
+
+        # GT Debate Loop: Smart Money <-> Retail
+        workflow.add_conditional_edges(
+            "Smart Money Analyst",
+            self.conditional_logic.should_continue_gt_debate,
+            {
+                "smart_money_tools": "tools_smart_money",
+                "Retail Investor Analyst": "Retail Investor Analyst",
+                "Game Theory Manager": "Game Theory Manager",
+            },
+        )
+        workflow.add_edge("tools_smart_money", "Smart Money Analyst")
+
+        workflow.add_conditional_edges(
+            "Retail Investor Analyst",
+            self.conditional_logic.should_continue_gt_debate,
+            {
+                "retail_tools": "tools_retail",
+                "Smart Money Analyst": "Smart Money Analyst",
+                "Game Theory Manager": "Game Theory Manager",
+            },
+        )
+        workflow.add_edge("tools_retail", "Retail Investor Analyst")
+
         # Game Theory Manager → Bull Researcher
         workflow.add_edge("Game Theory Manager", "Bull Researcher")
 

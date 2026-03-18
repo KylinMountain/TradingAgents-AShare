@@ -340,6 +340,81 @@ def _fallback_summary(text: str) -> str:
     return compact[:120]
 
 
+def format_round_summary_for_prompt(summary: str | None) -> str:
+    s = str(summary or "").strip()
+    if not s:
+        return "第一轮辩论，暂无摘要。"
+    return s
+
+
+def update_debate_state(
+    state: Mapping[str, Any],
+    raw_response: str,
+    speaker: str,
+    state_key: str,
+    claim_prefix: str,
+    domain: str,
+    speaker_field: str,
+) -> dict[str, Any]:
+    """
+    Top-level helper to update debate state based on speaker type.
+    """
+    if speaker == "Bull":
+        return update_debate_state_with_payload(
+            state=state,
+            raw_response=raw_response,
+            speaker_label="Bull Researcher",
+            speaker_key="Bull Researcher",
+            stance="bullish",
+            history_key="bull_history",
+            marker="DEBATE_STATE",
+            claim_prefix=claim_prefix,
+            domain=domain,
+            speaker_field=speaker_field,
+        )
+    elif speaker == "Bear":
+        return update_debate_state_with_payload(
+            state=state,
+            raw_response=raw_response,
+            speaker_label="Bear Researcher",
+            speaker_key="Bear Researcher",
+            stance="bearish",
+            history_key="bear_history",
+            marker="DEBATE_STATE",
+            claim_prefix=claim_prefix,
+            domain=domain,
+            speaker_field=speaker_field,
+        )
+    elif speaker == "Smart Money":
+        return update_debate_state_with_payload(
+            state=state,
+            raw_response=raw_response,
+            speaker_label="Smart Money",
+            speaker_key="Smart Money Analyst",
+            stance="institutional",
+            history_key="smart_money_history",
+            marker="DEBATE_STATE",
+            claim_prefix=claim_prefix,
+            domain=domain,
+            speaker_field=speaker_field,
+        )
+    elif speaker == "Retail":
+        return update_debate_state_with_payload(
+            state=state,
+            raw_response=raw_response,
+            speaker_label="Retail Investor",
+            speaker_key="Retail Investor Analyst",
+            stance="retail",
+            history_key="retail_history",
+            marker="DEBATE_STATE",
+            claim_prefix=claim_prefix,
+            domain=domain,
+            speaker_field=speaker_field,
+        )
+    # Add other speakers if needed
+    return dict(state)
+
+
 def build_empty_risk_debate_state() -> dict[str, Any]:
     return {
         "history": "",

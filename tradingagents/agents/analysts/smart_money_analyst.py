@@ -3,6 +3,11 @@ from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.graph.intent_parser import build_horizon_context
 from tradingagents.agents.utils.agent_utils import get_seat_history
+from tradingagents.agents.utils.debate_utils import (
+    format_claim_subset_for_prompt,
+    format_round_summary_for_prompt,
+    update_debate_state,
+)
 
 
 def _extract_verdict(text):
@@ -18,6 +23,7 @@ def _extract_verdict(text):
 
 
 def create_smart_money_analyst(llm, data_collector=None):
+    # Bind tools for ReAct
     llm_with_tools = llm.bind_tools([get_seat_history])
 
     def _safe(tool, payload):
@@ -30,16 +36,31 @@ def create_smart_money_analyst(llm, data_collector=None):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
         horizon = state.get("horizon", "short")
-        user_intent = state.get("user_intent") or {}
-        focus_areas = user_intent.get("focus_areas", [])
-        specific_questions = user_intent.get("specific_questions", [])
+        
+        # Debate integration
+        gt_debate_state = state.get("game_theory_debate_state", {})
+        history = gt_debate_state.get("history", "博弈尚未开始。")
+        current_response = gt_debate_state.get("current_response", "无。")
+        
+        # Prepare debate context
+        from tradingagents.agents.utils.debate_utils import format_claims_for_prompt
+        claims_text = format_claims_for_prompt(gt_debate_state.get("claims", []))
+        focus_claims_text = format_claim_subset_for_prompt(
+            gt_debate_state.get("claims", []), 
+            gt_debate_state.get("focus_claim_ids", [])
+        )
+        unresolved_claims_text = format_claim_subset_for_prompt(
+            gt_debate_state.get("claims", []), 
+            gt_debate_state.get("unresolved_claim_ids", [])
+        )
+        round_summary = format_round_summary_for_prompt(gt_debate_state.get("round_summary", ""))
+        round_goal = gt_debate_state.get("round_goal", "分析主力意图")
 
         config = get_config()
-        system_message = get_prompt("smart_money_system_message", config=config) or ""
-        horizon_ctx = build_horizon_context(horizon, focus_areas, specific_questions, "smart_money")
-
+        system_message_template = get_prompt("smart_money_system_message", config=config) or ""
+        
+        # Fetch quant data
         pool = data_collector.get(ticker, current_date) if data_collector else None
-
         if pool is not None:
             fund_flow = pool.get("fund_flow_individual", "无数据")
             lhb = pool.get("lhb", "无数据")
@@ -55,50 +76,67 @@ def create_smart_money_analyst(llm, data_collector=None):
                 "curr_date": current_date, "look_back_days": 20,
             })
 
-        # Base context messages
-        base_messages = [
-            SystemMessage(content=(
-                horizon_ctx + system_message
-                + "\n\n请严格基于提供的量化数据输出分析，全程使用中文。"
-            )),
+        # Build prompt
+        system_content = system_message_template.format(
+            history=history,
+            current_response=current_response,
+            claims_text=claims_text,
+            focus_claims_text=focus_claims_text,
+            unresolved_claims_text=unresolved_claims_text,
+            round_summary=round_summary,
+            round_goal=round_goal
+        )
+
+        messages = [
+            SystemMessage(content=system_content),
             HumanMessage(content=(
-                f"请分析 {ticker} 在 {current_date} 的主力资金行为。\n\n"
+                f"请基于以下主力数据进行博弈分析：\n\n"
                 f"【近5日主力资金净流向】\n{fund_flow}\n\n"
                 f"【龙虎榜数据】\n{lhb}\n\n"
                 f"【成交量指标(vwma)】\n{volume}"
             )),
         ]
 
-        # Extract previous ReAct messages for this specific node
+        # Handle ReAct messages
         react_messages = []
         for msg in state.get("messages", []):
             if isinstance(msg, AIMessage) and msg.name == "Smart Money Analyst":
                 react_messages.append(msg)
             elif isinstance(msg, ToolMessage) and msg.name == "get_seat_history":
                 react_messages.append(msg)
-
-        # Combine
-        messages_to_invoke = base_messages + react_messages
+        
+        messages_to_invoke = messages + react_messages
 
         print(f"[Smart Money Analyst] Invoking LLM (history: {len(react_messages)} msgs)...")
         result = llm_with_tools.invoke(messages_to_invoke)
         result.name = "Smart Money Analyst"
 
         if result.tool_calls:
-            print(f"[Smart Money Analyst] Tool call requested: {result.tool_calls}")
-            # If there are tool calls, we return them in messages to trigger the ToolNode
             return {"messages": [result]}
         else:
             print(f"[Smart Money Analyst] DONE {ticker}, report length={len(result.content)}")
+            
+            # Update debate state
+            new_gt_state = update_debate_state(
+                gt_debate_state,
+                result.content,
+                speaker="Smart Money",
+                state_key="GT_DEBATE_STATE",
+                claim_prefix="GT",
+                domain="game_theory",
+                speaker_field="current_speaker"
+            )
+            
             verdict, confidence = _extract_verdict(result.content)
-            # Final output, don't return messages to avoid polluting global state, just return reports
+            
             return {
                 "smart_money_report": result.content,
+                "game_theory_debate_state": new_gt_state,
                 "analyst_traces": [{
                     "agent": "smart_money_analyst",
                     "horizon": horizon,
                     "data_window": "近期可用",
-                    "key_finding": f"主力资金分析结论：{verdict}",
+                    "key_finding": f"主力博弈结论：{verdict}",
                     "verdict": verdict,
                     "confidence": confidence,
                 }],

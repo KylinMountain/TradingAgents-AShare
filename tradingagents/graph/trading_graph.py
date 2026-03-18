@@ -40,6 +40,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_lhb_detail,
     get_seat_history,
     get_industry_peers,
+    get_zt_pool,
+    get_hot_stocks_xq,
 )
 
 from .conditional_logic import ConditionalLogic
