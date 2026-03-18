@@ -8,8 +8,9 @@ from tradingagents.agents.utils.debate_utils import extract_tagged_json, strip_t
 def create_game_theory_manager(llm):
     def game_theory_manager_node(state):
         smart_money_report = state.get("smart_money_report", "无主力资金数据")
+        retail_report = state.get("retail_report", "无散户情绪数据")
         sentiment_report = state.get("sentiment_report", "无情绪数据")
-        print(f"[Game Theory Manager] START smart_money={'有' if smart_money_report != '无主力资金数据' else '无'}, sentiment={'有' if sentiment_report != '无情绪数据' else '无'}")
+        print(f"[Game Theory Manager] START smart_money={'有' if smart_money_report != '无主力资金数据' else '无'}, retail={'有' if retail_report != '无散户情绪数据' else '无'}, sentiment={'有' if sentiment_report != '无情绪数据' else '无'}")
         config = get_config()
 
         prompt_template = get_prompt("game_theory_manager_prompt", config=config)
@@ -19,6 +20,7 @@ def create_game_theory_manager(llm):
 
         prompt = prompt_template.format(
             smart_money_report=smart_money_report,
+            retail_report=retail_report,
             sentiment_report=sentiment_report,
         )
 

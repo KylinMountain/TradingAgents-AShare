@@ -6,6 +6,7 @@ from langgraph.graph import END, StateGraph, START
 from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import *
+from tradingagents.agents.utils.game_theory_tools import get_zt_pool, get_hot_stocks_xq
 from tradingagents.agents.utils.agent_states import AgentState
 
 from .conditional_logic import ConditionalLogic
@@ -108,6 +109,14 @@ class GraphSetup:
             )
             tool_nodes["ecosystem"] = self.tool_nodes["ecosystem"]
             done_nodes["ecosystem"] = analyst_done_node
+
+        if "retail" in selected_analysts:
+            analyst_nodes["retail"] = create_retail_investor_analyst(
+                self.quick_thinking_llm, 
+                [get_zt_pool, get_hot_stocks_xq] # Explicitly pass these as tool nodes will handle execution
+            )
+            tool_nodes["retail"] = self.tool_nodes["retail"]
+            done_nodes["retail"] = analyst_done_node
 
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(

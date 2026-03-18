@@ -252,6 +252,12 @@ class TradingAgentsGraph:
                     get_news,
                 ]
             ),
+            "retail": ToolNode(
+                [
+                    get_zt_pool,
+                    get_hot_stocks_xq,
+                ]
+            ),
         }
 
     def propagate(
@@ -385,6 +391,7 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state.get("fundamentals_report", ""),
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
+            "retail_report": final_state.get("retail_report", ""),
             "ecosystem_report": final_state.get("ecosystem_report", ""),
         }
 
@@ -434,6 +441,7 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state["fundamentals_report"],
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
+            "retail_report": final_state.get("retail_report", ""),
             "ecosystem_report": final_state.get("ecosystem_report", ""),
             "game_theory_report": final_state.get("game_theory_report", ""),
             "game_theory_signals": final_state.get("game_theory_signals", {}),

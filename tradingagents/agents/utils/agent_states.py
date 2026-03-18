@@ -145,6 +145,7 @@ class AgentState(MessagesState):
 
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
+    retail_report: Annotated[str, "Report from the Retail Investor (Sentiment Extreme) Analyst"]
     game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
     game_theory_signals: Annotated[dict[str, Any], "Structured game theory signals"]
 
