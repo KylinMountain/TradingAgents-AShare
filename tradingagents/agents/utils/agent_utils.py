@@ -57,3 +57,10 @@ def get_seat_history(seat_name: str, limit: int = 10) -> str:
     """Queries the historical performance and style of a specific trading seat."""
     return f"Seat {seat_name} history: [Simulated] Frequently appears in hot stocks, 2-day exit pattern."
 
+
+@tool
+def get_industry_peers(symbol: str) -> str:
+    """Retrieves a list of industry peers, competitors, and supply chain entities for a given ticker."""
+    # Simplified mock for demonstration. In a real system, we might use akshare stock_board_industry queries.
+    return f"Peers for {symbol}: [Simulated] Competitor A, Supplier B, Downstream C."
+
