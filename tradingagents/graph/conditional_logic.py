@@ -99,4 +99,4 @@ class ConditionalLogic:
             and safe_int(feedback.get("retry_count", 0), 0) <= safe_int(feedback.get("max_retries", 1), 1)
         ):
             return "Trader"
-        return "END"
+        return "Portfolio Manager"

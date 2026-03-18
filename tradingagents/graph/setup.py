@@ -129,6 +129,7 @@ class GraphSetup:
         risk_manager_node = create_risk_manager(
             self.deep_thinking_llm, self.risk_manager_memory
         )
+        portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -153,6 +154,7 @@ class GraphSetup:
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
+        workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Define edges
         # Fan out all selected analysts in parallel from START
@@ -232,9 +234,11 @@ class GraphSetup:
             self.conditional_logic.should_revise_after_risk_judge,
             {
                 "Trader": "Trader",
-                "END": END,
+                "Portfolio Manager": "Portfolio Manager",
             },
         )
+
+        workflow.add_edge("Portfolio Manager", END)
 
         # Compile and return
         return workflow.compile(checkpointer=checkpointer)
