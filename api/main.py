@@ -1062,8 +1062,8 @@ def _run_job(
 
             report_keys = (
                 "market_report", "sentiment_report", "news_report", "fundamentals_report",
-                "macro_report", "smart_money_report", "game_theory_report",
-                "investment_plan", "trader_investment_plan", "final_trade_decision",
+                "macro_report", "smart_money_report", "retail_report", "ecosystem_report",
+                "game_theory_report", "investment_plan", "trader_investment_plan", "final_trade_decision",
             )
 
             horizon_states: Dict[str, Any] = {}
@@ -1204,6 +1204,10 @@ def _run_job(
                 "fundamentals_report": primary_r.get("fundamentals_report", ""),
                 "macro_report": primary_r.get("macro_report", ""),
                 "smart_money_report": primary_r.get("smart_money_report", ""),
+                "retail_report": primary_r.get("retail_report", ""),
+                "ecosystem_report": primary_r.get("ecosystem_report", ""),
+                "game_theory_signals": primary_r.get("game_theory_signals", {}),
+                "game_theory_debate_state": primary_r.get("game_theory_debate_state", {}),
                 "analyst_traces": (
                     short_r.get("analyst_traces", []) + medium_r.get("analyst_traces", [])
                 ),

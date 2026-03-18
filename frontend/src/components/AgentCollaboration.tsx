@@ -7,6 +7,7 @@ import {
     Brain, Briefcase, Flame, Scale, Shield, CheckCircle2, Loader2,
 } from 'lucide-react'
 import { extractVerdict, type Verdict } from '@/utils/reportText'
+import GameTheoryDebateArena from './GameTheoryDebateArena'
 
 // ── Agent 元数据 (保持原有色彩与中文) ──────────────────────────────────────────
 
@@ -66,6 +67,20 @@ const META: AgentMeta[] = [
         badgeBg: 'bg-amber-100 dark:bg-amber-500/20', badgeText: 'text-amber-600 dark:text-amber-400',
         sumBorder: 'border-amber-200 dark:border-amber-500/40', sumBg: 'bg-amber-50 dark:bg-amber-500/5', sumText: 'text-amber-700 dark:text-amber-300',
         activePill: 'bg-amber-500 text-white',
+    },
+    {
+        name: 'Retail Investor Analyst', label: '散户心理', goal: '模拟散户情绪与热度极值',
+        section: 'retail_report', Icon: Flame,
+        badgeBg: 'bg-orange-100 dark:bg-orange-500/20', badgeText: 'text-orange-600 dark:text-orange-400',
+        sumBorder: 'border-orange-200 dark:border-orange-500/40', sumBg: 'bg-orange-50 dark:bg-orange-500/5', sumText: 'text-orange-700 dark:text-orange-300',
+        activePill: 'bg-orange-500 text-white',
+    },
+    {
+        name: 'Ecosystem Analyst', label: '生态调研', goal: '产业链与竞品连锁反应',
+        section: 'ecosystem_report', Icon: Scale,
+        badgeBg: 'bg-lime-100 dark:bg-lime-500/20', badgeText: 'text-lime-600 dark:text-lime-400',
+        sumBorder: 'border-lime-200 dark:border-lime-500/40', sumBg: 'bg-lime-50 dark:bg-lime-500/5', sumText: 'text-lime-700 dark:text-lime-300',
+        activePill: 'bg-lime-500 text-white',
     },
     {
         name: 'Game Theory Manager', label: '博弈裁判', goal: '主力与散户预期差裁判',
@@ -133,11 +148,12 @@ const META: AgentMeta[] = [
 ]
 
 const GROUPS = [
-    { title: '分析团队', cols: 'grid-cols-3', agents: ['Market Analyst','Social Analyst','News Analyst','Fundamentals Analyst','Macro Analyst','Smart Money Analyst'] },
-    { title: '博弈裁判', cols: 'grid-cols-1', agents: ['Game Theory Manager'] },
+    { title: '分析团队', cols: 'grid-cols-4', agents: ['Market Analyst','Social Analyst','News Analyst','Fundamentals Analyst','Macro Analyst','Smart Money Analyst','Retail Investor Analyst','Ecosystem Analyst'] },
+    { title: '资金博弈', cols: 'grid-cols-1', agents: ['Game Theory Manager'] },
     { title: '多空辩论', cols: 'grid-cols-3', agents: ['Bull Researcher','Bear Researcher','Research Manager'] },
     { title: '交易执行', cols: 'grid-cols-1', agents: ['Trader'] },
-    { title: '风控裁决', cols: 'grid-cols-4', agents: ['Aggressive Analyst','Neutral Analyst','Conservative Analyst','Portfolio Manager'] },
+    { title: '风控裁决', cols: 'grid-cols-3', agents: ['Aggressive Analyst','Neutral Analyst','Conservative Analyst'] },
+    { title: '资金管理', cols: 'grid-cols-1', agents: ['Portfolio Manager'] },
 ]
 
 const STATUS_LABEL: Record<AgentStatus, string> = {
@@ -364,6 +380,9 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
                                     />
                                 ))}
                             </div>
+
+                            {/* 博弈演武场特写 */}
+                            {gi === 1 && <GameTheoryDebateArena />}
                         </div>
                     )
                 })}
