@@ -4,7 +4,7 @@ import functools
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.agents.utils.context_utils import build_agent_context_view
-from tradingagents.agents.utils.debate_utils import extract_tagged_json
+from tradingagents.agents.utils.debate_utils import extract_tagged_json, summarize_game_theory_signals
 
 def create_portfolio_manager(llm):
     def portfolio_manager_node(state, name):
@@ -17,19 +17,24 @@ def create_portfolio_manager(llm):
         trader_plan = state.get("trader_investment_plan", "No trader plan provided.")
         risk_judge_verdict = state.get("final_trade_decision", "No risk judge verdict provided.")
         
+        # Game Theory Signal Integration
+        gt_signals = state.get("game_theory_signals", {})
+        game_theory_summary = summarize_game_theory_signals(gt_signals)
+        
         system_prompt = get_prompt("portfolio_manager_prompt", config=config).format(
             trader_plan=trader_plan,
             risk_judge_verdict=risk_judge_verdict,
+            game_theory_summary=game_theory_summary,
             market_context_summary=context_view["market_context_summary"],
             user_context_summary=context_view["user_context_summary"]
         )
         
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Please generate the final portfolio allocation for {state['company_of_interest']}."}
+            {"role": "user", "content": f"Please generate the final portfolio allocation for {state['company_of_interest']} considering the Game Theory signals."}
         ]
         
-        print(f"[{name}] Generating final portfolio allocation...")
+        print(f"[{name}] Generating final portfolio allocation with GT signals...")
         start_time = time.time()
         response = llm.invoke(messages)
         end_time = time.time()
