@@ -251,7 +251,7 @@ class AnalyzeRequest(UserContextInput):
     symbol: str = Field(default="", description="股票代码，如 600519.SH（当 query 包含代码时可省略）")
     trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "ecosystem"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -289,7 +289,7 @@ class ChatCompletionRequest(UserContextInput):
     messages: List[ChatMessage]
     stream: bool = True
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "ecosystem"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -929,6 +929,8 @@ def _generate_tool_description(tool_name: str, tool_args: Dict[str, Any]) -> str
     elif tool_name == "get_seat_history":
         seat = tool_args.get("seat_name", "")
         return f"深度调查营业部席位: {seat}"
+    elif tool_name == "get_industry_peers":
+        return f"获取产业链上下游及竞品"
     return f"调用 {tool_name}"
 
 
@@ -1389,6 +1391,7 @@ def _run_job(
                                     "get_news": "新闻分析师",
                                     "get_social_sentiment": "舆情分析师",
                                     "get_seat_history": "主力资金分析师",
+                                    "get_industry_peers": "生态分析师",
                                 }
                                 agent_display = tool_to_agent.get(tool_name, "系统")
 

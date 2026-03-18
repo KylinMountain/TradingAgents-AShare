@@ -39,6 +39,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_individual_fund_flow,
     get_lhb_detail,
     get_seat_history,
+    get_industry_peers,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -59,7 +60,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
+        selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money", "ecosystem"],
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
@@ -245,6 +246,12 @@ class TradingAgentsGraph:
                     get_seat_history,
                 ]
             ),
+            "ecosystem": ToolNode(
+                [
+                    get_industry_peers,
+                    get_news,
+                ]
+            ),
         }
 
     def propagate(
@@ -378,6 +385,7 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state.get("fundamentals_report", ""),
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
+            "ecosystem_report": final_state.get("ecosystem_report", ""),
         }
 
     @staticmethod
@@ -426,6 +434,7 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state["fundamentals_report"],
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
+            "ecosystem_report": final_state.get("ecosystem_report", ""),
             "game_theory_report": final_state.get("game_theory_report", ""),
             "game_theory_signals": final_state.get("game_theory_signals", {}),
             "investment_debate_state": {

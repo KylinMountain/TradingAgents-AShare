@@ -102,6 +102,13 @@ class GraphSetup:
             tool_nodes["smart_money"] = self.tool_nodes["smart_money"]
             done_nodes["smart_money"] = analyst_done_node
 
+        if "ecosystem" in selected_analysts:
+            analyst_nodes["ecosystem"] = create_ecosystem_analyst(
+                self.quick_thinking_llm, self.data_collector
+            )
+            tool_nodes["ecosystem"] = self.tool_nodes["ecosystem"]
+            done_nodes["ecosystem"] = analyst_done_node
+
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
             self.quick_thinking_llm, self.bull_memory
