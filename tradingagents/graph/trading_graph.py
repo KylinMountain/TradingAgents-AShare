@@ -38,6 +38,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_board_fund_flow,
     get_individual_fund_flow,
     get_lhb_detail,
+    get_seat_history,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -241,6 +242,7 @@ class TradingAgentsGraph:
                     get_individual_fund_flow,
                     get_lhb_detail,
                     get_indicators,
+                    get_seat_history,
                 ]
             ),
         }

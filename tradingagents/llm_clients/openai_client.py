@@ -36,6 +36,16 @@ class UnifiedChatOpenAI(ChatOpenAI):
                 if i == attempts - 1:
                     break
                 time.sleep(self.response_parse_retry_delay * (i + 1))
+            except Exception as e:
+                import traceback
+                print(f"DEBUG LLM INVOKE ERROR: {type(e).__name__} - {str(e)}")
+                if hasattr(e, "response"):
+                    print(f"DEBUG LLM RESPONSE: {e.response.text}")
+                elif hasattr(e, "body"):
+                    print(f"DEBUG LLM BODY: {e.body}")
+                print(f"DEBUG LLM INPUT: {input}")
+                print(f"DEBUG LLM KWARGS: {kwargs}")
+                raise e
         raise last_err
 
     @staticmethod

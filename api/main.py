@@ -926,6 +926,9 @@ def _generate_tool_description(tool_name: str, tool_args: Dict[str, Any]) -> str
         return "获取相关新闻"
     elif tool_name == "get_social_sentiment":
         return "获取舆情数据"
+    elif tool_name == "get_seat_history":
+        seat = tool_args.get("seat_name", "")
+        return f"深度调查营业部席位: {seat}"
     return f"调用 {tool_name}"
 
 
@@ -1385,6 +1388,7 @@ def _run_job(
                                     "get_cash_flow": "基本面分析师",
                                     "get_news": "新闻分析师",
                                     "get_social_sentiment": "舆情分析师",
+                                    "get_seat_history": "主力资金分析师",
                                 }
                                 agent_display = tool_to_agent.get(tool_name, "系统")
 
