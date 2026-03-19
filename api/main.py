@@ -492,6 +492,17 @@ def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = No
         config = _deep_merge(config, user_overrides)
     if overrides:
         config = _deep_merge(config, overrides)
+    
+    # ── Intelligent fallback between models ──
+    # If one is provided but the other is missing, cross-fill to ensure availability.
+    quick = config.get("quick_think_llm")
+    deep = config.get("deep_think_llm")
+    
+    if not deep and quick:
+        config["deep_think_llm"] = quick
+    if not quick and deep:
+        config["quick_think_llm"] = deep
+        
     return config
 
 
