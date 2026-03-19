@@ -17,9 +17,11 @@ def _extract_verdict(text):
 
 
 def create_smart_money_analyst(llm, data_collector=None):
-    def _safe(tool, payload):
+    import asyncio
+
+    async def _safe(tool, payload):
         try:
-            return tool.invoke(payload)
+            return await asyncio.to_thread(tool.invoke, payload)
         except Exception as exc:
             return f"调用失败：{exc}"
 
@@ -46,12 +48,17 @@ def create_smart_money_analyst(llm, data_collector=None):
             from tradingagents.agents.utils.agent_utils import (
                 get_individual_fund_flow, get_lhb_detail, get_indicators,
             )
-            fund_flow = _safe(get_individual_fund_flow, {"symbol": ticker})
-            lhb = _safe(get_lhb_detail, {"symbol": ticker, "date": current_date})
-            volume = _safe(get_indicators, {
-                "symbol": ticker, "indicator": "volume",
-                "curr_date": current_date, "look_back_days": 20,
-            })
+            
+            # Parallelize fallback fetches
+            results = await asyncio.gather(
+                _safe(get_individual_fund_flow, {"symbol": ticker}),
+                _safe(get_lhb_detail, {"symbol": ticker, "date": current_date}),
+                _safe(get_indicators, {
+                    "symbol": ticker, "indicator": "volume",
+                    "curr_date": current_date, "look_back_days": 20,
+                })
+            )
+            fund_flow, lhb, volume = results
 
         messages = [
             SystemMessage(content=(

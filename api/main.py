@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, status
+from fastapi import FastAPI, HTTPException, Depends, Query, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -1216,7 +1216,7 @@ async def _run_job(
                             h_tracker._set_status(agent, "completed")
                     _emit_job_event(job_id, "agent.horizon_done", {"horizon": horizon})
                 finally:
-                    h_db.close()
+                    await asyncio.to_thread(h_db.close)
 
             # 3. 按解析出的 horizons 并行运行 astream()，事件实时推给前端
             await asyncio.gather(*[_process_horizon(h) for h in request.horizons])
@@ -1569,7 +1569,7 @@ async def _run_job(
             {"job_id": job_id, "error": err_msg},
         )
     finally:
-        db.close()
+        await asyncio.to_thread(db.close)
 
 
 def _normalize_symbol(raw: str) -> str:
@@ -1982,6 +1982,7 @@ def get_hot_stocks(source: str = "em", limit: int = 30) -> Dict:
 @app.post("/v1/analyze", response_model=AnalyzeResponse)
 async def analyze(
     request: AnalyzeRequest,
+    background_tasks: BackgroundTasks,
     current_user: UserDB = Depends(_require_api_user),
 ) -> AnalyzeResponse:
     job_id = uuid4().hex
@@ -2006,7 +2007,7 @@ async def analyze(
         "job.created",
         {"job_id": job_id, "symbol": request.symbol, "trade_date": request.trade_date},
     )
-    asyncio.create_task(_run_job(job_id, request, True, True, current_user.id, "api"))
+    background_tasks.add_task(_run_job, job_id, request, True, True, current_user.id, "api")
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
@@ -2157,6 +2158,7 @@ def _ai_extract_symbol_and_date(
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
+    background_tasks: BackgroundTasks,
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
@@ -2234,7 +2236,7 @@ async def chat_completions(
         "job.created",
         {"job_id": job_id, "symbol": analyze_req.symbol, "trade_date": analyze_req.trade_date},
     )
-    asyncio.create_task(_run_job(job_id, analyze_req, True, True, current_user.id, "chat"))
+    background_tasks.add_task(_run_job, job_id, analyze_req, True, True, current_user.id, "chat")
 
     if request.stream:
         return StreamingResponse(

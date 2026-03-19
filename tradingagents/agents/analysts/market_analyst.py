@@ -45,9 +45,9 @@ def create_market_analyst(llm, data_collector=None):
                 indicators = windowed.get("indicators", {})
                 data_window = windowed.get("_data_window", "14天")
             else:
-                stock_data, indicators, data_window = _fetch_direct(ticker, current_date, horizon)
+                stock_data, indicators, data_window = await _fetch_direct(ticker, current_date, horizon)
         else:
-            stock_data, indicators, data_window = _fetch_direct(ticker, current_date, horizon)
+            stock_data, indicators, data_window = await _fetch_direct(ticker, current_date, horizon)
 
         indicator_blocks = [
             f"【{ind}】\n{indicators.get(ind, '无数据')}"
@@ -84,24 +84,34 @@ def create_market_analyst(llm, data_collector=None):
     return market_analyst_node
 
 
-def _fetch_direct(ticker, current_date, horizon):
+async def _fetch_direct(ticker, current_date, horizon):
+    import asyncio
     from tradingagents.agents.utils.agent_utils import get_stock_data, get_indicators
 
-    def _safe(tool, payload):
+    async def _safe(tool, payload):
         try:
-            return tool.invoke(payload)
+            return await asyncio.to_thread(tool.invoke, payload)
         except Exception as exc:
             return f"调用失败：{exc}"
 
     days = 14 if horizon == "short" else 90
     end_dt = datetime.strptime(current_date, "%Y-%m-%d")
     start_dt = end_dt - timedelta(days=days)
-    stock_data = _safe(get_stock_data, {
-        "symbol": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
-    })
-    indicators = {}
+    
+    # Run stock data fetch and all indicator fetches in parallel
+    tasks = {
+        "stock_data": _safe(get_stock_data, {
+            "symbol": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
+        })
+    }
     for ind in MARKET_INDICATORS:
-        indicators[ind] = _safe(get_indicators, {
+        tasks[ind] = _safe(get_indicators, {
             "symbol": ticker, "indicator": ind, "curr_date": current_date, "look_back_days": days,
         })
-    return stock_data, indicators, f"{days}天"
+    
+    keys = list(tasks.keys())
+    results = await asyncio.gather(*[tasks[k] for k in keys])
+    res_map = dict(zip(keys, results))
+    
+    stock_data = res_map.pop("stock_data")
+    return stock_data, res_map, f"{days}天"

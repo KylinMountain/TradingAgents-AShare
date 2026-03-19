@@ -17,9 +17,11 @@ def _extract_verdict(text):
 
 
 def create_macro_analyst(llm, data_collector=None):
-    def _safe(tool, payload):
+    import asyncio
+
+    async def _safe(tool, payload):
         try:
-            return tool.invoke(payload)
+            return await asyncio.to_thread(tool.invoke, payload)
         except Exception as exc:
             return f"调用失败：{exc}"
 
@@ -47,10 +49,15 @@ def create_macro_analyst(llm, data_collector=None):
             days = 7
             end_dt = datetime.strptime(current_date, "%Y-%m-%d")
             start_dt = end_dt - timedelta(days=days)
-            board_flow = _safe(get_board_fund_flow, {})
-            recent_news = _safe(get_news, {
-                "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
-            })
+            
+            # Parallelize fallback fetches
+            results = await asyncio.gather(
+                _safe(get_board_fund_flow, {}),
+                _safe(get_news, {
+                    "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
+                })
+            )
+            board_flow, recent_news = results
 
         messages = [
             SystemMessage(content=(

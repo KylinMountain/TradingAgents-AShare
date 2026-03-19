@@ -10,7 +10,7 @@ from typing import Dict, Any, Tuple, List, Optional
 import sqlite3
 
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.memory import MemorySaver
 
 from tradingagents.llm_clients import create_llm_client
 
@@ -54,7 +54,6 @@ class TradingAgentsGraph:
 
     # Class-level cache for persistence to handle concurrency
     _shared_checkpointer = None
-    _shared_conn = None
 
     def __init__(
         self,
@@ -74,16 +73,7 @@ class TradingAgentsGraph:
 
         # Initialize persistence (Singleton Pattern for concurrency)
         if TradingAgentsGraph._shared_checkpointer is None:
-            checkpoint_db_path = os.path.join(self.config["project_dir"], "graph_checkpoints.db")
-            # timeout=30 enables retry logic when database is locked
-            conn = sqlite3.connect(checkpoint_db_path, check_same_thread=False, timeout=30)
-            
-            # Enable WAL mode for significantly better concurrency
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
-            
-            TradingAgentsGraph._shared_conn = conn
-            TradingAgentsGraph._shared_checkpointer = SqliteSaver(conn)
+            TradingAgentsGraph._shared_checkpointer = MemorySaver()
         
         self.checkpointer = TradingAgentsGraph._shared_checkpointer
 

@@ -17,9 +17,11 @@ def _extract_verdict(text):
 
 
 def create_fundamentals_analyst(llm, data_collector=None):
-    def _safe(tool, payload):
+    import asyncio
+
+    async def _safe(tool, payload):
         try:
-            return tool.invoke(payload)
+            return await asyncio.to_thread(tool.invoke, payload)
         except Exception as exc:
             return f"调用失败：{exc}"
 
@@ -44,12 +46,15 @@ def create_fundamentals_analyst(llm, data_collector=None):
             from tradingagents.agents.utils.agent_utils import (
                 get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement,
             )
-            outputs = {
+            tasks = {
                 "fundamentals": _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
                 "balance_sheet": _safe(get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "cashflow": _safe(get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "income_statement": _safe(get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
             }
+            keys = list(tasks.keys())
+            results = await asyncio.gather(*[tasks[k] for k in keys])
+            outputs = dict(zip(keys, results))
 
         messages = [
             SystemMessage(content=horizon_ctx + system_message + "\n\n请全程使用中文。"),

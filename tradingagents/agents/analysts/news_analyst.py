@@ -17,9 +17,11 @@ def _extract_verdict(text):
 
 
 def create_news_analyst(llm, data_collector=None):
-    def _safe(tool, payload):
+    import asyncio
+
+    async def _safe(tool, payload):
         try:
-            return tool.invoke(payload)
+            return await asyncio.to_thread(tool.invoke, payload)
         except Exception as exc:
             return f"调用失败：{exc}"
 
@@ -47,12 +49,17 @@ def create_news_analyst(llm, data_collector=None):
             days = 14 if horizon == "short" else 30
             end_dt = datetime.strptime(current_date, "%Y-%m-%d")
             start_dt = end_dt - timedelta(days=days)
-            stock_news = _safe(get_news, {
-                "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
-            })
-            global_news = _safe(get_global_news, {
-                "curr_date": current_date, "look_back_days": days, "limit": 10,
-            })
+            
+            # Parallelize fallback fetches
+            results = await asyncio.gather(
+                _safe(get_news, {
+                    "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
+                }),
+                _safe(get_global_news, {
+                    "curr_date": current_date, "look_back_days": days, "limit": 10,
+                })
+            )
+            stock_news, global_news = results
             data_window = f"{days}天"
 
         messages = [
