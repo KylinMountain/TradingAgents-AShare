@@ -231,7 +231,7 @@ def _load_latest_announcement() -> Optional[Dict[str, Any]]:
     for item in announcements:
         if not isinstance(item, dict):
             continue
-        if item.get("enabled", True) is False:
+        if item.get("active", True) is False:
             continue
         return item
     return None
@@ -2238,10 +2238,7 @@ def create_report_endpoint(
 
 
 @app.get("/v1/announcements/latest", response_model=LatestAnnouncementResponse)
-def get_latest_announcement(
-    current_user: UserDB = Depends(_require_api_user),
-):
-    _ = current_user
+def get_latest_announcement():
     return {"announcement": _load_latest_announcement()}
 
 
