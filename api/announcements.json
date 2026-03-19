@@ -21,11 +21,38 @@
     {
       "id": "2026-03-16-v042-context",
       "title": "🚀 V0.4.2 发布：引入用户上下文与个性化分析",
-      "content": "系统已支持根据持仓约束、风险偏好进行深度定制分析。辩论引擎升级为 Claim 驱动模式。",
+      "content": "现在系统支持根据用户的持仓约束、风险偏好进行个性化分析。辩论引擎升级为 Claim 驱动模式。",
       "type": "info",
       "priority": 3,
       "active": true,
       "date": "2026-03-16"
+    },
+    {
+      "id": "2026-03-15-v041-multi-horizon",
+      "title": "🌟 V0.4.1 里程碑：多周期并行分析上线",
+      "content": "支持‘短线技术+中线基本面’双周期意图解析。全面升级 Docker 自动化流。",
+      "type": "info",
+      "priority": 4,
+      "active": true,
+      "date": "2026-03-15"
+    },
+    {
+      "id": "2026-03-13-v040-gt-integration",
+      "title": "🎭 V0.4.0：资金博弈 Agent 初步集成",
+      "content": "引入 Game-Theory 架构，增加报告方向字段。支持 Skill 系统，能力可复用。",
+      "type": "info",
+      "priority": 5,
+      "active": true,
+      "date": "2026-03-13"
+    },
+    {
+      "id": "2026-03-12-v030-monorepo",
+      "title": "📦 V0.3.0：架构清理与 Monorepo 优化",
+      "content": "清理冗余前端备份，确立 Monorepo 代码结构，统一开发与部署路径。",
+      "type": "info",
+      "priority": 6,
+      "active": true,
+      "date": "2026-03-12"
     }
   ]
 }
