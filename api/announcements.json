@@ -1,0 +1,112 @@
+{
+  "announcements": [
+    {
+      "id": "2026-03-18-v044-stability",
+      "tag": "Fix",
+      "title": "V0.4.4：底层稳定性加固",
+      "summary": "本次更新修复了数据库连接泄露，并优化了资源回收机制。",
+      "published_at": "2026-03-18",
+      "items": [
+        {
+          "title": "数据库 Session 管理优化",
+          "detail": "统一了 API 和后台任务的 Session 生命周期，彻底解决 QueuePool 溢出导致的 500 错误。"
+        },
+        {
+          "title": "资源回收增强",
+          "detail": "在服务关闭时强制关闭执行器线程池，消除 Python 3.12 下的信号量泄露警告。"
+        },
+        {
+          "title": "部署路径优化",
+          "detail": "公告系统配置文件已移动至 api/ 目录，确保 Docker 镜像自动同步。"
+        }
+      ],
+      "active": true
+    },
+    {
+      "id": "2026-03-16-v043-persistence",
+      "tag": "New",
+      "title": "V0.4.3：任务持久化与并发优化",
+      "summary": "支持任务断点续传与持久化存储，提升系统并发处理能力。",
+      "published_at": "2026-03-16",
+      "items": [
+        {
+          "title": "任务持久化",
+          "detail": "分析任务现在支持数据库存储，服务器重启后可恢复进度。"
+        },
+        {
+          "title": "并发控制",
+          "detail": "支持通过 TA_MAX_WORKERS 环境变量动态调整任务执行器并发数。"
+        }
+      ],
+      "active": true
+    },
+    {
+      "id": "2026-03-16-v042-context",
+      "tag": "Release",
+      "title": "V0.4.2 发布：引入用户上下文",
+      "summary": "系统现在能感知用户的持仓约束与风险偏好。",
+      "published_at": "2026-03-16",
+      "items": [
+        {
+          "title": "用户上下文感知",
+          "detail": "支持输入个性化约束，使 Agent 分析更贴合实战背景。"
+        },
+        {
+          "title": "辩论引擎升级",
+          "detail": "多空辩论全面转向 Claim 驱动模式，论据逻辑更清晰。"
+        }
+      ],
+      "active": true
+    },
+    {
+      "id": "2026-03-15-v041-multi-horizon",
+      "tag": "Milestone",
+      "title": "V0.4.1 里程碑：多周期并行分析上线",
+      "summary": "支持短线与中线双周期意图解析。",
+      "published_at": "2026-03-15",
+      "items": [
+        {
+          "title": "多周期并行",
+          "detail": "实现‘短线技术+中线基本面’双周期同时分析，结果自动对比。"
+        },
+        {
+          "title": "Docker 部署优化",
+          "detail": "全面升级 Docker 多架构打包与 CI/CD 自动化流。"
+        }
+      ],
+      "active": true
+    },
+    {
+      "id": "2026-03-13-v040-gt-integration",
+      "tag": "Major",
+      "title": "V0.4.0：资金博弈 Agent 初步集成",
+      "summary": "引入 Game-Theory 架构，支持 Skill 系统。",
+      "published_at": "2026-03-13",
+      "items": [
+        {
+          "title": "博弈架构引入",
+          "detail": "新增 Game-Theory 分析链，报告增加方向字段与 UTC 时间戳。"
+        },
+        {
+          "title": "Skill 系统支持",
+          "detail": "支持通过 Skill 复用 TradingAgents 的分析能力。"
+        }
+      ],
+      "active": true
+    },
+    {
+      "id": "2026-03-12-v030-monorepo",
+      "tag": "Chore",
+      "title": "V0.3.0：架构清理与 Monorepo 优化",
+      "summary": "统一开发与部署路径，确立 Monorepo 代码结构。",
+      "published_at": "2026-03-12",
+      "items": [
+        {
+          "title": "仓库结构统一",
+          "detail": "清理冗余前端备份，确立标准 Monorepo 结构。"
+        }
+      ],
+      "active": true
+    }
+  ]
+}

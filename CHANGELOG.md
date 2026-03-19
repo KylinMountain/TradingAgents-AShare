@@ -2,9 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [v0.4.4] - 2026-03-18
+
+### Fixed
+- Fixed critical **SQLAlchemy TimeoutError** by unifying database session lifecycle across API endpoints and background tasks.
+- Fixed **Resource/Semaphore Leakage** on shutdown by adding executor shutdown to the FastAPI lifespan.
+- Improved repository structure by moving `announcements.json` to the `api/` directory and updating search paths.
+- Cleaned up redundant `uv.lock.cp313` and `CLAUDE.md` files.
+- Resolved **Announcement Schema Validation** errors (500) by aligning `announcements.json` with Pydantic model requirements.
+- Made `/v1/announcements/latest` a public endpoint to ensure visibility before login.
+
+## [v0.4.3] - 2026-03-16
 
 ### Added
+- Added **Task Lifecycle Persistence and Recovery** (#32): Analysis jobs can now survive server restarts.
+- Added **Configurable Max Workers** (#33): Job executor concurrency is now tunable via `TA_MAX_WORKERS` env var.
 - Added persistent report lifecycle fields, including `status`, `error`, and richer section-level report storage.
 - Added structured analyst trace persistence to support future report-side insight displays.
 - Added header announcement support backed by `announcements.json` and `/v1/announcements/latest`.
@@ -12,6 +24,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Changed the report flow to initialize records earlier and update report content incrementally during long-running analysis jobs.
 - Changed the header announcement entry to load from backend data instead of hard-coded preview text.
+- Improved error messaging for failed analysis steps in the UI.
 
 ### Fixed
 - Fixed report serialization gaps so newly persisted lifecycle and extended section fields can be returned consistently.

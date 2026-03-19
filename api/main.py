@@ -62,10 +62,13 @@ def _cors_allow_origin_regex() -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize resources on startup."""
+    """Initialize resources on startup and cleanup on shutdown."""
     init_db()
     print("Database initialized.")
     yield
+    print("Shutting down: Cleaning up resources...")
+    _executor.shutdown(wait=True)
+    print("Executor shutdown complete.")
 
 
 app = FastAPI(title="TradingAgents-AShare API", version="0.1.0", lifespan=lifespan)
@@ -208,7 +211,7 @@ def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
 
 
 def _announcements_file() -> Path:
-    return Path(__file__).resolve().parents[1] / "announcements.json"
+    return Path(__file__).resolve().parent / "announcements.json"
 
 
 def _load_latest_announcement() -> Optional[Dict[str, Any]]:
@@ -228,7 +231,7 @@ def _load_latest_announcement() -> Optional[Dict[str, Any]]:
     for item in announcements:
         if not isinstance(item, dict):
             continue
-        if item.get("enabled", True) is False:
+        if item.get("active", True) is False:
             continue
         return item
     return None
@@ -451,10 +454,15 @@ def _deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, An
     return base
 
 
-def _user_config_overrides(user_id: Optional[str]) -> Dict[str, Any]:
+def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None) -> Dict[str, Any]:
     if not user_id:
         return {}
-    db = SessionLocal()
+    
+    should_close = False
+    if db is None:
+        db = SessionLocal()
+        should_close = True
+        
     try:
         user_cfg = auth_service.get_user_llm_config(db, user_id)
         if not user_cfg:
@@ -476,10 +484,11 @@ def _user_config_overrides(user_id: Optional[str]) -> Dict[str, Any]:
             overrides["api_key"] = api_key
         return overrides
     finally:
-        db.close()
+        if should_close:
+            db.close()
 
 
-def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = None) -> Dict[str, Any]:
+def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = None, db: Optional[Session] = None) -> Dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
     server_fallback_enabled = os.getenv("ALLOW_SERVER_LLM_FALLBACK", "1").strip().lower() in ("1", "true", "yes", "on")
     config["server_fallback_enabled"] = server_fallback_enabled
@@ -511,6 +520,11 @@ def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = No
     if not quick and deep:
         config["quick_think_llm"] = deep
         
+    user_overrides = _user_config_overrides(user_id, db=db)
+    if user_overrides:
+        config = _deep_merge(config, user_overrides)
+    if overrides:
+        config = _deep_merge(config, overrides)
     return config
 
 
@@ -963,41 +977,40 @@ def _run_job(
     # ── Step 0: Initialize report in DB immediately ──
     db = SessionLocal()
     try:
-        report_service.init_report(
-            db=db,
-            report_id=job_id,
-            symbol=normalized_symbol,
-            trade_date=request.trade_date,
-            user_id=user_id,
-        )
-        report_service.update_report_partial(db, job_id, status="running")
-        db.commit()
-    except Exception as e:
-        print(f"CRITICAL: Failed to initialize report in DB: {e}")
-        # We don't raise here to allow the job to run even if DB is down, 
-        # but visibility will be lost.
-    finally:
-        db.close()
+        try:
+            report_service.init_report(
+                db=db,
+                report_id=job_id,
+                symbol=normalized_symbol,
+                trade_date=request.trade_date,
+                user_id=user_id,
+            )
+            report_service.update_report_partial(db, job_id, status="running")
+            db.commit()
+        except Exception as e:
+            print(f"CRITICAL: Failed to initialize report in DB: {e}")
+            db.rollback()
 
-    _set_job(job_id, status="running", started_at=_utcnow_iso(), symbol=normalized_symbol)
-    
-    _emit_job_event(
-        job_id,
-        "job.running",
-        {
-            "job_id": job_id, 
-            "symbol": normalized_symbol, 
-            "display_name": display_name, 
-            "trade_date": request.trade_date
-        },
-    )
-    # Ensure request object uses the normalized symbol for internal logic
-    request.symbol = normalized_symbol
-    user_context_payload = _extract_request_user_context(request)
-    tracker = AgentProgressTracker(request.selected_analysts, job_id)
-    _emit_job_event(job_id, "agent.snapshot", tracker.snapshot())
-    try:
-        config = _build_runtime_config(request.config_overrides, user_id=user_id)
+        _set_job(job_id, status="running", started_at=_utcnow_iso(), symbol=normalized_symbol)
+        
+        _emit_job_event(
+            job_id,
+            "job.running",
+            {
+                "job_id": job_id, 
+                "symbol": normalized_symbol, 
+                "display_name": display_name, 
+                "trade_date": request.trade_date
+            },
+        )
+        # Ensure request object uses the normalized symbol for internal logic
+        request.symbol = normalized_symbol
+        user_context_payload = _extract_request_user_context(request)
+        tracker = AgentProgressTracker(request.selected_analysts, job_id)
+        _emit_job_event(job_id, "agent.snapshot", tracker.snapshot())
+        
+        # Build config using the active session
+        config = _build_runtime_config(request.config_overrides, user_id=user_id, db=db)
         if request.dry_run:
             result = {
                 "mode": "dry_run",
@@ -1125,7 +1138,6 @@ def _run_job(
                 seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
                 horizon_final = None
 
-                db = SessionLocal()
                 try:
                     for chunk in horizon_graph.graph.stream(init_state, **args):
                         horizon_final = chunk
@@ -1184,8 +1196,8 @@ def _run_job(
                         
                         if db_updates:
                             report_service.update_report_partial(db, job_id, **db_updates)
-                finally:
-                    db.close()
+                except Exception as e:
+                    print(f"Error during horizon streaming: {e}")
 
                 horizon_states[horizon] = horizon_final
                 for agent, st in tracker.status.items():
@@ -1250,7 +1262,6 @@ def _run_job(
 
             # 自动保存报告到数据库
             if save_report:
-                db = SessionLocal()
                 try:
                     report_service.create_report(
                         db=db,
@@ -1271,8 +1282,6 @@ def _run_job(
                 except Exception as e:
                     db.rollback()
                     print(f"Failed to save report: {e}")
-                finally:
-                    db.close()
 
             # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
             _set_job(job_id, status="completed", result=result,
@@ -1320,7 +1329,6 @@ def _run_job(
             last_report: Dict[str, str] = {}
             seen: Dict[str, bool] = {}
 
-            db = SessionLocal()
             try:
                 for chunk in graph.graph.stream(init_state, **args):
                     final_state = chunk
@@ -1418,8 +1426,8 @@ def _run_job(
                                 },
                             )
                 
-            finally:
-                db.close()
+            except Exception as e:
+                print(f"Error during default streaming: {e}")
         else:
             final_state, _ = graph.propagate(
                 request.symbol,
@@ -1472,7 +1480,6 @@ def _run_job(
 
         # 自动保存/收口报告到数据库
         if save_report:
-            db = SessionLocal()
             try:
                 # 传入已解析的值，并指定 report_id 进行更新
                 report_service.create_report(
@@ -1494,9 +1501,6 @@ def _run_job(
             except Exception as e:
                 db.rollback()
                 print(f"Failed to finalize report: {e}")
-            finally:
-                db.close()
-
         # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
         _set_job(
             job_id,
@@ -1531,17 +1535,18 @@ def _run_job(
         )
         
         # ── Persistent failure recording ──
-        db = SessionLocal()
         try:
             report_service.mark_report_failed(db, job_id, f"{err_msg}\n\n{traceback.format_exc()}")
-        finally:
-            db.close()
+        except Exception as db_exc:
+            print(f"Failed to record failure in DB: {db_exc}")
 
         _emit_job_event(
             job_id,
             "job.failed",
             {"job_id": job_id, "error": err_msg},
         )
+    finally:
+        db.close()
 
 
 def _normalize_symbol(raw: str) -> str:
@@ -2130,9 +2135,10 @@ def _ai_extract_symbol_and_date(
 def chat_completions(
     request: ChatCompletionRequest,
     current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
 ):
     text = _extract_chat_text(request.messages)
-    config = _build_runtime_config(request.config_overrides, user_id=current_user.id)
+    config = _build_runtime_config(request.config_overrides, user_id=current_user.id, db=db)
 
     # 单次 LLM 调用提取全部意图（避免 _run_job 里二次 LLM）
     symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = _ai_extract_symbol_and_date(text, config)
@@ -2256,10 +2262,7 @@ def create_report_endpoint(
 
 
 @app.get("/v1/announcements/latest", response_model=LatestAnnouncementResponse)
-def get_latest_announcement(
-    current_user: UserDB = Depends(_require_api_user),
-):
-    _ = current_user
+def get_latest_announcement():
     return {"announcement": _load_latest_announcement()}
 
 
@@ -2362,9 +2365,9 @@ class BacktestRequest(BaseModel):
 
 
 @app.post("/v1/backtest")
-def submit_backtest(request: BacktestRequest) -> Dict:
+def submit_backtest(request: BacktestRequest, db: Session = Depends(get_db)) -> Dict:
     """提交历史回测任务，返回 job_id."""
-    config = _build_runtime_config(request.config_overrides or {})
+    config = _build_runtime_config(request.config_overrides or {}, db=db)
     job_id = _bt.submit(
         symbol=request.symbol,
         start_date=request.start_date,
@@ -2410,7 +2413,7 @@ _CONFIG_ALLOWED_KEYS = {
 
 
 def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntimeConfigResponse:
-    cfg = _build_runtime_config({}, user_id=user.id if user else None)
+    cfg = _build_runtime_config({}, user_id=user.id if user else None, db=db)
     user_cfg = auth_service.get_user_llm_config(db, user.id) if user else None
     return UserRuntimeConfigResponse(
         llm_provider=cfg["llm_provider"],
