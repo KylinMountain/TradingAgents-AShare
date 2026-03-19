@@ -2034,8 +2034,8 @@ def _ai_extract_symbol_and_date(
     llm_user_context: Dict[str, Any] = {}
     try:
         client = create_llm_client(
-            provider=config.get("llm_provider", "openai"),
-            model=config.get("quick_think_llm", "gpt-4o-mini"),
+            provider=config.get("llm_provider", "openai") or "openai",
+            model=config.get("quick_think_llm", "gpt-4o-mini") or "gpt-4o-mini",
             base_url=config.get("backend_url"),
             api_key=config.get("api_key"),
         )

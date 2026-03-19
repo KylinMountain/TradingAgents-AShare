@@ -59,6 +59,17 @@ class OpenAIClient(BaseLLMClient):
         provider: str = "openai",
         **kwargs,
     ):
+        # Safety fallback for empty/None model names
+        if not model:
+            if provider.lower() == "openai":
+                model = "gpt-4o-mini"
+            elif provider.lower() == "ollama":
+                model = "llama3"
+            elif provider.lower() == "xai":
+                model = "grok-beta"
+            else:
+                model = "gpt-4o-mini"
+        
         super().__init__(model, base_url, **kwargs)
         self.provider = provider.lower()
 
