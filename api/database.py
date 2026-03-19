@@ -18,7 +18,15 @@ if DATABASE_URL.startswith("sqlite"):
         echo=False,
     )
 else:
-    engine = create_engine(DATABASE_URL, echo=False)
+    # For PostgreSQL/MySQL, use a larger pool to handle concurrency
+    engine = create_engine(
+        DATABASE_URL,
+        echo=False,
+        pool_size=20,
+        max_overflow=10,
+        pool_timeout=30,
+        pool_recycle=3600,
+    )
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
