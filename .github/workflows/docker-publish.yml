@@ -2,25 +2,8 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    branches: [ "main" ]
     tags: [ 'v*' ]
-    paths:
-      - 'api/**'
-      - 'tradingagents/**'
-      - 'frontend/**'
-      - 'Dockerfile'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '.github/workflows/docker-publish.yml'
-  pull_request:
-    branches: [ "main" ]
-    paths:
-      - 'api/**'
-      - 'tradingagents/**'
-      - 'frontend/**'
-      - 'Dockerfile'
-      - 'pyproject.toml'
-      - 'uv.lock'
+  workflow_dispatch: # 允许手动触发
 
 env:
   REGISTRY: ghcr.io
