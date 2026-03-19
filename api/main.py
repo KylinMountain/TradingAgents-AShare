@@ -208,7 +208,7 @@ def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
 
 
 def _announcements_file() -> Path:
-    return Path(__file__).resolve().parents[1] / "announcements.json"
+    return Path(__file__).resolve().parent / "announcements.json"
 
 
 def _load_latest_announcement() -> Optional[Dict[str, Any]]:

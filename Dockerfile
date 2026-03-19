@@ -24,6 +24,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 拷贝后端源码
 COPY api/ ./api/
 COPY tradingagents/ ./tradingagents/
+COPY README.md LICENSE ./
 
 # 拷贝在 Stage 1 中快速构建好的前端产物
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
