@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - Fixed **Resource/Semaphore Leakage** on shutdown by adding executor shutdown to the FastAPI lifespan.
 - Improved repository structure by moving `announcements.json` to the `api/` directory and updating search paths.
 - Cleaned up redundant `uv.lock.cp313` and `CLAUDE.md` files.
+- Resolved **Announcement Schema Validation** errors (500) by aligning `announcements.json` with Pydantic model requirements.
+- Made `/v1/announcements/latest` a public endpoint to ensure visibility before login.
 
 ## [v0.4.3] - 2026-03-16
 
