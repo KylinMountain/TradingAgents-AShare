@@ -249,3 +249,4 @@ deploy/deploy.env
 .env*.local
 frontend/node_modules/
 .vite/
+uv.lock.cp313
