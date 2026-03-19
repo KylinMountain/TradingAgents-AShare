@@ -1111,7 +1111,6 @@ def _run_job(
                 seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
                 horizon_final = None
 
-                db = SessionLocal()
                 try:
                     for chunk in horizon_graph.graph.stream(init_state, **args):
                         horizon_final = chunk
@@ -1170,8 +1169,8 @@ def _run_job(
                         
                         if db_updates:
                             report_service.update_report_partial(db, job_id, **db_updates)
-                finally:
-                    db.close()
+                except Exception as e:
+                    print(f"Error during horizon streaming: {e}")
 
                 horizon_states[horizon] = horizon_final
                 for agent, st in tracker.status.items():
@@ -1236,7 +1235,6 @@ def _run_job(
 
             # 自动保存报告到数据库
             if save_report:
-                db = SessionLocal()
                 try:
                     report_service.create_report(
                         db=db,
@@ -1257,8 +1255,6 @@ def _run_job(
                 except Exception as e:
                     db.rollback()
                     print(f"Failed to save report: {e}")
-                finally:
-                    db.close()
 
             # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
             _set_job(job_id, status="completed", result=result,
@@ -1306,7 +1302,6 @@ def _run_job(
             last_report: Dict[str, str] = {}
             seen: Dict[str, bool] = {}
 
-            db = SessionLocal()
             try:
                 for chunk in graph.graph.stream(init_state, **args):
                     final_state = chunk
@@ -1404,8 +1399,8 @@ def _run_job(
                                 },
                             )
                 
-            finally:
-                db.close()
+            except Exception as e:
+                print(f"Error during default streaming: {e}")
         else:
             final_state, _ = graph.propagate(
                 request.symbol,
@@ -1458,7 +1453,6 @@ def _run_job(
 
         # 自动保存/收口报告到数据库
         if save_report:
-            db = SessionLocal()
             try:
                 # 传入已解析的值，并指定 report_id 进行更新
                 report_service.create_report(
@@ -1480,9 +1474,6 @@ def _run_job(
             except Exception as e:
                 db.rollback()
                 print(f"Failed to finalize report: {e}")
-            finally:
-                db.close()
-
         # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
         _set_job(
             job_id,
@@ -1517,17 +1508,18 @@ def _run_job(
         )
         
         # ── Persistent failure recording ──
-        db = SessionLocal()
         try:
             report_service.mark_report_failed(db, job_id, f"{err_msg}\n\n{traceback.format_exc()}")
-        finally:
-            db.close()
+        except Exception as db_exc:
+            print(f"Failed to record failure in DB: {db_exc}")
 
         _emit_job_event(
             job_id,
             "job.failed",
             {"job_id": job_id, "error": err_msg},
         )
+    finally:
+        db.close()
 
 
 def _normalize_symbol(raw: str) -> str:
