@@ -62,10 +62,13 @@ def _cors_allow_origin_regex() -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize resources on startup."""
+    """Initialize resources on startup and cleanup on shutdown."""
     init_db()
     print("Database initialized.")
     yield
+    print("Shutting down: Cleaning up resources...")
+    _executor.shutdown(wait=True)
+    print("Executor shutdown complete.")
 
 
 app = FastAPI(title="TradingAgents-AShare API", version="0.1.0", lifespan=lifespan)
