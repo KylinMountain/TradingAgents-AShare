@@ -143,6 +143,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [streaming, setStreaming] = useState(false)
     const [showConfig, setShowConfig] = useState(false)
     const [pendingAgentMsgIds, setPendingAgentMsgIds] = useState<Set<string>>(new Set())
+    const [completedAgentMsgIds, setCompletedAgentMsgIds] = useState<Set<string>>(new Set())
     const [expandedAgentMsgId, setExpandedAgentMsgId] = useState<string | null>(null)
     const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
         try {
@@ -297,7 +298,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 agentMessageMapRef.current = {}
                 firstTokenMapRef.current = {}
                 sectionToMsgIdRef.current = {}
-                setPendingAgentMsgIds(new Set())
+                setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
                 break
             }
             case 'job.running':
@@ -318,6 +319,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
+                setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
                     if (symbol) {
@@ -350,6 +352,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 break
             case 'agent.status': {
                 const statusData = data as unknown as { agent: string; status: string; horizon?: string }
+                const agentKey2 = `${statusData.agent}-${statusData.horizon || 'main'}`
+
                 if (statusData.status === 'in_progress') {
                     // 第一个 agent 开始工作，移除状态指示器
                     if (typingIndicatorIdRef.current) {
@@ -363,7 +367,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     const horizon = statusData.horizon ? `(${statusData.horizon === 'short' ? '短线' : '中线'})` : ''
                     const msgId = `chat-agent-msg-${agentName}-${statusData.horizon || 'main'}-${Date.now()}`
 
-                    agentMessageMapRef.current[`${agentName}-${statusData.horizon || 'main'}`] = msgId
+                    agentMessageMapRef.current[agentKey2] = msgId
                     firstTokenMapRef.current[msgId] = true
 
                     addChatMessage({
@@ -374,6 +378,17 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         timestamp: new Date().toISOString()
                     })
                     setPendingAgentMsgIds(prev => new Set(prev).add(msgId))
+                } else if (statusData.status === 'completed' || statusData.status === 'skipped') {
+                    // Agent 完成/跳过 → 移出 pending，标记为已完成
+                    const existingMsgId = agentMessageMapRef.current[agentKey2]
+                    if (existingMsgId) {
+                        setPendingAgentMsgIds(prev => {
+                            const s = new Set(prev)
+                            s.delete(existingMsgId)
+                            return s
+                        })
+                        setCompletedAgentMsgIds(prev => new Set(prev).add(existingMsgId))
+                    }
                 }
                 updateAgentStatus(statusData as unknown as AgentStatusEvent)
                 break
@@ -559,7 +574,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
         reset()
         streamingReportIds.current.clear()
-        setPendingAgentMsgIds(new Set())
+        setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
 
         // 立刻插入 typing indicator，让用户知道系统正在响应
         const typingId = `typing-${Date.now()}`
@@ -745,9 +760,10 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         )
                     }
 
-                    // Agent streaming messages → compact card with marquee preview
+                    // Agent streaming messages → compact card with live preview
                     const agentMeta = msg.agent ? AGENT_META_MAP[msg.agent] : null
                     const isPending = pendingAgentMsgIds.has(msg.id)
+                    const isCompleted = completedAgentMsgIds.has(msg.id)
                     const isExpanded = expandedAgentMsgId === msg.id
 
                     if (msg.agent && agentMeta && msg.role === 'assistant') {
@@ -759,7 +775,11 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                             .trim()
 
                         return (
-                            <div key={msg.id} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 transition-all overflow-hidden">
+                            <div key={msg.id} className={`rounded-xl border transition-all overflow-hidden ${
+                                isCompleted
+                                    ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/30'
+                                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/50'
+                            }`}>
                                 {/* Compact header — click to expand/collapse */}
                                 <button
                                     onClick={() => setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
@@ -780,6 +800,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                                     </div>
                                     {isPending ? (
                                         <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+                                    ) : isCompleted ? (
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                                     ) : (
                                         <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-medium shrink-0 animate-pulse">撰写中</span>
                                     )}

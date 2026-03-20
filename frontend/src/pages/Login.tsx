@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useNavigate } from 'react-router-dom'
 
 const SIGNALS = [
-    { label: '研究框架', value: '12-Agent' },
+    { label: '研究框架', value: '15-Agent' },
     { label: '工作区', value: '私有' },
     { label: '报告流', value: '实时' },
 ]
@@ -13,15 +13,15 @@ const SIGNALS = [
 const AGENT_GROUPS = [
     {
         title: '分析团队',
-        count: '4',
-        items: ['市场分析', '舆情分析', '新闻分析', '基本面分析'],
-        description: '围绕行情、情绪、新闻与财务建立初始判断。',
+        count: '6',
+        items: ['市场分析', '舆情分析', '新闻分析', '基本面分析', '宏观分析', '主力资金'],
+        description: '围绕行情、情绪、新闻、财务、宏观与资金流建立初始判断。',
     },
     {
         title: '研究团队',
-        count: '3',
-        items: ['多头研究', '空头研究', '研究经理'],
-        description: '组织多空论证，收敛成投资计划与核心分歧。',
+        count: '4',
+        items: ['博弈裁判', '多头研究', '空头研究', '研究总监'],
+        description: '组织多空论证与博弈推演，收敛成投资计划与核心分歧。',
     },
     {
         title: '交易与风控',
@@ -101,7 +101,7 @@ export default function Login() {
                                 </span>
                             </h1>
                             <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600 dark:text-slate-300 md:text-lg">
-                                从市场、舆情、新闻、基本面到风控与组合决策，将 12 个 Agent 的协作过程沉淀为可追踪、可复盘、可持续更新的研究链路。
+                                从市场、舆情、新闻、基本面、宏观、主力资金到风控与组合决策，将 15 个 Agent 的协作过程沉淀为可追踪、可复盘、可持续更新的研究链路。
                             </p>
                         </div>
 
