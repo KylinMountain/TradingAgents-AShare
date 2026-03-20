@@ -1,3 +1,5 @@
+import asyncio
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
@@ -18,8 +20,6 @@ def _extract_verdict(text):
 
 
 def create_macro_analyst(llm, data_collector=None):
-    import asyncio
-
     async def _safe(tool, payload):
         try:
             return await asyncio.to_thread(tool.invoke, payload)

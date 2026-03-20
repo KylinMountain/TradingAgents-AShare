@@ -142,8 +142,11 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [input, setInput] = useState(initialInput || '')
     const [streaming, setStreaming] = useState(false)
     const [showConfig, setShowConfig] = useState(false)
-    const [pendingAgentMsgIds, setPendingAgentMsgIds] = useState<Set<string>>(new Set())
-    const [completedAgentMsgIds, setCompletedAgentMsgIds] = useState<Set<string>>(new Set())
+    // Use refs for high-frequency token tracking to avoid re-renders on every token
+    const pendingAgentMsgIdsRef = useRef<Set<string>>(new Set())
+    const completedAgentMsgIdsRef = useRef<Set<string>>(new Set())
+    // Only used to trigger re-render when agent card status actually changes
+    const [, forceUpdate] = useState(0)
     const [expandedAgentMsgId, setExpandedAgentMsgId] = useState<string | null>(null)
     const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
         try {
@@ -298,7 +301,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 agentMessageMapRef.current = {}
                 firstTokenMapRef.current = {}
                 sectionToMsgIdRef.current = {}
-                setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
+                pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
                 break
             }
             case 'job.running':
@@ -319,7 +322,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
-                setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
+                pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
                     if (symbol) {
@@ -377,17 +380,14 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         content: `**${agentName}** ${horizon} 正在思考并撰写报告中...`,
                         timestamp: new Date().toISOString()
                     })
-                    setPendingAgentMsgIds(prev => new Set(prev).add(msgId))
+                    pendingAgentMsgIdsRef.current.add(msgId); forceUpdate(n => n + 1)
                 } else if (statusData.status === 'completed' || statusData.status === 'skipped') {
                     // Agent 完成/跳过 → 移出 pending，标记为已完成
                     const existingMsgId = agentMessageMapRef.current[agentKey2]
                     if (existingMsgId) {
-                        setPendingAgentMsgIds(prev => {
-                            const s = new Set(prev)
-                            s.delete(existingMsgId)
-                            return s
-                        })
-                        setCompletedAgentMsgIds(prev => new Set(prev).add(existingMsgId))
+                        pendingAgentMsgIdsRef.current.delete(existingMsgId)
+                        completedAgentMsgIdsRef.current.add(existingMsgId)
+                        forceUpdate(n => n + 1)
                     }
                 }
                 updateAgentStatus(statusData as unknown as AgentStatusEvent)
@@ -423,7 +423,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         content: `**${tokenData.agent}** ${horizonSuffix} 正在思考并撰写报告中...`,
                         timestamp: new Date().toISOString(),
                     })
-                    setPendingAgentMsgIds(prev => new Set(prev).add(targetMsgId))
+                    pendingAgentMsgIdsRef.current.add(targetMsgId); forceUpdate(n => n + 1)
                 }
 
                 // 记录 section → msgId 映射，用于后续转换成 ReportCard
@@ -436,7 +436,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     setMessageContent(targetMsgId, `### ${tokenData.agent} ${horizonText}\n\n${tokenData.token}`)
                     firstTokenMapRef.current[targetMsgId] = false
                     // 第一个 token 到达，移出 pending 状态
-                    setPendingAgentMsgIds(prev => { const s = new Set(prev); s.delete(targetMsgId); return s })
+                    pendingAgentMsgIdsRef.current.delete(targetMsgId)
                 } else {
                     appendToChatMessage(targetMsgId, tokenData.token)
                 }
@@ -574,7 +574,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
         reset()
         streamingReportIds.current.clear()
-        setPendingAgentMsgIds(new Set()); setCompletedAgentMsgIds(new Set())
+        pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
 
         // 立刻插入 typing indicator，让用户知道系统正在响应
         const typingId = `typing-${Date.now()}`
@@ -762,8 +762,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
                     // Agent streaming messages → compact card with live preview
                     const agentMeta = msg.agent ? AGENT_META_MAP[msg.agent] : null
-                    const isPending = pendingAgentMsgIds.has(msg.id)
-                    const isCompleted = completedAgentMsgIds.has(msg.id)
+                    const isPending = pendingAgentMsgIdsRef.current.has(msg.id)
+                    const isCompleted = completedAgentMsgIdsRef.current.has(msg.id)
                     const isExpanded = expandedAgentMsgId === msg.id
 
                     if (msg.agent && agentMeta && msg.role === 'assistant') {

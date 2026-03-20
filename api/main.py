@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 import logging
+import time
 
 # Configure standard logging to include timestamps
 logging.basicConfig(
@@ -24,6 +25,7 @@ logging.basicConfig(
     format='[%(asctime)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -98,6 +100,8 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
 _job_events: Dict[str, "asyncio.Queue[Dict[str, Any]]"] = {}
+# Hold references to fire-and-forget tasks so they are not garbage collected
+_background_tasks: set = set()
 
 # ── A-share stock name → code cache ──────────────────────────────────────────
 _cn_stock_map: Optional[Dict[str, str]] = None  # name -> "XXXXXX.SH/SZ"
@@ -108,9 +112,24 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _create_tracked_task(coro) -> asyncio.Task:
+    """Create an asyncio task and keep a reference to prevent GC.
+    Also logs unhandled exceptions via a done callback."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task):
+        _background_tasks.discard(t)
+        if not t.cancelled() and t.exception():
+            logger.error("Background task failed: %s", t.exception())
+
+    task.add_done_callback(_on_done)
+    return task
+
+
 def _log(msg: str):
-    """Helper to print log with timestamp."""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+    """Helper to log with timestamp via standard logging."""
+    logger.info(msg)
 
 
 def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
@@ -620,12 +639,30 @@ def _ensure_job_event_queue(job_id: str) -> "asyncio.Queue[Dict[str, Any]]":
 
 
 def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
+    """Thread-safe event emitter: uses call_soon_threadsafe when called from a
+    non-event-loop thread (e.g. inside asyncio.to_thread callbacks)."""
     payload = {
         "event": event,
         "data": data,
         "timestamp": _utcnow_iso(),
     }
-    _ensure_job_event_queue(job_id).put_nowait(payload)
+    q = _ensure_job_event_queue(job_id)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We are inside the event loop – safe to call directly
+        q.put_nowait(payload)
+    else:
+        # Called from a worker thread – schedule on the main loop
+        try:
+            main_loop = asyncio.get_event_loop()
+            main_loop.call_soon_threadsafe(q.put_nowait, payload)
+        except RuntimeError:
+            # Fallback: no event loop available at all
+            q.put_nowait(payload)
 
 
 def _extract_request_user_context(request: UserContextInput) -> Dict[str, Any]:
@@ -787,7 +824,6 @@ class AgentProgressTracker:
         return {"agents": agents, "horizon": self.horizon}
 
     def _set_status(self, agent: str, status: str) -> None:
-        import time
         prev = self.status.get(agent)
         if prev == status:
             return
@@ -1019,7 +1055,6 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
-    import time
     job_start_t = time.time()
     # Normalize for logic but keep original for display
     display_name = request.symbol
@@ -1028,17 +1063,19 @@ async def _run_job(
     # ── Step 0: Initialize report in DB immediately ──
     db = SessionLocal()
     try:
-        try:
-            await asyncio.to_thread(
-                report_service.init_report,
+        def _init_report_sync():
+            report_service.init_report(
                 db=db,
                 report_id=job_id,
                 symbol=normalized_symbol,
                 trade_date=request.trade_date,
                 user_id=user_id,
             )
-            await asyncio.to_thread(report_service.update_report_partial, db, job_id, status="running")
-            await asyncio.to_thread(db.commit)
+            report_service.update_report_partial(db, job_id, status="running")
+            db.commit()
+
+        try:
+            await asyncio.to_thread(_init_report_sync)
         except Exception as e:
             _log(f"CRITICAL: Failed to initialize report in DB: {e}")
             await asyncio.to_thread(db.rollback)
@@ -1274,7 +1311,13 @@ async def _run_job(
                     await asyncio.to_thread(h_db.close)
 
             # 3. 按解析出的 horizons 并行运行 astream()，事件实时推给前端
-            await asyncio.gather(*[_process_horizon(h) for h in request.horizons])
+            results = await asyncio.gather(
+                *[_process_horizon(h) for h in request.horizons],
+                return_exceptions=True,
+            )
+            for i, r in enumerate(results):
+                if isinstance(r, Exception):
+                    _log(f"Horizon '{request.horizons[i]}' failed: {r}")
 
             graph.data_collector.evict(ticker, request.trade_date)
 
@@ -1335,9 +1378,8 @@ async def _run_job(
 
             # 自动保存报告到数据库
             if save_report:
-                try:
-                    await asyncio.to_thread(
-                        report_service.create_report,
+                def _save_report_sync():
+                    report_service.create_report(
                         db=db,
                         symbol=request.symbol,
                         trade_date=request.trade_date,
@@ -1352,7 +1394,10 @@ async def _run_job(
                         report_id=job_id,
                         analyst_traces=result.get("analyst_traces"),
                     )
-                    await asyncio.to_thread(db.commit)
+                    db.commit()
+
+                try:
+                    await asyncio.to_thread(_save_report_sync)
                 except Exception as e:
                     await asyncio.to_thread(db.rollback)
                     _log(f"Failed to save report: {e}")
@@ -1564,10 +1609,8 @@ async def _run_job(
 
         # 自动保存/收口报告到数据库
         if save_report:
-            try:
-                # 传入已解析的值，并指定 report_id 进行更新
-                await asyncio.to_thread(
-                    report_service.create_report,
+            def _save_report_final_sync():
+                report_service.create_report(
                     db=db,
                     symbol=request.symbol,
                     trade_date=request.trade_date,
@@ -1582,7 +1625,10 @@ async def _run_job(
                     report_id=job_id,
                     analyst_traces=result.get("analyst_traces"),
                 )
-                await asyncio.to_thread(db.commit)
+                db.commit()
+
+            try:
+                await asyncio.to_thread(_save_report_final_sync)
             except Exception as e:
                 await asyncio.to_thread(db.rollback)
                 _log(f"Failed to finalize report: {e}")
@@ -2069,7 +2115,7 @@ async def analyze(
         "job.created",
         {"job_id": job_id, "symbol": request.symbol, "trade_date": request.trade_date},
     )
-    asyncio.create_task(_run_job(job_id, request, True, True, current_user.id, "api"))
+    _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
@@ -2407,7 +2453,7 @@ async def chat_completions(
                 _log(f"[chat] _extract_and_run failed: {exc}")
                 _emit_job_event(job_id, "job.failed", {"error": str(exc)})
 
-        asyncio.create_task(_extract_and_run())
+        _create_tracked_task(_extract_and_run())
         return StreamingResponse(
             _stream_job_events(job_id),
             media_type="text/event-stream",
@@ -2475,7 +2521,7 @@ async def chat_completions(
         "job.created",
         {"job_id": job_id, "symbol": analyze_req.symbol, "trade_date": analyze_req.trade_date},
     )
-    asyncio.create_task(_run_job(job_id, analyze_req, True, True, current_user.id, "chat"))
+    _create_tracked_task(_run_job(job_id, analyze_req, True, True, current_user.id, "chat"))
     return {
         "id": f"chatcmpl-{job_id}",
         "object": "chat.completion",

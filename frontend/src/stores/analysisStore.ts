@@ -398,7 +398,9 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobConfidence: state.jobConfidence,
         jobTargetPrice: state.jobTargetPrice,
         jobStopLoss: state.jobStopLoss,
-        chatMessages: state.chatMessages,
+        // Filter out transient status indicator messages (e.g. __typing__, __parsing__)
+        // so they don't persist across page refreshes
+        chatMessages: state.chatMessages.filter(m => !m.content.startsWith('__')),
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>

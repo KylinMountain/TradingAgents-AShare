@@ -131,7 +131,7 @@ def _fetch_all(ticker: str, trade_date: str, short_only: bool = False) -> Dict[s
                         try:
                             val = ss[ss_key].iloc[-1]
                             indicators_res[key] = round(float(val), 2) if isinstance(val, (int, float)) else str(val)
-                        except:
+                        except Exception:
                             indicators_res[key] = "N/A"
                 else:
                     print(f"  [Warning] 'close' column not found in stock_data columns: {df.columns}")
