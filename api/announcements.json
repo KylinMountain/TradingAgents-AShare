@@ -1,6 +1,36 @@
 {
   "announcements": [
     {
+      "id": "2026-03-21-v045-streaming-ux",
+      "tag": "Release",
+      "title": "V0.4.5：全链路 Token 流式输出与对话体验升级",
+      "summary": "所有 Agent 支持 Token 级流式输出，对话框全面改版，15 个 Agent 协作可视化。",
+      "published_at": "2026-03-21",
+      "items": [
+        {
+          "title": "Token 级流式输出",
+          "detail": "全部 15 个 Agent（含意图解析）均通过 astream 实现 Token 级 SSE 推送，用户可实时看到 LLM 输出过程。"
+        },
+        {
+          "title": "对话框体验重构",
+          "detail": "Agent 消息改为紧凑卡片（图标+标签+实时预览），支持点击展开查看完整内容，完成后自动转为报告卡片。"
+        },
+        {
+          "title": "多阶段状态指示器",
+          "detail": "用户提交后即时反馈：连接中 → 识别标的 → 采集数据 → 多智能体分析，全程无感知等待。"
+        },
+        {
+          "title": "图标体系统一",
+          "detail": "对话框与协作面板使用一致的 Lucide 图标与配色，新增宏观分析、主力资金、博弈裁判等 Agent。"
+        },
+        {
+          "title": "后端异步并行优化",
+          "detail": "分析师节点全部转为 async，数据采集并行执行，意图解析不再阻塞 SSE 流返回。"
+        }
+      ],
+      "active": true
+    },
+    {
       "id": "2026-03-18-v044-stability",
       "tag": "Fix",
       "title": "V0.4.4：底层稳定性加固",
