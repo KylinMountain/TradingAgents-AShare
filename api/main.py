@@ -1701,7 +1701,6 @@ def _normalize_symbol(raw: str) -> str:
         return m2.group(1)
         
     # Final Fallback: Check Chinese Name Map (e.g. "三花智控" -> "002050.SZ")
-    from tradingagents.dataflows.trade_calendar import _load_cn_stock_map
     stock_map = _load_cn_stock_map()
     if s in stock_map:
         return stock_map[s]
