@@ -319,10 +319,14 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'agent.horizon_done':
                 // keep currentHorizon until job completes so badge stays visible
                 break
-            case 'job.completed':
+            case 'job.completed': {
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
-                pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
+                // 任务结束：所有 agent 卡片标记为已完成
+                const allAgentMsgIds = new Set(Object.values(agentMessageMapRef.current))
+                pendingAgentMsgIdsRef.current = new Set()
+                completedAgentMsgIdsRef.current = allAgentMsgIds
+                forceUpdate(n => n + 1)
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
                     if (symbol) {
@@ -348,6 +352,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     })
                 }
                 break
+            }
             case 'job.failed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)

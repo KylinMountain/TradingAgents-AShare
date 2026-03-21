@@ -59,13 +59,12 @@ def extract_structured_data(
             api_key=config.get("api_key"),
         )
         llm = client.get_llm()
-        structured_llm = llm.with_structured_output(StructuredReport)
 
         prompt = (
             "请从以下投资分析报告中提取结构化信息，并以 JSON 格式返回。\n\n"
             f"【最终交易决策】\n{final_trade_decision[:3000]}\n\n"
             f"【基本面报告摘要】\n{fundamentals_report[:1000]}\n\n"
-            "提取要求（请确保输出为有效的 JSON 对象）：\n"
+            "提取要求（请确保输出为有效的 JSON 对象，不要包裹在 markdown 代码块中）：\n"
             "1. decision：决策方向关键词（BUY/SELL/HOLD 或 增持/减持/持有）\n"
             "2. confidence：整体置信度（0-100整数），若文中未明确给出则根据语气判断\n"
             "3. target_price / stop_loss_price：纯数字，若未提及则为 null\n"
@@ -73,7 +72,13 @@ def extract_structured_data(
             "5. key_metrics：最多6条关键财务/估值指标，每条包含名称、值（含单位）、优劣（good/neutral/bad）"
         )
 
-        result = structured_llm.invoke([HumanMessage(content=prompt)])
+        response = llm.invoke([HumanMessage(content=prompt)])
+        raw = response.content if hasattr(response, "content") else str(response)
+        # 去除 markdown code fences（thinking model 常返回 ```json ... ```）
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip(), flags=re.MULTILINE)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
+        parsed = json.loads(cleaned)
+        result = StructuredReport(**parsed)
         # 置信度范围校验
         if result.confidence is not None and not (0 <= result.confidence <= 100):
             result.confidence = None
