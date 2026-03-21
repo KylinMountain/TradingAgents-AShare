@@ -25,3 +25,4 @@ sqlalchemy
 alembic
 python-jose[cryptography]
 passlib[bcrypt]
+json-repair
