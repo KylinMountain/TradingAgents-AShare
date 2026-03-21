@@ -1,7 +1,7 @@
 """Report service for database operations."""
 
 import json
-import re
+import json_repair
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Literal
 from uuid import uuid4
@@ -74,10 +74,7 @@ def extract_structured_data(
 
         response = llm.invoke([HumanMessage(content=prompt)])
         raw = response.content if hasattr(response, "content") else str(response)
-        # 去除 markdown code fences（thinking model 常返回 ```json ... ```）
-        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip(), flags=re.MULTILINE)
-        cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
-        parsed = json.loads(cleaned)
+        parsed = json_repair.loads(raw)
         result = StructuredReport(**parsed)
         # 置信度范围校验
         if result.confidence is not None and not (0 <= result.confidence <= 100):

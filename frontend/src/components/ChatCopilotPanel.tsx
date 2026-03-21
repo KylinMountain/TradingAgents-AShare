@@ -778,16 +778,43 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                             .replace(/\*\*/g, '')
                             .replace(/\n{2,}/g, ' ')
                             .trim()
+                        const preview = textOnly.slice(0, 80)
 
+                        // 已完成的 agent 卡片 → 和 ReportCard 视觉统一
+                        if (isCompleted) {
+                            return (
+                                <div key={msg.id} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 overflow-hidden transition-all">
+                                    <button
+                                        onClick={() => setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
+                                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:border-blue-400 dark:hover:bg-slate-800 transition-colors group"
+                                    >
+                                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${agentMeta.bgCls} shrink-0`}>
+                                            <agentMeta.Icon className={`w-4 h-4 ${agentMeta.iconCls}`} />
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-colors">{agentMeta.label}</p>
+                                            <p className="text-xs text-slate-500 truncate mt-0.5">{preview}...</p>
+                                        </div>
+                                        <ChevronRight className={`w-4 h-4 shrink-0 transition-transform ${isExpanded ? 'rotate-90 text-blue-400' : 'text-slate-500 group-hover:text-blue-400'}`} />
+                                    </button>
+                                    {isExpanded && (
+                                        <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-700/50 max-h-60 overflow-y-auto">
+                                            <div className="prose dark:prose-invert prose-xs max-w-none mt-2 text-[12px] leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {msg.content}
+                                                </ReactMarkdown>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
+
+                        // 进行中的 agent 卡片（pending / streaming）
                         return (
-                            <div key={msg.id} className={`rounded-xl border transition-all overflow-hidden ${
-                                isCompleted
-                                    ? 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/30'
-                                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700/50'
-                            }`}>
-                                {/* Compact header — click to expand/collapse */}
+                            <div key={msg.id} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/50 transition-all overflow-hidden">
                                 <button
-                                    onClick={() => setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
+                                    onClick={() => !isPending && setExpandedAgentMsgId(prev => prev === msg.id ? null : msg.id)}
                                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-colors"
                                 >
                                     <span className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${agentMeta.bgCls} shrink-0`}>
@@ -805,14 +832,10 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                                     </div>
                                     {isPending ? (
                                         <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
-                                    ) : isCompleted ? (
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                                     ) : (
                                         <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-medium shrink-0 animate-pulse">撰写中</span>
                                     )}
                                 </button>
-
-                                {/* Expanded: show full streaming markdown */}
                                 {isExpanded && !isPending && (
                                     <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-700/50 max-h-60 overflow-y-auto">
                                         <div className="prose dark:prose-invert prose-xs max-w-none mt-2 text-[12px] leading-relaxed">
