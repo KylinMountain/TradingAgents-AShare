@@ -1242,7 +1242,7 @@ async def _run_job(
                             horizon_final = chunk
                             active_keys = [k for k, v in chunk.items() if v and k != "messages"]
                             if active_keys:
-                                _log(f"[Graph Chunk/{horizon}] keys={active_keys}")
+                                logger.debug(f"[Graph Chunk/{horizon}] keys={active_keys}")
 
                             # ── 并行感知的状态推进 ──────────────────
                             # 1. 每个 analyst 报告首次出现 → completed
@@ -1508,7 +1508,7 @@ async def _run_job(
                     # 打印当前 chunk 包含哪些 key，方便追踪 agent 执行进度
                     active_keys = [k for k, v in chunk.items() if v and k != "messages"]
                     if active_keys:
-                        _log(f"[Graph Chunk] keys={active_keys}")
+                        logger.debug(f"[Graph Chunk] keys={active_keys}")
 
                     # ── Message & Tool Call Handling ──
                     messages = chunk.get("messages", [])
