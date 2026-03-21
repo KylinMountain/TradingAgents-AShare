@@ -2,6 +2,7 @@
 
 import json
 import json_repair
+import re
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Literal
 from uuid import uuid4
