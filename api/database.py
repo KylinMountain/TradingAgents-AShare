@@ -206,6 +206,16 @@ class UserTokenDB(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class VersionStatsDB(Base):
+    __tablename__ = "version_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version = Column(String(50), nullable=True)
+    nonce = Column(String(64), nullable=True)
+    remote_ip = Column(String(45), nullable=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class WatchlistItemDB(Base):
     """User watchlist items."""
     __tablename__ = "watchlist_items"
@@ -226,8 +236,8 @@ class ScheduledAnalysisDB(Base):
     id = Column(String(36), primary_key=True)
     user_id = Column(String(64), index=True, nullable=False)
     symbol = Column(String(20), nullable=False)
-    horizon = Column(String(10), default="short")        # "short" 或 "medium"，单选
-    trigger_time = Column(String(5), default="20:00")     # HH:MM 格式，允许 20:00~08:00
+    horizon = Column(String(10), default="short")
+    trigger_time = Column(String(5), default="20:00")
     is_active = Column(Boolean, default=True)
     last_run_date = Column(String(10), nullable=True)
     last_run_status = Column(String(10), nullable=True)

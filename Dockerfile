@@ -31,6 +31,10 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # 暴露端口
 EXPOSE 8000
 
+# 版本号：通过 --build-arg VERSION=v0.2.0 注入（通常取 git tag）
+ARG VERSION=dev
+ENV APP_VERSION=${VERSION}
+
 # 环境变量设置
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app

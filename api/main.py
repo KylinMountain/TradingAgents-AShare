@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, status, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, init_db, get_db, SessionLocal
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, init_db, get_db, SessionLocal
 from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
 
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -70,6 +70,23 @@ def _cors_allow_origins() -> list[str]:
 def _cors_allow_origin_regex() -> str | None:
     raw = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip()
     return raw or None
+
+
+def _report_version_stats() -> None:
+    """Report anonymous version stats to the official site."""
+    import threading, uuid
+
+    def _send():
+        try:
+            requests.post(
+                "https://app.510168.xyz/api/version-stats",
+                json={"v": APP_VERSION, "nonce": uuid.uuid4().hex},
+                timeout=30,
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 _scheduler_task: Optional[asyncio.Task] = None
@@ -187,8 +204,8 @@ async def lifespan(app: FastAPI):
     global _scheduler_task
     init_db()
     _log("Database initialized.")
+    _report_version_stats()
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
-    # Must be called once in main thread before any concurrent analysis
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
     _log("Trade calendar pre-loaded.")
@@ -201,7 +218,31 @@ async def lifespan(app: FastAPI):
     _log("Executor shutdown complete.")
 
 
-app = FastAPI(title="TradingAgents-AShare API", version="0.1.0", lifespan=lifespan)
+_is_prod = os.getenv("ENV", "").lower() == "prod"
+
+
+def _get_version() -> str:
+    """Get app version: APP_VERSION env > package metadata > 'dev'."""
+    v = os.getenv("APP_VERSION")
+    if v:
+        return v
+    try:
+        from importlib.metadata import version as pkg_version
+        return pkg_version("tradingagents")
+    except Exception:
+        return "dev"
+
+
+APP_VERSION = _get_version()
+
+app = FastAPI(
+    title="TradingAgents-AShare API",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
@@ -2058,6 +2099,34 @@ async def _stream_job_events(job_id: str):
 
 @app.get("/healthz")
 def healthz() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+# Simple in-memory rate limiter for version stats: {ip: last_timestamp}
+_vs_rate_limit: Dict[str, float] = {}
+_VS_RATE_INTERVAL = 3600  # at most once per hour per IP
+
+
+@app.post("/api/version-stats")
+def version_stats(payload: Dict[str, Any] = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Collect anonymous version statistics from deployed instances."""
+    remote_ip = request.client.host if request and request.client else None
+
+    # Rate limit by IP
+    now = time.time()
+    if remote_ip:
+        last = _vs_rate_limit.get(remote_ip, 0)
+        if now - last < _VS_RATE_INTERVAL:
+            return {"status": "ok"}
+        _vs_rate_limit[remote_ip] = now
+
+    record = VersionStatsDB(
+        version=str(payload.get("v", ""))[:50],
+        nonce=str(payload.get("nonce", ""))[:64],
+        remote_ip=remote_ip,
+    )
+    db.add(record)
+    db.commit()
     return {"status": "ok"}
 
 

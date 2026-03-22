@@ -49,7 +49,7 @@ VENDOR_LIST = _registry.list_names()
 
 
 def _is_trace_enabled() -> bool:
-    env_value = os.getenv("TRADINGAGENTS_PROVIDER_TRACE")
+    env_value = os.getenv("TA_TRACE")
     if env_value is not None:
         return env_value.strip().lower() in ("1", "true", "yes", "on")
 
