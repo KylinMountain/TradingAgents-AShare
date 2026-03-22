@@ -18,10 +18,20 @@ if DATABASE_URL.startswith("sqlite"):
         echo=False,
     )
 
+    def _can_use_wal() -> bool:
+        """Check if WAL mode is safe: db's parent dir must be writable for -shm/-wal files."""
+        import pathlib
+        db_path = DATABASE_URL.replace("sqlite:///", "").replace("sqlite://", "")
+        parent = pathlib.Path(db_path).resolve().parent
+        return os.access(parent, os.W_OK)
+
+    _use_wal = _can_use_wal()
+
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
+        if _use_wal:
+            cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 else:
     # For PostgreSQL/MySQL, use a larger pool to handle concurrency

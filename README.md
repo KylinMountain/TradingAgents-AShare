@@ -68,13 +68,20 @@ TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解
 
 ```bash
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
+
+# 创建数据目录（数据库及 WAL 文件会持久化在此）
+mkdir -p $(pwd)/data
+
 docker run -d -p 8000:8000 \
   --name tradingagents \
-  -v $(pwd)/tradingagents.db:/app/tradingagents.db \
+  -v $(pwd)/data:/app/data \
+  -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
   -e TA_API_KEY="你的密钥" \
   -e TA_BASE_URL="https://api.openai.com/v1" \
   ghcr.io/kylinmountain/tradingagents-ashare:latest
 ```
+
+> **从旧版升级？** 如果之前用的是 `-v tradingagents.db:/app/tradingagents.db` 单文件挂载，请将 db 文件移到 `data/` 目录下，改用目录挂载方式。
 访问 `http://localhost:8000` 即可使用。
 
 ### 2. 源码安装
@@ -105,7 +112,7 @@ TA_BASE_URL=https://api.openai.com/v1
 TA_LLM_QUICK=gpt-4o-mini
 TA_LLM_DEEP=gpt-4o
 
-# 数据库 (默认使用本地 SQLite)
+# 数据库 (默认使用本地 SQLite，Docker 部署建议用 data/ 子目录)
 DATABASE_URL=sqlite:///./tradingagents.db
 ```
 
