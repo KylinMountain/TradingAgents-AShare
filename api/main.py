@@ -21,7 +21,7 @@ import time
 
 # Configure standard logging to include timestamps
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format='[%(asctime)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -39,8 +39,8 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, init_db, get_db, SessionLocal
-from api.services import auth_service, report_service, token_service
+from api.database import UserDB, UserLLMConfigDB, init_db, get_db, SessionLocal
+from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -72,13 +72,131 @@ def _cors_allow_origin_regex() -> str | None:
     return raw or None
 
 
+_scheduler_task: Optional[asyncio.Task] = None
+
+
+async def _scheduler_loop():
+    """Background loop: check every minute for scheduled tasks to trigger.
+
+    Each task has its own trigger_time (HH:MM). The scheduler runs on trading
+    days only, outside of trading hours (before 9:15 or after 15:00). Tasks
+    are triggered when current time >= task.trigger_time and the task hasn't
+    run today yet.
+    """
+    from tradingagents.dataflows.trade_calendar import is_cn_trading_day
+    from zoneinfo import ZoneInfo
+
+    _log("[Scheduler] Started.")
+    while True:
+        await asyncio.sleep(60)
+        try:
+            now = datetime.now(tz=ZoneInfo("Asia/Shanghai"))
+            today = now.strftime("%Y-%m-%d")
+            current_hhmm = now.strftime("%H:%M")
+
+            if not is_cn_trading_day(today):
+                continue
+            time_val = now.hour * 60 + now.minute
+            if 8 * 60 < time_val < 20 * 60:
+                continue
+
+            db = SessionLocal()
+            try:
+                tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
+                if not tasks:
+                    continue
+
+                # 先标记为"已触发"防止下次循环重复启动
+                for task in tasks:
+                    task.last_run_date = today
+                    task.last_run_status = "running"
+                db.commit()
+
+                _log(f"[Scheduler] Launching {len(tasks)} tasks")
+                for task in tasks:
+                    _create_tracked_task(_run_scheduled_job(task, today))
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"[Scheduler] Error: {e}")
+
+
+async def _run_scheduled_job(task, trade_date: str):
+    """Execute a single scheduled analysis job with optional shared data collector."""
+    _log(f"[Scheduler] Running {task.symbol} for user={task.user_id}")
+    job_id = uuid4().hex
+    try:
+        _ensure_job_event_queue(job_id)
+
+        # Load user LLM config
+        db = SessionLocal()
+        try:
+            user_config = db.query(UserLLMConfigDB).filter(
+                UserLLMConfigDB.user_id == task.user_id
+            ).first()
+        finally:
+            db.close()
+
+        # 使用最近交易日（非交易日时回退到上一个交易日）
+        from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
+        actual_trade_date = trade_date if is_cn_trading_day(trade_date) else previous_cn_trading_day(trade_date)
+        _log(f"[Scheduler] {task.symbol} trade_date={actual_trade_date} (requested={trade_date})")
+
+        horizon = task.horizon or "short"
+        req = AnalyzeRequest(
+            symbol=task.symbol,
+            trade_date=actual_trade_date,
+            horizons=[horizon],
+            query=f"定时分析 {task.symbol}",
+            # 直接设置 user_intent，跳过 LLM 意图解析（省 30+ 秒）
+            user_intent={
+                "ticker": task.symbol,
+                "horizons": [horizon],
+                "focus_areas": [],
+                "specific_questions": [],
+                "user_context": {},
+            },
+        )
+
+        await _run_job(job_id, req, user_id=task.user_id)
+
+        # Mark success
+        db = SessionLocal()
+        try:
+            scheduled_service.mark_run_success(db, task.id, trade_date, job_id)
+        finally:
+            db.close()
+        _log(f"[Scheduler] Completed {task.symbol}")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"[Scheduler] Failed {task.symbol}: {e}\n{traceback.format_exc()}")
+        db = SessionLocal()
+        try:
+            scheduled_service.mark_run_failed(db, task.id, trade_date)
+        finally:
+            db.close()
+    finally:
+        _job_events.pop(job_id, None)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
+    global _scheduler_task
     init_db()
     _log("Database initialized.")
+    # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
+    # Must be called once in main thread before any concurrent analysis
+    from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
+    _load_cn_trade_dates()
+    _log("Trade calendar pre-loaded.")
+    _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
+    if _scheduler_task:
+        _scheduler_task.cancel()
     _executor.shutdown(wait=True)
     _log("Executor shutdown complete.")
 
@@ -142,13 +260,21 @@ def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat()
 
 
+_cn_stock_map_loaded_at: float = 0  # timestamp of last load
+_STOCK_MAP_TTL = 7 * 86400  # 7 days
+
+
 def _load_cn_stock_map() -> Dict[str, str]:
-    """Lazy-load and cache akshare A-share name→code mapping."""
-    global _cn_stock_map
+    """Lazy-load and cache akshare A-share name→code mapping with 7-day TTL."""
+    global _cn_stock_map, _cn_stock_map_loaded_at
+    import time as _time
+    now = _time.time()
+    if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) > _STOCK_MAP_TTL:
+        _cn_stock_map = None  # expire cache
     if _cn_stock_map is not None:
         return _cn_stock_map
     with _cn_stock_map_lock:
-        if _cn_stock_map is not None:
+        if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
             return _cn_stock_map
         try:
             import akshare as ak
@@ -161,11 +287,19 @@ def _load_cn_stock_map() -> Dict[str, str]:
                     normalized = _normalize_symbol(code)
                     result[name] = normalized
             _cn_stock_map = result
+            _cn_stock_map_loaded_at = now
             _log(f"[StockMap] Loaded {len(result)} A-share stocks.")
         except Exception as e:
             _log(f"[StockMap] Failed to load: {e}")
-            _cn_stock_map = {}
+            if _cn_stock_map is None:
+                _cn_stock_map = {}
     return _cn_stock_map
+
+
+def _get_reverse_stock_map() -> Dict[str, str]:
+    """Return code→name mapping."""
+    name_to_code = _load_cn_stock_map()
+    return {v: k for k, v in name_to_code.items()}
 
 
 def _search_cn_stock_by_name(query: str) -> Optional[str]:
@@ -1240,9 +1374,6 @@ async def _run_job(
                     try:
                         async for chunk in horizon_graph.graph.astream(init_state, **h_args):
                             horizon_final = chunk
-                            active_keys = [k for k, v in chunk.items() if v and k != "messages"]
-                            if active_keys:
-                                logger.debug(f"[Graph Chunk/{horizon}] keys={active_keys}")
 
                             # ── 并行感知的状态推进 ──────────────────
                             # 1. 每个 analyst 报告首次出现 → completed
@@ -1505,11 +1636,6 @@ async def _run_job(
                     if db_updates:
                         await asyncio.to_thread(report_service.update_report_partial, db, job_id, **db_updates)
                     
-                    # 打印当前 chunk 包含哪些 key，方便追踪 agent 执行进度
-                    active_keys = [k for k, v in chunk.items() if v and k != "messages"]
-                    if active_keys:
-                        logger.debug(f"[Graph Chunk] keys={active_keys}")
-
                     # ── Message & Tool Call Handling ──
                     messages = chunk.get("messages", [])
                     if messages:
@@ -2798,6 +2924,154 @@ def update_runtime_config(
     }
 
 
+# ── Stock Search ──────────────────────────────────────────────────────────────
+
+@app.get("/v1/market/stock-search")
+def search_stocks(
+    q: str = Query("", min_length=1, max_length=20),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Search stocks by code prefix or name substring."""
+    q = q.strip()
+    if not q:
+        return {"results": []}
+
+    name_to_code = _load_cn_stock_map()
+    code_to_name = _get_reverse_stock_map()
+    results = []
+    q_upper = q.upper()
+
+    for code, name in code_to_name.items():
+        if code.upper().startswith(q_upper) or code.split(".")[0].startswith(q):
+            results.append({"symbol": code, "name": name})
+            if len(results) >= 20:
+                break
+
+    if len(results) < 20:
+        for name, code in name_to_code.items():
+            if q in name and not any(r["symbol"] == code for r in results):
+                results.append({"symbol": code, "name": name})
+                if len(results) >= 20:
+                    break
+
+    return {"results": results}
+
+
+# ── Watchlist ─────────────────────────────────────────────────────────────────
+
+@app.get("/v1/watchlist")
+def list_watchlist(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    items = watchlist_service.list_watchlist(db, current_user.id)
+    code_to_name = _get_reverse_stock_map()
+    for item in items:
+        item["name"] = code_to_name.get(item["symbol"], item["symbol"])
+    return {"items": items}
+
+
+@app.post("/v1/watchlist", status_code=201)
+def add_to_watchlist(
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    symbol = body.get("symbol", "").strip().upper()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    code_to_name = _get_reverse_stock_map()
+    if symbol not in code_to_name:
+        raise HTTPException(400, f"未知的股票代码: {symbol}")
+    try:
+        item = watchlist_service.add_watchlist_item(db, current_user.id, symbol)
+        item["name"] = code_to_name.get(symbol, symbol)
+        return item
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/v1/watchlist/{item_id}", status_code=204)
+def delete_from_watchlist(
+    item_id: str,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    if not watchlist_service.delete_watchlist_item(db, current_user.id, item_id):
+        raise HTTPException(404, "未找到该自选股")
+
+
+# ── Scheduled Analysis ────────────────────────────────────────────────────────
+
+@app.get("/v1/scheduled")
+def list_scheduled_analyses(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    items = scheduled_service.list_scheduled(db, current_user.id)
+    code_to_name = _get_reverse_stock_map()
+    for item in items:
+        item["name"] = code_to_name.get(item["symbol"], item["symbol"])
+    return {"items": items}
+
+
+@app.post("/v1/scheduled", status_code=201)
+def create_scheduled_analysis(
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    symbol = body.get("symbol", "").strip().upper()
+    horizon = body.get("horizon", "short")
+    trigger_time = body.get("trigger_time", "20:00")
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    code_to_name = _get_reverse_stock_map()
+    if symbol not in code_to_name:
+        raise HTTPException(400, f"未知的股票代码: {symbol}")
+    try:
+        item = scheduled_service.create_scheduled(db, current_user.id, symbol, horizon, trigger_time)
+        item["name"] = code_to_name.get(symbol, symbol)
+        return item
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/v1/scheduled/{item_id}")
+def update_scheduled_analysis(
+    item_id: str,
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    kwargs = {}
+    if "is_active" in body:
+        kwargs["is_active"] = bool(body["is_active"])
+    if "horizon" in body:
+        kwargs["horizon"] = body["horizon"]
+    if "trigger_time" in body:
+        kwargs["trigger_time"] = body["trigger_time"]
+    try:
+        result = scheduled_service.update_scheduled(db, current_user.id, item_id, **kwargs)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if result is None:
+        raise HTTPException(404, "未找到该定时任务")
+    code_to_name = _get_reverse_stock_map()
+    result["name"] = code_to_name.get(result["symbol"], result["symbol"])
+    return result
+
+
+@app.delete("/v1/scheduled/{item_id}", status_code=204)
+def delete_scheduled_analysis(
+    item_id: str,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    if not scheduled_service.delete_scheduled(db, current_user.id, item_id):
+        raise HTTPException(404, "未找到该定时任务")
+
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -2831,5 +3105,7 @@ if os.path.exists(dist_path):
 
 def run() -> None:
     import uvicorn
+    from pathlib import Path
 
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=False)
+    log_config = str(Path(__file__).parent / "logging_config.yaml")
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=False, log_config=log_config)

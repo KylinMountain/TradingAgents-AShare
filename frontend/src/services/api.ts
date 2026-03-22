@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, HotStock, UserToken, UserTokenCreateRequest } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, WatchlistItem, ScheduledAnalysis, StockSearchResult, UserToken, UserTokenCreateRequest } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -130,8 +130,43 @@ class ApiService {
         })
     }
 
-    async getHotStocks(limit = 30, source = 'em'): Promise<{ stocks: HotStock[]; total: number }> {
-        return this.request<{ stocks: HotStock[]; total: number }>(`/v1/market/hot-stocks?limit=${limit}&source=${source}`)
+    // Watchlist
+    async getWatchlist(): Promise<{ items: WatchlistItem[] }> {
+        return this.request<{ items: WatchlistItem[] }>('/v1/watchlist')
+    }
+    async addToWatchlist(symbol: string): Promise<WatchlistItem> {
+        return this.request<WatchlistItem>('/v1/watchlist', {
+            method: 'POST',
+            body: JSON.stringify({ symbol }),
+        })
+    }
+    async removeFromWatchlist(id: string): Promise<void> {
+        await this.request('/v1/watchlist/' + id, { method: 'DELETE' })
+    }
+
+    // Scheduled Analysis
+    async getScheduled(): Promise<{ items: ScheduledAnalysis[] }> {
+        return this.request<{ items: ScheduledAnalysis[] }>('/v1/scheduled')
+    }
+    async createScheduled(symbol: string, horizon?: string, trigger_time?: string): Promise<ScheduledAnalysis> {
+        return this.request<ScheduledAnalysis>('/v1/scheduled', {
+            method: 'POST',
+            body: JSON.stringify({ symbol, horizon, trigger_time }),
+        })
+    }
+    async updateScheduled(id: string, data: { is_active?: boolean; horizon?: string; trigger_time?: string }): Promise<ScheduledAnalysis> {
+        return this.request<ScheduledAnalysis>('/v1/scheduled/' + id, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        })
+    }
+    async deleteScheduled(id: string): Promise<void> {
+        await this.request('/v1/scheduled/' + id, { method: 'DELETE' })
+    }
+
+    // Stock Search
+    async searchStocks(q: string): Promise<{ results: StockSearchResult[] }> {
+        return this.request<{ results: StockSearchResult[] }>(`/v1/market/stock-search?q=${encodeURIComponent(q)}`)
     }
 
     async getConfig(): Promise<RuntimeConfig> {

@@ -13,7 +13,7 @@ const navItems = [
     { path: '/', icon: LayoutDashboard, label: '控制台' },
     { path: '/analysis', icon: Activity, label: '智能分析' },
     { path: '/reports', icon: FileText, label: '历史报告' },
-    { path: '/portfolio', icon: Briefcase, label: '自选股' },
+    { path: '/portfolio', icon: Briefcase, label: '自选 & 定时' },
     { path: '/settings', icon: Settings, label: '设置' },
 ]
 

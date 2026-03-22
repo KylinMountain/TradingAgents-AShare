@@ -1,0 +1,76 @@
+"""Watchlist service for database operations."""
+
+from typing import List
+from uuid import uuid4
+
+from sqlalchemy.orm import Session
+
+from api.database import WatchlistItemDB, ScheduledAnalysisDB
+
+MAX_WATCHLIST_ITEMS = 50
+
+
+def list_watchlist(db: Session, user_id: str) -> List[dict]:
+    """List user's watchlist items with scheduled status."""
+    items = (
+        db.query(WatchlistItemDB)
+        .filter(WatchlistItemDB.user_id == user_id)
+        .order_by(WatchlistItemDB.sort_order, WatchlistItemDB.created_at)
+        .all()
+    )
+    scheduled_symbols = set(
+        row.symbol for row in
+        db.query(ScheduledAnalysisDB.symbol)
+        .filter(ScheduledAnalysisDB.user_id == user_id)
+        .all()
+    )
+    return [
+        {
+            "id": item.id,
+            "symbol": item.symbol,
+            "sort_order": item.sort_order,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+            "has_scheduled": item.symbol in scheduled_symbols,
+        }
+        for item in items
+    ]
+
+
+def add_watchlist_item(db: Session, user_id: str, symbol: str) -> dict:
+    """Add a stock to user's watchlist."""
+    count = db.query(WatchlistItemDB).filter(WatchlistItemDB.user_id == user_id).count()
+    if count >= MAX_WATCHLIST_ITEMS:
+        raise ValueError(f"自选股数量已达上限 ({MAX_WATCHLIST_ITEMS})")
+
+    existing = (
+        db.query(WatchlistItemDB)
+        .filter(WatchlistItemDB.user_id == user_id, WatchlistItemDB.symbol == symbol)
+        .first()
+    )
+    if existing:
+        raise ValueError(f"{symbol} 已在自选列表中")
+
+    item = WatchlistItemDB(id=uuid4().hex, user_id=user_id, symbol=symbol)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {
+        "id": item.id,
+        "symbol": item.symbol,
+        "sort_order": item.sort_order,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+def delete_watchlist_item(db: Session, user_id: str, item_id: str) -> bool:
+    """Delete a watchlist item. Returns True if found and deleted."""
+    item = (
+        db.query(WatchlistItemDB)
+        .filter(WatchlistItemDB.id == item_id, WatchlistItemDB.user_id == user_id)
+        .first()
+    )
+    if not item:
+        return False
+    db.delete(item)
+    db.commit()
+    return True

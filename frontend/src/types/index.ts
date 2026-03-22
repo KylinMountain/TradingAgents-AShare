@@ -367,15 +367,33 @@ export interface LatestAnnouncementResponse {
     announcement: Announcement | null
 }
 
-// Hot stock from market hot rank
-export interface HotStock {
-    rank: number
+// Watchlist & Scheduled Analysis
+export interface WatchlistItem {
+    id: string
     symbol: string
     name: string
-    price: number
-    change: number
-    change_pct: number
-    extra: string  // Additional info like "连涨11天" or "关注 3,551,238"
+    sort_order: number
+    created_at: string
+    has_scheduled: boolean
+}
+
+export interface ScheduledAnalysis {
+    id: string
+    symbol: string
+    name: string
+    horizon: string
+    trigger_time: string
+    is_active: boolean
+    last_run_date: string | null
+    last_run_status: string | null
+    last_report_id: string | null
+    consecutive_failures: number
+    created_at: string
+}
+
+export interface StockSearchResult {
+    symbol: string
+    name: string
 }
 
 // Runtime config

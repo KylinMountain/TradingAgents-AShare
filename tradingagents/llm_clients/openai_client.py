@@ -1,9 +1,12 @@
+import logging
 import os
 import time
 from json import JSONDecodeError
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
+
+_logger = logging.getLogger(__name__)
 
 from .base_client import BaseLLMClient
 from .validators import validate_model
@@ -16,15 +19,19 @@ class UnifiedChatOpenAI(ChatOpenAI):
         # 彻底移除重试参数，由构造函数统一控制
         kwargs.pop("response_parse_retries", None)
         kwargs.pop("response_parse_retry_delay", None)
-        
+
         model = kwargs.get("model") or kwargs.get("model_name", "")
         base_url = kwargs.get("base_url")
-        
+
+        # LOG_LEVEL=DEBUG 时开启 LangChain verbose，打印完整的 LLM 请求和响应
+        if os.environ.get("LOG_LEVEL", "").upper() == "DEBUG":
+            kwargs["verbose"] = True
+
         # 1. Reasoning models (O1 etc) typically don't support temperature
         if self._is_reasoning_model(model):
             kwargs.pop("temperature", None)
             kwargs.pop("top_p", None)
-            
+
         # 2. Moonshot (Kimi) models often strictly require temperature=1
         if self._is_moonshot_model(model, base_url):
             kwargs["temperature"] = 1
@@ -32,7 +39,11 @@ class UnifiedChatOpenAI(ChatOpenAI):
         super().__init__(**kwargs)
 
     def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
-        return super().invoke(input=input, config=config, **kwargs)
+        result = super().invoke(input=input, config=config, **kwargs)
+        if _logger.isEnabledFor(logging.DEBUG):
+            content = result.content if hasattr(result, "content") else str(result)
+            _logger.debug(f"[LLM Response] model={self.model_name} length={len(content)}\n{content}")
+        return result
 
     @staticmethod
     def _is_reasoning_model(model: str) -> bool:

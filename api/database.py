@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from typing import Generator
 
-from sqlalchemy import Boolean, create_engine, Column, String, DateTime, Text, Integer, Float, JSON, text
+from sqlalchemy import Boolean, create_engine, Column, String, DateTime, Text, Integer, Float, JSON, UniqueConstraint, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 # Database URL - default to SQLite for simplicity
@@ -17,6 +17,12 @@ if DATABASE_URL.startswith("sqlite"):
         connect_args={"check_same_thread": False},
         echo=False,
     )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
 else:
     # For PostgreSQL/MySQL, use a larger pool to handle concurrency
     engine = create_engine(
@@ -198,3 +204,36 @@ class UserTokenDB(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class WatchlistItemDB(Base):
+    """User watchlist items."""
+    __tablename__ = "watchlist_items"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    symbol = Column(String(20), nullable=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_watchlist_user_symbol'),)
+
+
+class ScheduledAnalysisDB(Base):
+    """Scheduled daily analysis tasks."""
+    __tablename__ = "scheduled_analyses"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    symbol = Column(String(20), nullable=False)
+    horizon = Column(String(10), default="short")        # "short" 或 "medium"，单选
+    trigger_time = Column(String(5), default="20:00")     # HH:MM 格式，允许 20:00~08:00
+    is_active = Column(Boolean, default=True)
+    last_run_date = Column(String(10), nullable=True)
+    last_run_status = Column(String(10), nullable=True)
+    last_report_id = Column(String(36), nullable=True)
+    consecutive_failures = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_scheduled_user_symbol'),)

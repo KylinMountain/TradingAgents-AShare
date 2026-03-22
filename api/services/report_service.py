@@ -2,7 +2,10 @@
 
 import json
 import json_repair
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Literal
 from uuid import uuid4
@@ -16,16 +19,39 @@ from api.database import ReportDB
 
 # ─── Structured extraction schemas ───────────────────────────────────────────
 
+from pydantic import field_validator
+
+
 class RiskItemSchema(BaseModel):
     name: str = Field(..., description="风险名称，15字以内")
-    level: Literal["high", "medium", "low"] = Field(..., description="风险等级")
+    level: str = Field("medium", description="风险等级")
     description: str = Field("", description="一句话说明，30字以内")
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _coerce_level(cls, v):
+        if isinstance(v, str) and v.lower() in ("high", "medium", "low"):
+            return v.lower()
+        return "medium"
 
 
 class KeyMetricSchema(BaseModel):
     name: str = Field(..., description="指标名称，如 PE、ROE、营收增速")
     value: str = Field(..., description="指标值，包含单位，如 28.5x、15.2%")
-    status: Literal["good", "neutral", "bad"] = Field("neutral", description="优劣判断")
+    status: str = Field("neutral", description="优劣判断")
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _coerce_value(cls, v):
+        # LLM 可能返回数字而非字符串
+        return str(v) if not isinstance(v, str) else v
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v):
+        if isinstance(v, str) and v.lower() in ("good", "neutral", "bad"):
+            return v.lower()
+        return "neutral"
 
 
 class StructuredReport(BaseModel):
@@ -35,6 +61,14 @@ class StructuredReport(BaseModel):
     stop_loss_price: Optional[float] = Field(None, description="止损价（数字，无单位）")
     risks: List[RiskItemSchema] = Field(default_factory=list, description="主要风险，最多5条")
     key_metrics: List[KeyMetricSchema] = Field(default_factory=list, description="关键指标，最多6条")
+
+    @field_validator("target_price", "stop_loss_price", mode="before")
+    @classmethod
+    def _coerce_price(cls, v):
+        # LLM 可能返回数组 [34.0, 32.5] 而非单个数字，取第一个
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
 
 
 def extract_structured_data(
@@ -77,12 +111,13 @@ def extract_structured_data(
         raw = response.content if hasattr(response, "content") else str(response)
         parsed = json_repair.loads(raw)
         result = StructuredReport(**parsed)
-        # 置信度范围校验
         if result.confidence is not None and not (0 <= result.confidence <= 100):
             result.confidence = None
         return result
     except Exception as e:
-        print(f"[report_service] LLM structured extraction failed: {e}")
+        logger.warning(f"LLM structured extraction failed: {e}")
+        if 'raw' in locals():
+            logger.warning(f"Raw LLM output:\n{raw}")
         return None
 
 
