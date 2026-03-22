@@ -240,6 +240,8 @@ deploy/
 .vscode/
 plans/
 tradingagents.db
+tradingagents.db-shm
+tradingagents.db-wal
 deploy/deploy.env
 
 .playwright-cli/
