@@ -115,30 +115,48 @@ export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
 
 ## 🚀 常用操作
 
+**推荐方式：使用一体化脚本**（自动提交 → 轮询 → 获取结果）
+
+```bash
+# 脚本路径（相对于技能目录）
+bash scripts/analyze.sh <symbol[,symbol2,...]> [trade_date] [horizons]
+
+# 单个分析
+bash scripts/analyze.sh 贵州茅台
+bash scripts/analyze.sh 600519.SH 2026-03-22
+bash scripts/analyze.sh AAPL 2026-03-22 short,medium
+
+# 批量分析（逗号分隔，并行提交，统一等待）
+bash scripts/analyze.sh 贵州茅台,比亚迪,宁德时代
+bash scripts/analyze.sh 600519.SH,002594.SZ,300750.SZ 2026-03-22
+```
+
+脚本会自动完成：提交任务 → 每 15 秒轮询状态 → 完成后输出 JSON 结果。
+批量模式下所有任务并行提交，统一轮询，最后汇总输出。超时默认 600 秒。
+
+可通过环境变量调整行为：
+- `POLL_INTERVAL` — 轮询间隔秒数（默认 15）
+- `POLL_TIMEOUT` — 最大等待秒数（默认 600）
+
+**手动分步操作**（如需单独调用某一步）
+
 所有请求使用 `$TRADINGAGENTS_TOKEN` 作为 Bearer 令牌。
 
-**1. 提交分析任务**（支持中文名称、6 位代码或标准代码）
+1. 提交分析任务
 ```bash
-# 中文名称
 curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"symbol": "贵州茅台"}'
-
-# 标准代码
-curl -X POST "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/analyze" \
-  -H "Authorization: Bearer $TRADINGAGENTS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"symbol": "600519.SH"}'
 ```
 
-**2. 查询任务状态**
+2. 查询任务状态
 ```bash
 curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN"
 ```
 
-**3. 获取完整分析结果**（任务完成后）
+3. 获取完整分析结果（任务完成后）
 ```bash
 curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" \
   -H "Authorization: Bearer $TRADINGAGENTS_TOKEN"
@@ -171,10 +189,11 @@ curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" 
 深度分析通常耗时 **1 至 5 分钟**：
 
 1. **识别标的**：从对话中**仅**提取股票名称或代码（及可选日期/视角），不发送对话原文
-2. **提交任务**：调用 `POST /v1/analyze`，仅传递 `symbol`、`trade_date`、`horizons` 等结构化参数
-3. **告知用户**：反馈任务已受理，预计耗时
-4. **轮询进度**：每 30 秒查询一次状态
-5. **汇总结论**：任务完成后提取并展示决策、方向、目标价、风险点
+2. **告知用户**：反馈任务即将提交，预计耗时 1-5 分钟
+3. **执行脚本**：使用 Bash 工具运行 `bash scripts/analyze.sh <symbol> [date] [horizons]`（设置 `run_in_background: true`），脚本自动完成提交、轮询和结果获取
+4. **汇总结论**：脚本输出完成后，解析 JSON 结果，向用户展示决策、方向、目标价、风险点
+
+> **重要**：不要手动编写 curl 轮询循环，直接使用 `scripts/analyze.sh` 脚本。
 
 ## 📌 支持标的范围
 
