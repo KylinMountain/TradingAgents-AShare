@@ -1,6 +1,6 @@
 import { FormEvent, useState, useRef, useEffect } from 'react'
 import {
-    Bot, Loader2, Send, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight,
+    Bot, Loader2, Send, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight, Trash2,
     TrendingUp, MessageCircle, Newspaper, Calculator, BarChart2, DollarSign,
     Swords, ArrowBigUp, ArrowBigDown, Brain, Briefcase, Flame, Scale, Shield, CheckCircle2,
 } from 'lucide-react'
@@ -142,10 +142,9 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [input, setInput] = useState(initialInput || '')
     const [streaming, setStreaming] = useState(false)
     const [showConfig, setShowConfig] = useState(false)
-    // Use refs for high-frequency token tracking to avoid re-renders on every token
+    // Tracks agent bubbles waiting for their first token (shows "正在推理分析中..." spinner)
     const pendingAgentMsgIdsRef = useRef<Set<string>>(new Set())
-    const completedAgentMsgIdsRef = useRef<Set<string>>(new Set())
-    // Only used to trigger re-render when agent card status actually changes
+    // Only used to trigger re-render when pending status changes
     const [, forceUpdate] = useState(0)
     const [expandedAgentMsgId, setExpandedAgentMsgId] = useState<string | null>(null)
     const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
@@ -163,13 +162,14 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
     const agentMessageMapRef = useRef<Record<string, string>>({})
     const firstTokenMapRef = useRef<Record<string, boolean>>({})
-    const sectionToMsgIdRef = useRef<Record<string, string>>({}) // section → agent bubble msgId
+    const sectionToMsgIdsRef = useRef<Record<string, string[]>>({}) // section → all agent bubble msgIds
     const typingIndicatorIdRef = useRef<string | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
 
     const {
         chatMessages,
+        isAnalyzing,
         setCurrentJobId,
         setCurrentSymbol,
         setIsAnalyzing,
@@ -184,6 +184,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setMessageContent,
         setReport,
         setStructuredData,
+        markAgentMessagesComplete,
+        clearSession,
         reset,
     } = useAnalysisStore()
 
@@ -300,8 +302,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 streamingReportIds.current.clear()
                 agentMessageMapRef.current = {}
                 firstTokenMapRef.current = {}
-                sectionToMsgIdRef.current = {}
-                pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
+                sectionToMsgIdsRef.current = {}
+                pendingAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
                 break
             }
             case 'job.running':
@@ -322,11 +324,10 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed': {
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
-                // 任务结束：所有 agent 卡片标记为已完成
-                const allAgentMsgIds = new Set(Object.values(agentMessageMapRef.current))
+                // 任务结束：所有 agent 消息标记为已完成（持久化到 store）
                 pendingAgentMsgIdsRef.current = new Set()
-                completedAgentMsgIdsRef.current = allAgentMsgIds
                 forceUpdate(n => n + 1)
+                markAgentMessagesComplete()
                 if (typeof data.result === 'object' && data.result && 'symbol' in data.result) {
                     const symbol = String((data.result as Record<string, unknown>).symbol || '')
                     if (symbol) {
@@ -387,12 +388,12 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     })
                     pendingAgentMsgIdsRef.current.add(msgId); forceUpdate(n => n + 1)
                 } else if (statusData.status === 'completed' || statusData.status === 'skipped') {
-                    // Agent 完成/跳过 → 移出 pending，标记为已完成
+                    // Agent 完成/跳过 → 移出 pending，标记为已完成（持久化）
                     const existingMsgId = agentMessageMapRef.current[agentKey2]
                     if (existingMsgId) {
                         pendingAgentMsgIdsRef.current.delete(existingMsgId)
-                        completedAgentMsgIdsRef.current.add(existingMsgId)
                         forceUpdate(n => n + 1)
+                        markAgentMessagesComplete([existingMsgId])
                     }
                 }
                 updateAgentStatus(statusData as unknown as AgentStatusEvent)
@@ -431,9 +432,10 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     pendingAgentMsgIdsRef.current.add(targetMsgId); forceUpdate(n => n + 1)
                 }
 
-                // 记录 section → msgId 映射，用于后续转换成 ReportCard
+                // 记录 section → msgId 映射（多值），用于后续转换成 ReportCard
                 if (tokenData.report) {
-                    sectionToMsgIdRef.current[tokenData.report] = targetMsgId
+                    const ids = sectionToMsgIdsRef.current[tokenData.report] ||= []
+                    if (!ids.includes(targetMsgId)) ids.push(targetMsgId)
                 }
 
                 if (firstTokenMapRef.current[targetMsgId]) {
@@ -460,17 +462,23 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
                 if (is_complete && !streamingReportIds.current.get(section)) {
                     streamingReportIds.current.set(section, true)
-                    const existingMsgId = sectionToMsgIdRef.current[section]
+                    const msgIds = sectionToMsgIdsRef.current[section] || []
+                    const lastMsgId = msgIds[msgIds.length - 1]
+                    const earlierMsgIds = msgIds.slice(0, -1)
 
-                    if (existingMsgId) {
-                        // 把流式气泡直接转换成已完成的 ReportCard
+                    if (lastMsgId) {
+                        // 最后一个 agent bubble 转换成已完成的 ReportCard
                         useAnalysisStore.setState(state => ({
                             chatMessages: state.chatMessages.map(m =>
-                                m.id === existingMsgId
+                                m.id === lastMsgId
                                     ? { ...m, role: 'report' as const, section, complete: true }
                                     : m
                             )
                         }))
+                        // 早期 agent bubble 标记为已完成（保留为 assistant 卡片）
+                        if (earlierMsgIds.length > 0) {
+                            markAgentMessagesComplete(earlierMsgIds)
+                        }
                     } else {
                         // 兜底：没找到对应气泡，直接创建 ReportCard
                         const buffer = useAnalysisStore.getState().streamingSections[section]?.buffer || ''
@@ -579,7 +587,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
 
         reset()
         streamingReportIds.current.clear()
-        pendingAgentMsgIdsRef.current = new Set(); completedAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
+        pendingAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
 
         // 立刻插入 typing indicator，让用户知道系统正在响应
         const typingId = `typing-${Date.now()}`
@@ -641,6 +649,18 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                             查看报告
                         </button>
                     )}
+                    <button
+                        onClick={() => {
+                            if (window.confirm('确定要清空对话和分析结果吗？')) {
+                                clearSession()
+                            }
+                        }}
+                        disabled={streaming || isAnalyzing}
+                        className="text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-red-100 dark:hover:bg-red-500/20 hover:text-red-600 dark:hover:text-red-400 transition-colors flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-slate-100 dark:disabled:hover:bg-slate-700 disabled:hover:text-slate-500"
+                        title="清空对话"
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
                     {streaming && (
                         <span className="badge-blue inline-flex items-center gap-1">
                             <Loader2 className="w-3 h-3 animate-spin" />
@@ -768,7 +788,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     // Agent streaming messages → compact card with live preview
                     const agentMeta = msg.agent ? AGENT_META_MAP[msg.agent] : null
                     const isPending = pendingAgentMsgIdsRef.current.has(msg.id)
-                    const isCompleted = completedAgentMsgIdsRef.current.has(msg.id)
+                    const isCompleted = !!msg.complete
                     const isExpanded = expandedAgentMsgId === msg.id
 
                     if (msg.agent && agentMeta && msg.role === 'assistant') {

@@ -103,6 +103,7 @@ interface AnalysisState {
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
     setMessageContent: (id: string, content: string) => void
+    markAgentMessagesComplete: (msgIds?: string[]) => void
     clearChatMessages: () => void
     clearSession: () => void
     reset: () => void
@@ -317,6 +318,15 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         chatMessages: state.chatMessages.map(m =>
             m.id === id ? { ...m, content } : m
         )
+    })),
+
+    // 批量标记 agent 消息为已完成；不传 msgIds 则标记所有 agent assistant 消息
+    markAgentMessagesComplete: (msgIds?: string[]) => set((state) => ({
+        chatMessages: state.chatMessages.map(m => {
+            if (m.role !== 'assistant' || !m.agent || m.complete) return m
+            if (msgIds && !msgIds.includes(m.id)) return m
+            return { ...m, complete: true }
+        })
     })),
 
     // 清空聊天记录
