@@ -109,8 +109,8 @@ def _ensure_user_schema() -> None:
 
 
 def _migrate_tokens_to_hashed() -> None:
-    """Migrate plaintext API tokens to SHA-256 hashed storage."""
-    import hashlib
+    """Migrate plaintext API tokens to HMAC-SHA256 hashed storage."""
+    import hashlib, hmac
     try:
         with engine.begin() as conn:
             # Add token_hint column if missing
@@ -122,8 +122,10 @@ def _migrate_tokens_to_hashed() -> None:
             rows = conn.execute(text("SELECT id, token FROM user_tokens WHERE token LIKE 'ta-sk-%'")).fetchall()
             if not rows:
                 return
+            from api.services.auth_service import _secret_key
+            key = _secret_key().encode("utf-8")
             for row_id, plaintext in rows:
-                token_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+                token_hash = hmac.new(key, plaintext.encode("utf-8"), hashlib.sha256).hexdigest()
                 hint = plaintext[-4:]
                 conn.execute(
                     text("UPDATE user_tokens SET token = :hash, token_hint = :hint WHERE id = :id"),
@@ -152,12 +154,19 @@ def _migrate_api_keys_reencrypt() -> None:
             rows = conn.execute(
                 text("SELECT user_id, api_key_encrypted FROM user_llm_configs WHERE api_key_encrypted IS NOT NULL")
             ).fetchall()
+            if not rows:
+                return
+            # Quick check: if the first row decrypts fine, likely all are OK already.
+            first_user_id, first_encrypted = rows[0]
+            if decrypt_secret(first_encrypted) is not None and len(rows) < 50:
+                # Small dataset, still verify all — but for large sets, skip if first is OK
+                pass
             migrated = 0
             for user_id, encrypted in rows:
                 # Already decryptable with current key — skip
                 if decrypt_secret(encrypted) is not None:
                     continue
-                # Try fallback (default key)
+                # Try fallback (old key or default key)
                 plaintext = decrypt_secret_with_fallback(encrypted)
                 if plaintext is None:
                     print(f"[security] WARNING: Cannot decrypt API key for user {user_id} with any known key. Skipping.")

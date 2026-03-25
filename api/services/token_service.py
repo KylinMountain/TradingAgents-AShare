@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -14,8 +15,14 @@ TOKEN_PREFIX = "ta-sk-"
 MAX_TOKENS_PER_USER = 10
 
 
+def _hmac_key() -> bytes:
+    from api.services.auth_service import _secret_key
+    return _secret_key().encode("utf-8")
+
+
 def _hash_token(token_str: str) -> str:
-    return hashlib.sha256(token_str.encode("utf-8")).hexdigest()
+    """HMAC-SHA256 hash — prevents offline brute-force even if DB is leaked."""
+    return hmac.new(_hmac_key(), token_str.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def generate_token_string() -> str:

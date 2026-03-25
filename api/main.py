@@ -2916,7 +2916,7 @@ def list_tokens(
     return token_service.list_user_tokens(db, current_user.id)
 
 
-@app.post("/v1/tokens")
+@app.post("/v1/tokens", response_model=UserTokenResponse)
 def create_token(
     request: UserTokenCreateRequest,
     db: Session = Depends(get_db),

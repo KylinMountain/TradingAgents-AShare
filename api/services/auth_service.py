@@ -74,7 +74,7 @@ def decrypt_secret_with_fallback(value: Optional[str]) -> Optional[str]:
         return _fernet().decrypt(value.encode("utf-8")).decode("utf-8")
     except InvalidToken:
         pass
-    # If using custom key, try default key (pre-migration data)
+    # Try default key (first-time migration: no key → custom key)
     if is_custom_secret_configured():
         try:
             return _fernet_from_key(_DEFAULT_SECRET).decrypt(value.encode("utf-8")).decode("utf-8")
