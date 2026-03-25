@@ -237,7 +237,7 @@ deploy/
 # Local development artifacts
 .DS_Store
 .vscode/
-plans/
+/plans/
 tradingagents.db
 tradingagents.db-shm
 tradingagents.db-wal
