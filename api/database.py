@@ -104,6 +104,76 @@ def _ensure_user_schema() -> None:
     except Exception as e:
         print(f"Warning: Failed to ensure user schema: {e}")
 
+    _migrate_tokens_to_hashed()
+    _migrate_api_keys_reencrypt()
+
+
+def _migrate_tokens_to_hashed() -> None:
+    """Migrate plaintext API tokens to SHA-256 hashed storage."""
+    import hashlib
+    try:
+        with engine.begin() as conn:
+            # Add token_hint column if missing
+            token_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(user_tokens)"))}
+            if "token_hint" not in token_cols:
+                conn.execute(text("ALTER TABLE user_tokens ADD COLUMN token_hint VARCHAR(8)"))
+
+            # Detect un-migrated rows: plaintext tokens start with "ta-sk-"
+            rows = conn.execute(text("SELECT id, token FROM user_tokens WHERE token LIKE 'ta-sk-%'")).fetchall()
+            if not rows:
+                return
+            for row_id, plaintext in rows:
+                token_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+                hint = plaintext[-4:]
+                conn.execute(
+                    text("UPDATE user_tokens SET token = :hash, token_hint = :hint WHERE id = :id"),
+                    {"hash": token_hash, "hint": hint, "id": row_id},
+                )
+            print(f"[security] Migrated {len(rows)} API tokens from plaintext to hashed storage.")
+    except Exception as e:
+        print(f"Warning: Token hash migration failed: {e}")
+
+
+def _migrate_api_keys_reencrypt() -> None:
+    """Re-encrypt user API keys when TA_APP_SECRET_KEY changes.
+
+    On startup, if a custom secret is configured, tries to decrypt each key
+    with the current secret. If that fails, tries the default secret (old data).
+    If the default key works, re-encrypts with the current key and writes back.
+    """
+    from api.services.auth_service import (
+        is_custom_secret_configured, decrypt_secret,
+        decrypt_secret_with_fallback, encrypt_secret,
+    )
+    if not is_custom_secret_configured():
+        return
+    try:
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text("SELECT user_id, api_key_encrypted FROM user_llm_configs WHERE api_key_encrypted IS NOT NULL")
+            ).fetchall()
+            migrated = 0
+            for user_id, encrypted in rows:
+                # Already decryptable with current key — skip
+                if decrypt_secret(encrypted) is not None:
+                    continue
+                # Try fallback (default key)
+                plaintext = decrypt_secret_with_fallback(encrypted)
+                if plaintext is None:
+                    print(f"[security] WARNING: Cannot decrypt API key for user {user_id} with any known key. Skipping.")
+                    continue
+                # Re-encrypt with current key
+                new_encrypted = encrypt_secret(plaintext)
+                conn.execute(
+                    text("UPDATE user_llm_configs SET api_key_encrypted = :enc WHERE user_id = :uid"),
+                    {"enc": new_encrypted, "uid": user_id},
+                )
+                migrated += 1
+            if migrated:
+                print(f"[security] Re-encrypted {migrated} API key(s) with new TA_APP_SECRET_KEY.")
+    except Exception as e:
+        print(f"Warning: API key re-encryption migration failed: {e}")
+
 
 # Report Model
 class ReportDB(Base):
@@ -228,6 +298,7 @@ class UserTokenDB(Base):
     user_id = Column(String(36), index=True, nullable=False)
     name = Column(String(50), nullable=False)
     token = Column(String(128), unique=True, index=True, nullable=False)
+    token_hint = Column(String(8), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     last_used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
