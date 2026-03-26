@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import DebateTimeline from './DebateTimeline'
@@ -34,6 +34,18 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
     const meta = debate ? DEBATE_TITLES[debate] : null
     const participants = debate ? DEBATE_PARTICIPANTS[debate] : []
 
+    // Escape key to close
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose()
+    }, [onClose])
+
+    useEffect(() => {
+        if (debate) {
+            document.addEventListener('keydown', handleKeyDown)
+            return () => document.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [debate, handleKeyDown])
+
     // Auto-scroll on new messages
     useEffect(() => {
         if (scrollRef.current) {
@@ -41,16 +53,18 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
         }
     }, [messages.length])
 
+    if (!debate) return null
+
     return (
         <>
             {/* Backdrop */}
             <div
-                className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ${debate ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                className="fixed inset-0 bg-black/40 z-40 animate-in fade-in duration-200"
                 onClick={onClose}
             />
 
             {/* Drawer */}
-            <div className={`fixed top-0 right-0 h-full w-1/2 max-w-[720px] min-w-[400px] bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${debate ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className="fixed top-0 right-0 h-full w-1/2 max-w-[720px] min-w-[400px] bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
                     <div className="flex items-center gap-3">
@@ -77,7 +91,7 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
 
                 {/* Scrollable timeline */}
                 <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-                    {debate && <DebateTimeline messages={messages} debate={debate} />}
+                    <DebateTimeline messages={messages} debate={debate} />
                 </div>
             </div>
         </>

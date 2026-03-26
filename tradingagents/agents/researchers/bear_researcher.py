@@ -65,8 +65,11 @@ def create_bear_researcher(llm, memory):
                 tracker._emit_token("Bear Researcher", "investment_debate_state", content)
 
         # ── 推送辩论消息 ──
-        debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
         if tracker:
+            try:
+                debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
+            except (ValueError, TypeError):
+                debate_round = 1
             tracker.emit_debate_message(
                 debate="research", agent="Bear Researcher",
                 round_num=debate_round, content=full_content,

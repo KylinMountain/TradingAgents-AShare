@@ -510,13 +510,26 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             }
             case 'agent.debate': {
                 const raw = data as Record<string, unknown>
+                const debate = raw.debate
+                const agent = raw.agent
+                const round = raw.round
+                const content = raw.content
+                if (
+                    (debate !== 'research' && debate !== 'risk') ||
+                    typeof agent !== 'string' ||
+                    typeof round !== 'number' ||
+                    typeof content !== 'string'
+                ) {
+                    console.warn('[SSE] Malformed agent.debate payload, skipping:', raw)
+                    break
+                }
                 addDebateMessage({
-                    debate: raw.debate as 'research' | 'risk',
-                    agent: raw.agent as string,
-                    round: raw.round as number,
-                    content: raw.content as string,
-                    isVerdict: raw.is_verdict as boolean | undefined,
-                    horizon: raw.horizon as string | undefined,
+                    debate,
+                    agent,
+                    round,
+                    content,
+                    isVerdict: raw.is_verdict === true,
+                    horizon: typeof raw.horizon === 'string' ? raw.horizon : undefined,
                 })
                 break
             }

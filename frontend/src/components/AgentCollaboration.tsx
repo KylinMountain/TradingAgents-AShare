@@ -358,6 +358,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
                                         onClick={() => {
                                             if (card.debate) {
                                                 onOpenDebate(card.debate)
+                                                if (card.section) onSelectSection(card.section)
                                             } else if (card.section) {
                                                 onSelectSection(card.section === selectedSection ? undefined : card.section)
                                             }

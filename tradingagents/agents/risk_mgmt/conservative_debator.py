@@ -67,8 +67,11 @@ def create_conservative_debator(llm):
         )
         # ── 推送辩论消息 ──
         tracker = current_tracker_var.get()
-        debate_round = int(risk_debate_state.get("count", 0) or 0) + 1
         if tracker:
+            try:
+                debate_round = int(risk_debate_state.get("count", 0) or 0) + 1
+            except (ValueError, TypeError):
+                debate_round = 1
             tracker.emit_debate_message(
                 debate="risk", agent="Conservative Analyst",
                 round_num=debate_round, content=clean_response,
