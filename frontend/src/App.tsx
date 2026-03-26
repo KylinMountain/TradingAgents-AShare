@@ -6,7 +6,6 @@ import Analysis from './pages/Analysis'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Portfolio from './pages/Portfolio'
-import Backtest from './pages/Backtest'
 import Login from './pages/Login'
 import { useAuthStore } from './stores/authStore'
 
@@ -43,7 +42,6 @@ function App() {
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />
-                  <Route path="/backtest" element={<Backtest />} />
                   <Route path="/settings" element={<Settings />} />
                 </Routes>
               </Layout>

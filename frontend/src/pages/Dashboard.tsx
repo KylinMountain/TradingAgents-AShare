@@ -7,7 +7,7 @@ import type { Report } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
 export default function Dashboard() {
-    const { agents, isAnalyzing, isConnected } = useAnalysisStore()
+    const { agents, isAnalyzing } = useAnalysisStore()
     const { user } = useAuthStore()
     const [reportTotal, setReportTotal] = useState<number | null>(null)
     const [recentReports, setRecentReports] = useState<Report[]>([])
@@ -34,12 +34,6 @@ export default function Dashboard() {
                     <p className="text-slate-500 dark:text-slate-400 mt-1">
                         {user?.email ? `当前账户：${user.email}` : '欢迎使用 TradingAgents 智能分析系统'}
                     </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
-                    <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {isConnected ? '已连接' : '未连接'}
-                    </span>
                 </div>
             </div>
 
@@ -120,9 +114,9 @@ export default function Dashboard() {
                     <div className="divide-y divide-slate-100 dark:divide-slate-700">
                         {recentReports.map(report => {
                             const decisionColor = report.decision?.toUpperCase().includes('BUY') || report.decision?.includes('增持')
-                                ? 'text-green-600 dark:text-green-400'
+                                ? 'text-red-600 dark:text-red-400'
                                 : report.decision?.toUpperCase().includes('SELL') || report.decision?.includes('减持')
-                                    ? 'text-red-600 dark:text-red-400'
+                                    ? 'text-green-600 dark:text-green-400'
                                     : 'text-slate-500 dark:text-slate-400'
                             return (
                                 <div
