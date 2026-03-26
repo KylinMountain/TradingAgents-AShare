@@ -186,6 +186,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setStructuredData,
         markAgentMessagesComplete,
         clearSession,
+        addDebateMessage,
         reset,
     } = useAnalysisStore()
 
@@ -505,6 +506,18 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 if (stage === 'final_decision') {
                     pushAssistant(`**${title}**\n\n${summary}`)
                 }
+                break
+            }
+            case 'agent.debate': {
+                const raw = data as Record<string, unknown>
+                addDebateMessage({
+                    debate: raw.debate as 'research' | 'risk',
+                    agent: raw.agent as string,
+                    round: raw.round as number,
+                    content: raw.content as string,
+                    isVerdict: raw.is_verdict as boolean | undefined,
+                    horizon: raw.horizon as string | undefined,
+                })
                 break
             }
             default:

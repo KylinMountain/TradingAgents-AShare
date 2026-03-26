@@ -64,6 +64,14 @@ def create_bull_researcher(llm, memory):
             if tracker:
                 tracker._emit_token("Bull Researcher", "investment_debate_state", content)
 
+        # ── 推送辩论消息 ──
+        debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
+        if tracker:
+            tracker.emit_debate_message(
+                debate="research", agent="Bull Researcher",
+                round_num=debate_round, content=full_content,
+            )
+
         new_investment_debate_state = update_debate_state_with_payload(
             state=investment_debate_state,
             raw_response=full_content,

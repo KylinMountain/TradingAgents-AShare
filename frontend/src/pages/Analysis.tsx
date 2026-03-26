@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AgentCollaboration from '@/components/AgentCollaboration'
+import DebateDrawer from '@/components/DebateDrawer'
 import ReportViewer from '@/components/ReportViewer'
 import ChatCopilotPanel from '@/components/ChatCopilotPanel'
 import KlinePanel from '@/components/KlinePanel'
@@ -48,6 +49,7 @@ export default function Analysis() {
     const querySymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
     const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '000001.SH')
     const [activeSection, setActiveSection] = useState<string | undefined>()
+    const [debateDrawer, setDebateDrawer] = useState<'research' | 'risk' | null>(null)
     const reportRef = useRef<HTMLDivElement | null>(null)
     const {
         report,
@@ -108,7 +110,7 @@ export default function Analysis() {
                     />
                 </div>
 
-                <AgentCollaboration onSelectSection={handleShowReport} selectedSection={activeSection} />
+                <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                     <DecisionCard
@@ -129,6 +131,8 @@ export default function Analysis() {
                     <ReportViewer activeSection={activeSection} />
                 </div>
             </div>
+
+            <DebateDrawer debate={debateDrawer} onClose={() => setDebateDrawer(null)} />
         </div>
     )
 }

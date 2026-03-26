@@ -2,6 +2,7 @@ import time
 import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.agent_states import current_tracker_var
 from tradingagents.agents.utils.context_utils import build_agent_context_view
 from tradingagents.agents.utils.debate_utils import (
     extract_risk_judge_result,
@@ -55,6 +56,14 @@ def create_risk_manager(llm, memory):
         execution_preconditions = judge_result["execution_preconditions"]
         de_risk_triggers = judge_result["de_risk_triggers"]
         revision_reason = judge_result["revision_reason"]
+
+        # ── 推送辩论裁决 ──
+        tracker = current_tracker_var.get()
+        if tracker:
+            tracker.emit_debate_message(
+                debate="risk", agent="Portfolio Manager",
+                round_num=-1, content=cleaned_response, is_verdict=True,
+            )
 
         new_risk_debate_state = {
             "judge_decision": cleaned_response,

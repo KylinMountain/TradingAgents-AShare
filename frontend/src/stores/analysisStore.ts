@@ -17,6 +17,7 @@ import type {
     MilestoneMessage,
     RiskItem,
     KeyMetric,
+    DebateMessage,
 } from '@/types'
 
 export interface ChatMessage {
@@ -63,6 +64,9 @@ interface AnalysisState {
     // Milestones for chat display
     milestones: MilestoneMessage[]
 
+    // Debate messages (transient, for battle view)
+    debateMessages: Record<string, DebateMessage[]>
+
     // Chat messages (persisted across route changes)
     chatMessages: ChatMessage[]
 
@@ -104,6 +108,7 @@ interface AnalysisState {
     appendToChatMessage: (id: string, chunk: string) => void
     setMessageContent: (id: string, content: string) => void
     markAgentMessagesComplete: (msgIds?: string[]) => void
+    addDebateMessage: (msg: DebateMessage) => void
     clearChatMessages: () => void
     clearSession: () => void
     reset: () => void
@@ -172,6 +177,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     jobStopLoss: null,
     streamingSections: {},
     milestones: [],
+    debateMessages: {},
     chatMessages: createInitialChatMessages(),
     logs: [],
     isAnalyzing: false,
@@ -329,6 +335,17 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         })
     })),
 
+    addDebateMessage: (msg) => set((state) => {
+        const key = msg.debate
+        const existing = state.debateMessages[key] || []
+        return {
+            debateMessages: {
+                ...state.debateMessages,
+                [key]: [...existing, msg],
+            }
+        }
+    }),
+
     // 清空聊天记录
     clearChatMessages: () => set({
         chatMessages: createInitialChatMessages()
@@ -346,6 +363,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobTargetPrice: null,
         jobStopLoss: null,
         streamingSections: {},
+        debateMessages: {},
         milestones: [],
         chatMessages: createInitialChatMessages(),
         logs: [],
@@ -389,6 +407,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobTargetPrice: null,
         jobStopLoss: null,
         streamingSections: {},
+        debateMessages: {},
         milestones: [],
         // 注意：reset时不清空chatMessages，保持对话历史
         logs: [],
@@ -421,6 +440,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             jobStatus: null,
             agents: initialAgents.map(a => ({ ...a, status: 'pending' })),
             streamingSections: {},
+            debateMessages: {},
             milestones: [],
             logs: [],
             isAnalyzing: false,

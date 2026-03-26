@@ -2,6 +2,7 @@ import time
 import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
+from tradingagents.agents.utils.agent_states import current_tracker_var
 from tradingagents.agents.utils.debate_utils import (
     format_claim_subset_for_prompt,
     format_claims_for_prompt,
@@ -63,6 +64,15 @@ def create_neutral_debator(llm):
             speaker_field="latest_speaker",
             store_current_response=False,
         )
+        # ── 推送辩论消息 ──
+        tracker = current_tracker_var.get()
+        debate_round = int(risk_debate_state.get("count", 0) or 0) + 1
+        if tracker:
+            tracker.emit_debate_message(
+                debate="risk", agent="Neutral Analyst",
+                round_num=debate_round, content=clean_response,
+            )
+
         new_risk_debate_state["current_aggressive_response"] = risk_debate_state.get(
             "current_aggressive_response", ""
         )

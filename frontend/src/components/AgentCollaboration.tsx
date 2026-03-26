@@ -15,6 +15,7 @@ interface AgentMeta {
     label: string
     goal: string
     section?: string
+    debate?: 'research' | 'risk'
     Icon: React.FC<{ className?: string }>
     badgeBg: string
     badgeText: string
@@ -76,21 +77,21 @@ const META: AgentMeta[] = [
     },
     {
         name: 'Bull Researcher', label: '多头', goal: '评估投资价值与上行潜力',
-        section: 'investment_plan', Icon: ArrowBigUp,
+        section: 'investment_plan', debate: 'research', Icon: ArrowBigUp,
         badgeBg: 'bg-emerald-100 dark:bg-emerald-500/20', badgeText: 'text-emerald-600 dark:text-emerald-400',
         sumBorder: 'border-emerald-200 dark:border-emerald-500/40', sumBg: 'bg-emerald-50 dark:bg-emerald-500/5', sumText: 'text-emerald-700 dark:text-emerald-300',
         activePill: 'bg-emerald-500 text-white',
     },
     {
         name: 'Bear Researcher', label: '空头', goal: '评估下行风险与潜在危机',
-        section: 'investment_plan', Icon: ArrowBigDown,
+        section: 'investment_plan', debate: 'research', Icon: ArrowBigDown,
         badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400',
         sumBorder: 'border-rose-200 dark:border-rose-500/40', sumBg: 'bg-rose-50 dark:bg-rose-500/5', sumText: 'text-rose-700 dark:text-rose-300',
         activePill: 'bg-rose-500 text-white',
     },
     {
         name: 'Research Manager', label: '研究总监', goal: '综合多空论据形成投资计划',
-        section: 'investment_plan', Icon: Brain,
+        section: 'investment_plan', debate: 'research', Icon: Brain,
         badgeBg: 'bg-indigo-100 dark:bg-indigo-500/20', badgeText: 'text-indigo-600 dark:text-indigo-400',
         sumBorder: 'border-indigo-200 dark:border-indigo-500/40', sumBg: 'bg-indigo-50 dark:bg-indigo-500/5', sumText: 'text-indigo-700 dark:text-indigo-300',
         activePill: 'bg-indigo-500 text-white',
@@ -104,28 +105,28 @@ const META: AgentMeta[] = [
     },
     {
         name: 'Aggressive Analyst', label: '激进', goal: '高风险高收益策略约束',
-        section: 'final_trade_decision', Icon: Flame,
+        section: 'final_trade_decision', debate: 'risk', Icon: Flame,
         badgeBg: 'bg-red-100 dark:bg-red-500/20', badgeText: 'text-red-600 dark:text-red-400',
         sumBorder: 'border-red-200 dark:border-red-500/40', sumBg: 'bg-red-50 dark:bg-red-500/5', sumText: 'text-red-700 dark:text-red-300',
         activePill: 'bg-red-500 text-white',
     },
     {
         name: 'Neutral Analyst', label: '中性', goal: '均衡风险收益策略约束',
-        section: 'final_trade_decision', Icon: Scale,
+        section: 'final_trade_decision', debate: 'risk', Icon: Scale,
         badgeBg: 'bg-slate-100 dark:bg-slate-500/20', badgeText: 'text-slate-600 dark:text-slate-400',
         sumBorder: 'border-slate-200 dark:border-slate-500/40', sumBg: 'bg-slate-50 dark:bg-slate-500/5', sumText: 'text-slate-600 dark:text-slate-300',
         activePill: 'bg-slate-600 text-white',
     },
     {
         name: 'Conservative Analyst', label: '稳健', goal: '低风险保守策略约束',
-        section: 'final_trade_decision', Icon: Shield,
+        section: 'final_trade_decision', debate: 'risk', Icon: Shield,
         badgeBg: 'bg-amber-100 dark:bg-amber-500/20', badgeText: 'text-amber-600 dark:text-amber-400',
         sumBorder: 'border-amber-200 dark:border-amber-500/40', sumBg: 'bg-amber-50 dark:bg-amber-500/5', sumText: 'text-amber-700 dark:text-amber-300',
         activePill: 'bg-amber-500 text-white',
     },
     {
         name: 'Portfolio Manager', label: '组合经理', goal: '综合裁决形成最终决策',
-        section: 'final_trade_decision', Icon: CheckCircle2,
+        section: 'final_trade_decision', debate: 'risk', Icon: CheckCircle2,
         badgeBg: 'bg-teal-100 dark:bg-teal-500/20', badgeText: 'text-teal-600 dark:text-teal-400',
         sumBorder: 'border-teal-200 dark:border-teal-500/40', sumBg: 'bg-teal-50 dark:bg-teal-500/5', sumText: 'text-teal-700 dark:text-teal-300',
         activePill: 'bg-teal-500 text-white',
@@ -166,7 +167,7 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
     const done    = card.status === 'completed'
     const skipped = card.status === 'skipped'
     const participating = card.isParticipating
-    const clickable = !!card.section && (done || active)
+    const clickable = (!!card.section || !!card.debate) && (done || active)
     const { Icon } = card
 
     return (
@@ -252,10 +253,11 @@ function AgentCard({ card, selected, onClick }: { card: CardData; selected?: boo
 
 interface AgentCollaborationProps {
     onSelectSection: (section?: string) => void
+    onOpenDebate: (debate: 'research' | 'risk') => void
     selectedSection?: string
 }
 
-export default function AgentCollaboration({ onSelectSection, selectedSection }: AgentCollaborationProps) {
+export default function AgentCollaboration({ onSelectSection, onOpenDebate, selectedSection }: AgentCollaborationProps) {
     const { agents, isAnalyzing, streamingSections, report, currentHorizon } = useAnalysisStore()
 
     const cards = useMemo(() => META.map((meta) => {
@@ -353,7 +355,13 @@ export default function AgentCollaboration({ onSelectSection, selectedSection }:
                                         key={card.name}
                                         card={card}
                                         selected={!!card.section && card.section === selectedSection}
-                                        onClick={() => card.section && onSelectSection?.(card.section === selectedSection ? undefined : card.section)}
+                                        onClick={() => {
+                                            if (card.debate) {
+                                                onOpenDebate(card.debate)
+                                            } else if (card.section) {
+                                                onSelectSection(card.section === selectedSection ? undefined : card.section)
+                                            }
+                                        }}
                                     />
                                 ))}
                             </div>

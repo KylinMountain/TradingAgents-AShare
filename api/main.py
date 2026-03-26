@@ -1153,6 +1153,24 @@ class AgentProgressTracker:
             },
         )
 
+    def emit_debate_message(
+        self, debate: str, agent: str, round_num: int,
+        content: str, is_verdict: bool = False,
+    ) -> None:
+        """推送辩论消息（每个 agent 每轮完成后调用一次）"""
+        _emit_job_event(
+            self.job_id,
+            "agent.debate",
+            {
+                "debate": debate,
+                "agent": agent,
+                "round": round_num,
+                "content": content,
+                "is_verdict": is_verdict,
+                "horizon": self.horizon,
+            },
+        )
+
     def apply_chunk(self, chunk: Dict[str, Any]) -> None:
         # 分析师阶段状态推进
         found_active = False

@@ -51,6 +51,13 @@ def create_research_manager(llm, memory):
             if tracker:
                 tracker._emit_token("Research Manager", "investment_plan", content)
 
+        # ── 推送辩论裁决 ──
+        if tracker:
+            tracker.emit_debate_message(
+                debate="research", agent="Research Manager",
+                round_num=-1, content=full_content, is_verdict=True,
+            )
+
         new_investment_debate_state = {
             "judge_decision": full_content,
             "history": investment_debate_state.get("history", ""),
