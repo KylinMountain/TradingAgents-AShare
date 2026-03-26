@@ -32,13 +32,24 @@ def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(timezone.utc)
 
 
+_DEFAULT_SECRET = "tradingagents-ashare-dev-secret"
+
+
 def _secret_key() -> str:
-    return os.getenv("APP_SECRET_KEY") or os.getenv("SECRET_KEY") or "tradingagents-ashare-dev-secret"
+    return os.getenv("TA_APP_SECRET_KEY") or _DEFAULT_SECRET
+
+
+def _fernet_from_key(key: str) -> Fernet:
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
 
 
 def _fernet() -> Fernet:
-    digest = hashlib.sha256(_secret_key().encode("utf-8")).digest()
-    return Fernet(base64.urlsafe_b64encode(digest))
+    return _fernet_from_key(_secret_key())
+
+
+def is_custom_secret_configured() -> bool:
+    return bool(os.getenv("TA_APP_SECRET_KEY"))
 
 
 def encrypt_secret(value: str) -> str:
@@ -52,6 +63,24 @@ def decrypt_secret(value: Optional[str]) -> Optional[str]:
         return _fernet().decrypt(value.encode("utf-8")).decode("utf-8")
     except InvalidToken:
         return None
+
+
+def decrypt_secret_with_fallback(value: Optional[str]) -> Optional[str]:
+    """Decrypt trying current key first, then default key as fallback."""
+    if not value:
+        return None
+    # Try current key
+    try:
+        return _fernet().decrypt(value.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        pass
+    # Try default key (first-time migration: no key → custom key)
+    if is_custom_secret_configured():
+        try:
+            return _fernet_from_key(_DEFAULT_SECRET).decrypt(value.encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            pass
+    return None
 
 
 def normalize_email(email: str) -> str:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Eye, EyeOff } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2 } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { UserToken } from '@/types'
@@ -64,7 +64,7 @@ export default function Settings() {
     const [newTokenName, setNewTokenName] = useState('')
     const [isCreatingToken, setIsCreatingToken] = useState(false)
     const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null)
-    const [visibleTokenIds, setVisibleTokenIds] = useState<Set<string>>(new Set())
+    const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null)
 
     const selectedPreset = useMemo(
         () => PROVIDER_PRESETS.find((item) => item.id === providerPreset) || PROVIDER_PRESETS[0],
@@ -131,8 +131,9 @@ export default function Settings() {
         if (!newTokenName.trim()) return
         setIsCreatingToken(true)
         try {
-            await api.createToken({ name: newTokenName.trim() })
+            const created = await api.createToken({ name: newTokenName.trim() })
             setNewTokenName('')
+            setNewlyCreatedToken(created.token || null)
             await fetchTokens()
         } catch (err) {
             alert(err instanceof Error ? err.message : '创建 Token 失败')
@@ -151,19 +152,10 @@ export default function Settings() {
         }
     }
 
-    const copyToClipboard = (token: string, id: string) => {
-        navigator.clipboard.writeText(token)
+    const copyToClipboard = (text: string, id: string) => {
+        navigator.clipboard.writeText(text)
         setCopiedTokenId(id)
         setTimeout(() => setCopiedTokenId(null), 2000)
-    }
-
-    const toggleTokenVisibility = (tokenId: string) => {
-        setVisibleTokenIds(prev => {
-            const next = new Set(prev)
-            if (next.has(tokenId)) next.delete(tokenId)
-            else next.add(tokenId)
-            return next
-        })
     }
 
     const handleSave = async () => {
@@ -295,21 +287,8 @@ export default function Settings() {
 
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            深度思考模型
-                        </label>
-                        <input
-                            type="text"
-                            value={deepThinkLlm}
-                            onChange={e => setDeepThinkLlm(e.target.value)}
-                            className="input w-full"
-                            placeholder="例如：gpt-4.1 / deepseek-reasoner / kimi-k2-0905-preview"
-                            disabled={configLoading}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            快速推理模型
+                            常规模型
+                            <span className="ml-1 text-xs text-slate-400 font-normal">用于意图识别、JSON 提取等轻量任务</span>
                         </label>
                         <input
                             type="text"
@@ -317,6 +296,21 @@ export default function Settings() {
                             onChange={e => setQuickThinkLlm(e.target.value)}
                             className="input w-full"
                             placeholder="例如：gpt-4.1-mini / deepseek-chat / moonshot-v1-8k"
+                            disabled={configLoading}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            推理模型
+                            <span className="ml-1 text-xs text-slate-400 font-normal">用于深度分析、辩论等复杂任务</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={deepThinkLlm}
+                            onChange={e => setDeepThinkLlm(e.target.value)}
+                            className="input w-full"
+                            placeholder="例如：gpt-4.1 / deepseek-reasoner / kimi-k2-0905-preview"
                             disabled={configLoading}
                         />
                     </div>
@@ -438,6 +432,26 @@ export default function Settings() {
                     使用 API Token 在三方应用（如 Open Claw）中调用投研分析接口。请妥善保管您的 Token。
                 </div>
 
+                {/* Newly created token — show once */}
+                {newlyCreatedToken && (
+                    <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                        <div className="text-sm font-medium text-emerald-800 dark:text-emerald-200 mb-1">Token 创建成功 — 请立即复制，关闭后无法再次查看</div>
+                        <div className="flex items-center gap-2">
+                            <code className="text-xs text-emerald-700 dark:text-emerald-300 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border font-mono tracking-tight break-all">
+                                {newlyCreatedToken}
+                            </code>
+                            <button
+                                onClick={() => copyToClipboard(newlyCreatedToken, '__new__')}
+                                className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-800 rounded transition-colors text-emerald-600"
+                                title="复制 Token"
+                            >
+                                {copiedTokenId === '__new__' ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                        </div>
+                        <button onClick={() => setNewlyCreatedToken(null)} className="mt-2 text-xs text-emerald-600 hover:underline">我已复制，关闭提示</button>
+                    </div>
+                )}
+
                 {/* Token List */}
                 <div className="space-y-3">
                     {tokens.map((token) => (
@@ -446,24 +460,8 @@ export default function Settings() {
                                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{token.name}</div>
                                 <div className="flex items-center gap-2 mt-1">
                                     <code className="text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-100 dark:border-slate-800 font-mono tracking-tight">
-                                        {visibleTokenIds.has(token.id) ? token.token : '•'.repeat(24)}
+                                        ta-sk-{'•'.repeat(16)}{token.token_hint || '****'}
                                     </code>
-                                    <div className="flex items-center gap-1">
-                                        <button
-                                            onClick={() => toggleTokenVisibility(token.id)}
-                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                                            title={visibleTokenIds.has(token.id) ? "隐藏 Token" : "显示 Token"}
-                                        >
-                                            {visibleTokenIds.has(token.id) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                        </button>
-                                        <button
-                                            onClick={() => copyToClipboard(token.token, token.id)}
-                                            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded transition-colors text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                                            title="复制 Token"
-                                        >
-                                            {copiedTokenId === token.id ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                                        </button>
-                                    </div>
                                 </div>
                                 <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
                                     创建于：{new Date(token.created_at).toLocaleDateString()}

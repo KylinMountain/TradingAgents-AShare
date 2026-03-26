@@ -3,15 +3,27 @@
 
 本项目是基于多智能体协作 (Multi-Agent Collaboration) 的 A 股深度分析系统。它模拟顶级投研机构的决策闭环，通过 15名专业分析师的博弈与辩论，为投资者提供结构化的交易建议。
 
-**🚀 **TradingAgents 已正式上线 OpenClaw**！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。**
+**TradingAgents 已正式上线 OpenClaw！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。**
 
-## 🌟 核心能力 (V0.4.0+)
-- **🧠 意图驱动解析**：无需精准代码，自然语言对话（如“调研茅台短线”）即可触发自动标的识别与周期视角切换。
-- **📊 15 专家协作流**：集成技术面、基本面、舆情、新闻、宏观及主力资金 6 大维度，经过 5 阶段严密博弈产出研报。
-- **⚡️ 极致数据效能**：统一并行采集底座，彻底解决 API 频率限制，实现分析流程的秒级启动。
-- **🐳 生产级容器化**：全架构 Docker 支持，前后端合一托管，具备完善的路径安全防护与自动构建 CI。
+## 核心能力
 
-## ✨ 现代化 Web 交互
+### v0.5.x（当前版本）
+- **Token 级流式输出**：全部 15 个 Agent 支持 astream 推送，对话框实时展示 LLM 推理过程。
+- **自选股与定时分析**：数据库持久化自选列表，支持定时自动分析（交易日收盘后触发），连续失败 3 次自动停用。
+- **安全加固**：API Token 哈希存储、用户 LLM Key 加密存储（`TA_APP_SECRET_KEY`）、请求参数白名单过滤。
+- **Anthropic Extended Thinking**：支持 Claude 扩展思考内容块的解析与展示。
+- **OpenClaw Skill 集成**：`analyze.sh` 脚本支持自动化批量提交与轮询。
+- **多模型厂商支持**：OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换。
+
+### v0.4.x
+- **意图驱动解析**：自然语言对话（如"调研茅台短线"）触发自动标的识别与多周期分析。
+- **15 专家协作流**：技术面、基本面、舆情、新闻、宏观及主力资金 6 大维度，经 5 阶段博弈产出研报。
+- **Claim 驱动辩论**：多空研究员结构化辩论从自由辩论升级为 Claim 驱动，论证更聚焦。
+- **任务生命周期持久化**：分析任务支持服务重启恢复，报告增量写入。
+- **极致数据效能**：统一并行采集底座，彻底解决 API 频率限制，实现分析流程秒级启动。
+- **生产级容器化**：全架构 Docker 支持，前后端合一托管，tag 触发自动构建 CI。
+
+## 现代化 Web 交互
 
 系统已由传统的 CLI 界面全面升级为现代化的 Web 交互界面，支持实时任务进度追踪、响应式布局与结构化研报管理。
 [在线 Demo](https://app.510168.xyz)
@@ -24,14 +36,14 @@
       <td width="50%"><img src="assets/web/detail.png" alt="研报详情"/><br><em>深度分析详情</em></td>
     </tr>
     <tr>
+      <td width="50%"><img src="assets/web/timer_analysis.png" alt="定时分析"/><br><em>定时分析</em></td>
       <td width="50%"><img src="assets/web/dashboard.png" alt="控制台"/><br><em>数据控制台</em></td>
-      <td width="50%"><img src="assets/web/settings.png" alt="系统设置"/><br><em>系统设置</em></td>
     </tr>
   </table>
 </div>
 
 
-## 🤖 核心架构与团队
+## 核心架构与团队
 
 TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
 
@@ -61,7 +73,7 @@ TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解
 
 
 
-## 🚀 快速上手
+## 快速上手
 
 ### 1. Docker 一键部署 (推荐)
 如果您想快速运行完整服务（前后端合一），可以直接使用我们提供的 Docker 镜像：
@@ -72,16 +84,23 @@ docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 # 创建数据目录（数据库及 WAL 文件会持久化在此）
 mkdir -p $(pwd)/data
 
+# 生成安全密钥（仅首次需要，请妥善保存）
+export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+
 docker run -d -p 8000:8000 \
   --name tradingagents \
   -v $(pwd)/data:/app/data \
   -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
-  -e TA_API_KEY="你的密钥" \
-  -e TA_BASE_URL="https://api.openai.com/v1" \
+  -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
   ghcr.io/kylinmountain/tradingagents-ashare:latest
 ```
 
+> **关于 `TA_APP_SECRET_KEY`**：用于加密用户保存的 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且设置后不可更改，否则已加密的数据将无法解密。
+
+> **LLM 配置**：启动后用户可在前端"设置"页面自行配置模型厂商、API Key 和模型名称，无需通过环境变量预设。如需服务端默认值，可添加 `TA_API_KEY` 和 `TA_BASE_URL` 环境变量。
+
 > **从旧版升级？** 如果之前用的是 `-v tradingagents.db:/app/tradingagents.db` 单文件挂载，请将 db 文件移到 `data/` 目录下，改用目录挂载方式。
+
 访问 `http://localhost:8000` 即可使用。
 
 ### 2. 源码安装
@@ -103,16 +122,19 @@ uv sync
 cd frontend && npm install
 ```
 
-#### 2.2 精简配置
-复制 `.env.example` 到 `.env` 并填写核心模型接入信息：
+#### 2.2 配置
+复制 `.env.example` 到 `.env` 并按需修改：
 ```env
-# 核心模型接入 (建议使用 DeepSeek 或 GPT-4o 等强模型)
+# 安全密钥（生产环境必须设置）
+TA_APP_SECRET_KEY=   # openssl rand -base64 32 生成
+
+# 服务端默认 LLM 配置（可选，用户也可在前端设置页配置）
 TA_API_KEY=你的密钥
 TA_BASE_URL=https://api.openai.com/v1
 TA_LLM_QUICK=gpt-4o-mini
 TA_LLM_DEEP=gpt-4o
 
-# 数据库 (默认使用本地 SQLite，Docker 部署建议用 data/ 子目录)
+# 数据库（默认本地 SQLite）
 DATABASE_URL=sqlite:///./tradingagents.db
 ```
 
@@ -129,7 +151,7 @@ cd frontend && npm run dev
 访问 `http://localhost:5173` 即可开始您的 AI 投研之旅。
 
 
-## 🛠 API 集成
+## API 集成
 
 系统提供标准的 REST API，方便集成到自定义脚本、交易机器人或第三方看板：
 
@@ -144,8 +166,9 @@ cd frontend && npm run dev
 
 认证方式：
 
-- 在 Web 端登录后，进入“设置 / API Token”生成专属 API Key
+- 在 Web 端登录后，进入"设置 / API Token"生成专属 API Key
 - 调用接口时通过 `Authorization: Bearer <YOUR_API_TOKEN>` 传入
+- Token 仅在创建时显示一次，请立即保存
 
 示例：触发一次股票分析
 
@@ -169,9 +192,9 @@ curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
   'https://app.510168.xyz/v1/jobs/<JOB_ID>/result'
 ```
 
-## 🔌 集成 OpenClaw
+## 集成 OpenClaw
 
-可以把 TradingAgents-AShare 作为 OpenClaw 的外部分析能力来调用，让 OpenClaw 负责“接收任务 -> 指定股票 -> 发起分析 -> 回收结果 -> 继续编排后续动作”。
+可以把 TradingAgents-AShare 作为 OpenClaw 的外部分析能力来调用，让 OpenClaw 负责"接收任务 -> 指定股票 -> 发起分析 -> 回收结果 -> 继续编排后续动作"。
 
 推荐接法：
 
@@ -180,19 +203,19 @@ curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
 
 一个典型任务可以是：
 
-- “分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。”
+- "分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。"
 
 
-## 🙏 特别鸣谢 (Credits)
+## 特别鸣谢 (Credits)
 
 本项目作为二次开发作品，核心架构灵感与部分基础逻辑源自[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。
 
-## ⚖️ 许可说明
+## 许可说明
 - 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache 2.0) 二次开发。
 - 新增模块 (`api/`, `frontend/`) 及对核心逻辑的深度修改采用 `PolyForm Noncommercial 1.0.0` 协议。
 - 详情请参阅根目录下的 [LICENSE](./LICENSE) 文件。
 
-## ⚠️ 重要声明 (Disclaimer)
+## 重要声明 (Disclaimer)
 - **仅供学习研究**：本项目仅用于学术研究、技术演示及学习交流目的，不构成任何形式的投资建议。
 - **实盘风险**：证券市场有风险，投资需谨慎。基于本系统智能体生成的任何观点、建议或计划，仅代表算法博弈结果，不对实际投资损益负责。
 - **数据延迟**：分析所依赖的数据源可能存在延迟或偏差，请以交易所实时公告为准。
@@ -206,4 +229,3 @@ curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
  </picture>
 </a>
 </div>
-

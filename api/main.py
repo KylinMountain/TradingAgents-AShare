@@ -231,6 +231,15 @@ async def lifespan(app: FastAPI):
     global _scheduler_task
     init_db()
     _log("Database initialized.")
+
+    # Security: warn loudly if using default secret key
+    if not os.getenv("TA_APP_SECRET_KEY"):
+        _log("=" * 70)
+        _log("WARNING: TA_APP_SECRET_KEY is not set!")
+        _log("Using hardcoded default key. ALL encryption and JWT signing")
+        _log("is INSECURE. Set TA_APP_SECRET_KEY env var before production use.")
+        _log("=" * 70)
+
     _report_version_stats()
     # 启动时把卡在 running 的定时任务重置，让它们今天可以重新触发
     db = SessionLocal()
@@ -299,6 +308,14 @@ _jobs: Dict[str, Dict[str, Any]] = {}
 
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
+
+# Allowlist for config_overrides from client requests.
+# Security: prevents injection of api_key, backend_url, or other sensitive keys.
+_CONFIG_OVERRIDES_ALLOWLIST = {
+    "llm_provider", "deep_think_llm", "quick_think_llm",
+    "max_debate_rounds", "max_risk_discuss_rounds",
+    "prompt_language",
+}
 _job_events: Dict[str, "asyncio.Queue[Dict[str, Any]]"] = {}
 # Hold references to fire-and-forget tasks so they are not garbage collected
 _background_tasks: set = set()
@@ -685,6 +702,22 @@ class UserTokenResponse(BaseModel):
     id: str
     name: str
     token: str
+    token_hint: Optional[str] = None
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", "last_used_at", when_used="json")
+    def serialize_token_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return _serialize_datetime_utc(value)
+
+
+class UserTokenListItem(BaseModel):
+    """Token info for list endpoint — never exposes the full token."""
+    id: str
+    name: str
+    token_hint: Optional[str] = None
     last_used_at: Optional[datetime] = None
     created_at: datetime
 
@@ -746,6 +779,9 @@ def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = No
     config = deepcopy(DEFAULT_CONFIG)
     server_fallback_enabled = os.getenv("ALLOW_SERVER_LLM_FALLBACK", "1").strip().lower() in ("1", "true", "yes", "on")
     config["server_fallback_enabled"] = server_fallback_enabled
+
+    # Security: filter request overrides to allowlist only
+    overrides = {k: v for k, v in overrides.items() if k in _CONFIG_OVERRIDES_ALLOWLIST}
 
     # Apply global config overrides (from PATCH /v1/config)
     if _global_config_overrides:
@@ -2871,12 +2907,12 @@ def delete_report_endpoint(
 
 # ─── API Token Endpoints ────────────────────────────────────────────────────
 
-@app.get("/v1/tokens", response_model=List[UserTokenResponse])
+@app.get("/v1/tokens", response_model=List[UserTokenListItem])
 def list_tokens(
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(_require_web_user),
 ):
-    """获取当前用户的所有 API Token。"""
+    """获取当前用户的所有 API Token（不返回完整 token）。"""
     return token_service.list_user_tokens(db, current_user.id)
 
 
@@ -2886,7 +2922,7 @@ def create_token(
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(_require_web_user),
 ):
-    """创建一个新的 API Token。"""
+    """创建一个新的 API Token。完整 token 仅在此接口返回一次。"""
     try:
         return token_service.create_token(db, current_user.id, request.name)
     except ValueError as e:
@@ -2922,9 +2958,13 @@ class BacktestRequest(BaseModel):
 
 
 @app.post("/v1/backtest")
-def submit_backtest(request: BacktestRequest, db: Session = Depends(get_db)) -> Dict:
+def submit_backtest(
+    request: BacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
     """提交历史回测任务，返回 job_id."""
-    config = _build_runtime_config(request.config_overrides or {}, db=db)
+    config = _build_runtime_config(request.config_overrides or {}, user_id=current_user.id, db=db)
     job_id = _bt.submit(
         symbol=request.symbol,
         start_date=request.start_date,
