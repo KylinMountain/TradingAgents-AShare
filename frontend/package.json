@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.1.0",
+    "@tanstack/react-virtual": "^3.13.23",
     "clsx": "^2.1.0",
     "date-fns": "^3.3.1",
     "lightweight-charts": "^5.1.0",
@@ -33,8 +33,8 @@
     "autoprefixer": "^10.4.17",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-react-refresh": "^0.4.5",
-    "postcss": "^8.4.35",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "postcss": "^8.5.8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
     "vite": "^5.1.0"
