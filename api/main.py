@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, init_db, get_db, get_db_ctx, SessionLocal
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, init_db, get_db, get_db_ctx
 from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -805,30 +805,33 @@ class RequireUser:
     def __call__(
         self,
         credentials: Optional[HTTPAuthorizationCredentials] = Depends(_auth_scheme),
-        db: Session = Depends(get_db),
     ) -> UserDB:
         if not credentials:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
-        
+
         token = credentials.credentials
-        
-        # 1. 优先尝试 JWT (网页登录)
-        try:
-            payload = auth_service.decode_access_token(token)
-            user_id = str(payload.get("sub") or "")
-            user = auth_service.get_user_by_id(db, user_id)
-            if user and user.is_active:
-                return user
-        except Exception:
-            # 不是有效的 JWT 或已过期，尝试 API Token
-            pass
-            
-        # 2. 尝试 API Token (仅在允许时)
-        if self.allow_api_token and token.startswith(token_service.TOKEN_PREFIX):
-            user = token_service.verify_token(db, token)
-            if user and user.is_active:
-                return user
-                
+
+        with get_db_ctx() as db:
+            # 1. 优先尝试 JWT (网页登录)
+            try:
+                payload = auth_service.decode_access_token(token)
+                user_id = str(payload.get("sub") or "")
+                user = auth_service.get_user_by_id(db, user_id)
+                if user and user.is_active:
+                    # expunge 使 ORM 对象脱离 session，close 后仍可访问属性
+                    db.expunge(user)
+                    return user
+            except Exception:
+                # 不是有效的 JWT 或已过期，尝试 API Token
+                pass
+
+            # 2. 尝试 API Token (仅在允许时)
+            if self.allow_api_token and token.startswith(token_service.TOKEN_PREFIX):
+                user = token_service.verify_token(db, token)
+                if user and user.is_active:
+                    db.expunge(user)
+                    return user
+
         detail = "身份验证失败或该接口不支持 API Token 访问" if self.allow_api_token else "该接口仅限网页端登录访问"
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
@@ -840,7 +843,6 @@ _require_web_user = RequireUser(allow_api_token=False)   # 仅限网页登录
 
 def _optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_auth_scheme),
-    db: Session = Depends(get_db),
 ) -> Optional[UserDB]:
     if not credentials:
         return None
@@ -851,7 +853,11 @@ def _optional_user(
     user_id = str(payload.get("sub") or "")
     if not user_id:
         return None
-    return auth_service.get_user_by_id(db, user_id)
+    with get_db_ctx() as db:
+        user = auth_service.get_user_by_id(db, user_id)
+        if user:
+            db.expunge(user)
+        return user
 
 
 def _set_job(job_key: str, **kwargs) -> None:
@@ -1307,8 +1313,7 @@ async def _run_job(
                 db.commit()
             except Exception as e:
                 _log(f"CRITICAL: Failed to initialize report in DB: {e}")
-                db.rollback()
-            return _build_runtime_config(request.config_overrides, user_id=user_id, db=db)
+        return _build_runtime_config(request.config_overrides, user_id=user_id)
 
     config = await asyncio.to_thread(_init_and_configure)
 
@@ -2627,10 +2632,9 @@ def _ai_extract_symbol_and_date(
 async def chat_completions(
     request: ChatCompletionRequest,
     current_user: UserDB = Depends(_require_api_user),
-    db: Session = Depends(get_db),
 ):
     text = _extract_chat_text(request.messages)
-    config = await asyncio.to_thread(_build_runtime_config, request.config_overrides, user_id=current_user.id, db=db)
+    config = await asyncio.to_thread(_build_runtime_config, request.config_overrides, user_id=current_user.id)
 
     # ── 流式模式：立刻返回 SSE 流，在后台异步提取意图再启动任务 ──────────────────
     # 这样用户提交查询后立刻收到 job.ready，不用等待 thinking 模型的 StockExtract。
@@ -2987,13 +2991,13 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
 
 
 @app.post("/v1/auth/request-code")
-def request_login_code(request: AuthRequestCodeRequest, db: Session = Depends(get_db)):
+def request_login_code(request: AuthRequestCodeRequest):
     email = auth_service.normalize_email(request.email)
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
-    code = auth_service.upsert_login_code(db, email)
-    # 先关闭 DB session 再发 SMTP 邮件，避免 SMTP 超时期间占用连接池
-    db.close()
+    with get_db_ctx() as db:
+        code = auth_service.upsert_login_code(db, email)
+    # DB session 已释放，SMTP 不会阻塞连接池
     dev_code = auth_service.send_login_code(email, code)
     response = {"message": "验证码已发送"}
     if dev_code:

@@ -81,6 +81,8 @@ class get_db_ctx:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if self.db is not None:
+            if exc_type is not None:
+                self.db.rollback()
             self.db.close()
 
 
