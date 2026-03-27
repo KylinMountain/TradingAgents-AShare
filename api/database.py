@@ -56,12 +56,32 @@ Base = declarative_base()
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Get database session."""
+    """Get database session (for FastAPI Depends)."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+class get_db_ctx:
+    """Context manager for manual DB session usage.
+
+    Usage:
+        with get_db_ctx() as db:
+            db.query(...)
+    """
+
+    def __init__(self) -> None:
+        self.db: Session | None = None
+
+    def __enter__(self) -> Session:
+        self.db = SessionLocal()
+        return self.db
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self.db is not None:
+            self.db.close()
 
 
 def init_db() -> None:

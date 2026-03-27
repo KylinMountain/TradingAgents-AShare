@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, init_db, get_db, SessionLocal
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, init_db, get_db, get_db_ctx, SessionLocal
 from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -132,8 +132,7 @@ async def _scheduler_loop():
             if 8 * 60 < time_val < 20 * 60:
                 continue
 
-            db = SessionLocal()
-            try:
+            with get_db_ctx() as db:
                 tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
                 if not tasks:
                     continue
@@ -159,8 +158,6 @@ async def _scheduler_loop():
                 _log(f"[Scheduler] Launching {len(task_snapshots)} tasks")
                 for snap in task_snapshots:
                     _create_tracked_task(_run_scheduled_job(snap, today))
-            finally:
-                db.close()
 
         except Exception as e:
             logger.error(f"[Scheduler] Error: {e}")
@@ -206,21 +203,15 @@ async def _run_scheduled_job(task: dict, trade_date: str):
         await _run_job(job_id, req, user_id=user_id)
 
         # Mark success
-        db = SessionLocal()
-        try:
+        with get_db_ctx() as db:
             scheduled_service.mark_run_success(db, task_id, trade_date, job_id)
-        finally:
-            db.close()
         _log(f"[Scheduler] Completed {symbol}")
 
     except Exception as e:
         import traceback
         logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
-        db = SessionLocal()
-        try:
+        with get_db_ctx() as db:
             scheduled_service.mark_run_failed(db, task_id, trade_date)
-        finally:
-            db.close()
     finally:
         _job_events.pop(job_id, None)
 
@@ -242,8 +233,7 @@ async def lifespan(app: FastAPI):
 
     _report_version_stats()
     # 启动时把卡在 running 的定时任务重置，让它们今天可以重新触发
-    db = SessionLocal()
-    try:
+    with get_db_ctx() as db:
         stale = db.query(ScheduledAnalysisDB).filter(
             ScheduledAnalysisDB.last_run_status == "running"
         ).all()
@@ -253,8 +243,6 @@ async def lifespan(app: FastAPI):
                 item.last_run_date = None  # 允许今天重新触发
             db.commit()
             _log(f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup.")
-    finally:
-        db.close()
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
@@ -744,17 +732,12 @@ def _deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, An
 def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None) -> Dict[str, Any]:
     if not user_id:
         return {}
-    
-    should_close = False
-    if db is None:
-        db = SessionLocal()
-        should_close = True
-        
-    try:
-        user_cfg = auth_service.get_user_llm_config(db, user_id)
+
+    def _query(sess: Session) -> Dict[str, Any]:
+        user_cfg = auth_service.get_user_llm_config(sess, user_id)
         if not user_cfg:
             return {}
-        overrides: Dict[str, Any] = {}
+        result: Dict[str, Any] = {}
         for key in (
             "llm_provider",
             "backend_url",
@@ -765,14 +748,16 @@ def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None)
         ):
             value = getattr(user_cfg, key, None)
             if value is not None:
-                overrides[key] = value
+                result[key] = value
         api_key = auth_service.decrypt_secret(user_cfg.api_key_encrypted)
         if api_key:
-            overrides["api_key"] = api_key
-        return overrides
-    finally:
-        if should_close:
-            db.close()
+            result["api_key"] = api_key
+        return result
+
+    if db is not None:
+        return _query(db)
+    with get_db_ctx() as own_db:
+        return _query(own_db)
 
 
 def _build_runtime_config(overrides: Dict[str, Any], user_id: Optional[str] = None, db: Optional[Session] = None) -> Dict[str, Any]:
@@ -1308,28 +1293,24 @@ async def _run_job(
     normalized_symbol = _normalize_symbol(request.symbol)
     
     # ── Step 0: Initialize report in DB (short-lived session) ──
-    init_db = SessionLocal()
-    try:
-        def _init_report_sync():
-            report_service.init_report(
-                db=init_db,
-                report_id=job_id,
-                symbol=normalized_symbol,
-                trade_date=request.trade_date,
-                user_id=user_id,
-            )
-            report_service.update_report_partial(init_db, job_id, status="running")
-            init_db.commit()
+    def _init_and_configure():
+        with get_db_ctx() as db:
+            try:
+                report_service.init_report(
+                    db=db,
+                    report_id=job_id,
+                    symbol=normalized_symbol,
+                    trade_date=request.trade_date,
+                    user_id=user_id,
+                )
+                report_service.update_report_partial(db, job_id, status="running")
+                db.commit()
+            except Exception as e:
+                _log(f"CRITICAL: Failed to initialize report in DB: {e}")
+                db.rollback()
+            return _build_runtime_config(request.config_overrides, user_id=user_id, db=db)
 
-        try:
-            await asyncio.to_thread(_init_report_sync)
-        except Exception as e:
-            _log(f"CRITICAL: Failed to initialize report in DB: {e}")
-            await asyncio.to_thread(init_db.rollback)
-
-        config = await asyncio.to_thread(_build_runtime_config, request.config_overrides, user_id=user_id, db=init_db)
-    finally:
-        await asyncio.to_thread(init_db.close)
+    config = await asyncio.to_thread(_init_and_configure)
 
     _set_job(job_id, status="running", started_at=_utcnow_iso(), symbol=normalized_symbol)
 
@@ -1440,122 +1421,121 @@ async def _run_job(
 
             async def _process_horizon(horizon: str):
                 """Async helper to run analysis for a single horizon."""
-                # Use a separate session for each parallel horizon to avoid race conditions
-                # since SessionLocal() produces a synchronous SQLAlchemy session.
-                h_db = SessionLocal()
+                # 根据周期过滤 analyst，共享已采集的数据缓存
+                horizon_analysts = _get_horizon_analysts(horizon, request.selected_analysts)
+                horizon_graph = TradingAgentsGraph(
+                    selected_analysts=horizon_analysts,
+                    debug=False,
+                    config=config,
+                    data_collector=graph.data_collector,
+                )
+
+                horizon_label = "短线" if horizon == "short" else "中线"
+                _emit_job_event(job_id, "agent.horizon_start", {
+                    "horizon": horizon, "label": horizon_label,
+                })
+                # 每轮重置 tracker，前端进度条重新走一遍
+                h_tracker = AgentProgressTracker(horizon_analysts, job_id, horizon=horizon)
+                _emit_job_event(job_id, "agent.snapshot", h_tracker.snapshot())
+                # 告知前端本轮参与的 analyst 即将开始
+                for analyst_key in ANALYST_ORDER:
+                    if analyst_key in horizon_analysts:
+                        aname = ANALYST_AGENT_NAMES[analyst_key]
+                        h_tracker._set_status(aname, "in_progress")
+                        h_tracker._emit_writing_status(aname, ANALYST_REPORT_MAP[analyst_key])
+
+                h_args = horizon_graph.propagator.get_graph_args()
+
+                # Use thread_id for LangGraph checkpointer persistence
+                if "config" not in h_args:
+                    h_args["config"] = {}
+                h_args["config"]["configurable"] = {"thread_id": f"{job_id}_{horizon}"}
+
+                init_state = horizon_graph.propagator.create_initial_state(
+                    ticker, request.trade_date,
+                    user_context=user_context_payload,
+                    selected_analysts=horizon_analysts,
+                    request_source=request_source,
+                    user_intent=user_intent, horizon=horizon,
+                )
+                last_report: Dict[str, str] = {}
+                seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
+                horizon_final = None
+
+                # DB 更新使用短生命周期 session，避免长期占用连接池
+                def _horizon_partial_update(updates: dict):
+                    with get_db_ctx() as _hdb:
+                        report_service.update_report_partial(_hdb, job_id, **updates)
+
+                # 通过 ContextVar 将 tracker 传入 async 节点（LangGraph 不传递 schema 外的字段）
+                _tracker_token = current_tracker_var.set(h_tracker)
                 try:
-                    # 根据周期过滤 analyst，共享已采集的数据缓存
-                    horizon_analysts = _get_horizon_analysts(horizon, request.selected_analysts)
-                    horizon_graph = TradingAgentsGraph(
-                        selected_analysts=horizon_analysts,
-                        debug=False,
-                        config=config,
-                        data_collector=graph.data_collector,
-                    )
+                    async for chunk in horizon_graph.graph.astream(init_state, **h_args):
+                        horizon_final = chunk
 
-                    horizon_label = "短线" if horizon == "short" else "中线"
-                    _emit_job_event(job_id, "agent.horizon_start", {
-                        "horizon": horizon, "label": horizon_label,
-                    })
-                    # 每轮重置 tracker，前端进度条重新走一遍
-                    h_tracker = AgentProgressTracker(horizon_analysts, job_id, horizon=horizon)
-                    _emit_job_event(job_id, "agent.snapshot", h_tracker.snapshot())
-                    # 告知前端本轮参与的 analyst 即将开始
-                    for analyst_key in ANALYST_ORDER:
-                        if analyst_key in horizon_analysts:
+                        # ── 并行感知的状态推进 ──────────────────
+                        # 1. 每个 analyst 报告首次出现 → completed
+                        for analyst_key in ANALYST_ORDER:
+                            if analyst_key not in horizon_analysts:
+                                continue
+                            rkey = ANALYST_REPORT_MAP[analyst_key]
                             aname = ANALYST_AGENT_NAMES[analyst_key]
-                            h_tracker._set_status(aname, "in_progress")
-                            h_tracker._emit_writing_status(aname, ANALYST_REPORT_MAP[analyst_key])
+                            if chunk.get(rkey) and not seen.get(rkey):
+                                seen[rkey] = True
+                                h_tracker._set_status(aname, "completed")
 
-                    h_args = horizon_graph.propagator.get_graph_args()
-                    
-                    # Use thread_id for LangGraph checkpointer persistence
-                    if "config" not in h_args:
-                        h_args["config"] = {}
-                    h_args["config"]["configurable"] = {"thread_id": f"{job_id}_{horizon}"}
+                        # 2. game_theory_report 出现 → GTM completed, Bull/Bear/ResearchManager 开始
+                        if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
+                            seen["game_theory_report"] = True
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")
 
-                    init_state = horizon_graph.propagator.create_initial_state(
-                        ticker, request.trade_date,
-                        user_context=user_context_payload,
-                        selected_analysts=horizon_analysts,
-                        request_source=request_source,
-                        user_intent=user_intent, horizon=horizon,
-                    )
-                    last_report: Dict[str, str] = {}
-                    seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
-                    horizon_final = None
+                        # 3. research judge → 研究团队完成, Trader 开始
+                        debate = chunk.get("investment_debate_state") or {}
+                        if debate.get("judge_decision") and not seen.get("judge_decision"):
+                            seen["judge_decision"] = True
+                            for r_key in ["bull", "bear", "research_manager"]:
+                                h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
+                            h_tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
 
-                    # 通过 ContextVar 将 tracker 传入 async 节点（LangGraph 不传递 schema 外的字段）
-                    _tracker_token = current_tracker_var.set(h_tracker)
-                    try:
-                        async for chunk in horizon_graph.graph.astream(init_state, **h_args):
-                            horizon_final = chunk
+                        # 4. trader plan → Trader completed, 风控开始
+                        if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
+                            seen["trader_investment_plan"] = True
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
+                            h_tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
 
-                            # ── 并行感知的状态推进 ──────────────────
-                            # 1. 每个 analyst 报告首次出现 → completed
-                            for analyst_key in ANALYST_ORDER:
-                                if analyst_key not in horizon_analysts:
-                                    continue
-                                rkey = ANALYST_REPORT_MAP[analyst_key]
-                                aname = ANALYST_AGENT_NAMES[analyst_key]
-                                if chunk.get(rkey) and not seen.get(rkey):
-                                    seen[rkey] = True
-                                    h_tracker._set_status(aname, "completed")
+                        # 5. risk judge → 风控全部完成
+                        risk = chunk.get("risk_debate_state") or {}
+                        if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
+                            seen["risk_judge_decision"] = True
+                            for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
+                                h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                        # ── end 并行感知 ────────────────────────────────────────────
 
-                            # 2. game_theory_report 出现 → GTM completed, Bull/Bear/ResearchManager 开始
-                            if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
-                                seen["game_theory_report"] = True
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")
+                        # 报告分片推送与数据库即时更新
+                        db_updates = {}
+                        for key in report_keys:
+                            value = chunk.get(key)
+                            if value and value != last_report.get(key):
+                                last_report[key] = value
+                                db_updates[key] = str(value)
+                                h_tracker._emit_report_chunked(job_id, key, str(value))
 
-                            # 3. research judge → 研究团队完成, Trader 开始
-                            debate = chunk.get("investment_debate_state") or {}
-                            if debate.get("judge_decision") and not seen.get("judge_decision"):
-                                seen["judge_decision"] = True
-                                for r_key in ["bull", "bear", "research_manager"]:
-                                    h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
-                                h_tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
-
-                            # 4. trader plan → Trader completed, 风控开始
-                            if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
-                                seen["trader_investment_plan"] = True
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
-                                h_tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
-
-                            # 5. risk judge → 风控全部完成
-                            risk = chunk.get("risk_debate_state") or {}
-                            if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
-                                seen["risk_judge_decision"] = True
-                                for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
-                                    h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                            # ── end 并行感知 ────────────────────────────────────────────
-
-                            # 报告分片推送与数据库即时更新
-                            db_updates = {}
-                            for key in report_keys:
-                                value = chunk.get(key)
-                                if value and value != last_report.get(key):
-                                    last_report[key] = value
-                                    db_updates[key] = str(value)
-                                    h_tracker._emit_report_chunked(job_id, key, str(value))
-                            
-                            if db_updates:
-                                await asyncio.to_thread(report_service.update_report_partial, h_db, job_id, **db_updates)
-                    except Exception as e:
-                        _log(f"Error during horizon streaming ({horizon}): {e}")
-                    finally:
-                        current_tracker_var.reset(_tracker_token)
-
-                    horizon_states[horizon] = horizon_final
-                    for agent, st in h_tracker.status.items():
-                        if st not in ("completed", "skipped"):
-                            h_tracker._set_status(agent, "completed")
-                    _emit_job_event(job_id, "agent.horizon_done", {"horizon": horizon})
+                        if db_updates:
+                            await asyncio.to_thread(_horizon_partial_update, db_updates)
+                except Exception as e:
+                    _log(f"Error during horizon streaming ({horizon}): {e}")
                 finally:
-                    await asyncio.to_thread(h_db.close)
+                    current_tracker_var.reset(_tracker_token)
+
+                horizon_states[horizon] = horizon_final
+                for agent, st in h_tracker.status.items():
+                    if st not in ("completed", "skipped"):
+                        h_tracker._set_status(agent, "completed")
+                _emit_job_event(job_id, "agent.horizon_done", {"horizon": horizon})
 
             # 3. 按解析出的 horizons 并行运行 astream()，事件实时推给前端
             results = await asyncio.gather(
@@ -1626,8 +1606,7 @@ async def _run_job(
             # 自动保存报告到数据库
             if save_report:
                 def _save_report_sync():
-                    save_db = SessionLocal()
-                    try:
+                    with get_db_ctx() as save_db:
                         report_service.create_report(
                             db=save_db,
                             symbol=request.symbol,
@@ -1644,11 +1623,6 @@ async def _run_job(
                             analyst_traces=result.get("analyst_traces"),
                         )
                         save_db.commit()
-                    except Exception:
-                        save_db.rollback()
-                        raise
-                    finally:
-                        save_db.close()
 
                 try:
                     await asyncio.to_thread(_save_report_sync)
@@ -1757,11 +1731,8 @@ async def _run_job(
                     
                     if db_updates:
                         def _partial_update(updates=db_updates):
-                            _db = SessionLocal()
-                            try:
+                            with get_db_ctx() as _db:
                                 report_service.update_report_partial(_db, job_id, **updates)
-                            finally:
-                                _db.close()
                         await asyncio.to_thread(_partial_update)
                     
                     # ── Message & Tool Call Handling ──
@@ -1864,8 +1835,7 @@ async def _run_job(
         # 自动保存/收口报告到数据库
         if save_report:
             def _save_report_final_sync():
-                save_db = SessionLocal()
-                try:
+                with get_db_ctx() as save_db:
                     report_service.create_report(
                         db=save_db,
                         symbol=request.symbol,
@@ -1882,11 +1852,6 @@ async def _run_job(
                         analyst_traces=result.get("analyst_traces"),
                     )
                     save_db.commit()
-                except Exception:
-                    save_db.rollback()
-                    raise
-                finally:
-                    save_db.close()
 
             try:
                 await asyncio.to_thread(_save_report_final_sync)
@@ -1930,11 +1895,8 @@ async def _run_job(
         # ── Persistent failure recording (short-lived session) ──
         try:
             def _record_failure():
-                err_db = SessionLocal()
-                try:
+                with get_db_ctx() as err_db:
                     report_service.mark_report_failed(err_db, job_id, f"{err_msg}\n\n{traceback.format_exc()}")
-                finally:
-                    err_db.close()
             await asyncio.to_thread(_record_failure)
         except Exception as db_exc:
             _log(f"Failed to record failure in DB: {db_exc}")
@@ -3030,6 +2992,8 @@ def request_login_code(request: AuthRequestCodeRequest, db: Session = Depends(ge
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     code = auth_service.upsert_login_code(db, email)
+    # 先关闭 DB session 再发 SMTP 邮件，避免 SMTP 超时期间占用连接池
+    db.close()
     dev_code = auth_service.send_login_code(email, code)
     response = {"message": "验证码已发送"}
     if dev_code:
