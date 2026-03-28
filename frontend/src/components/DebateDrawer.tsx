@@ -46,12 +46,20 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
         }
     }, [debate, handleKeyDown])
 
-    // Auto-scroll on new messages
+    // Auto-scroll during streaming — skip if user has scrolled up
+    const lastContentLen = useRef(0)
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+        const el = scrollRef.current
+        if (!el) return
+        const totalLen = messages.reduce((s, m) => s + m.content.length, 0)
+        if (totalLen === lastContentLen.current) return
+        lastContentLen.current = totalLen
+        // Only auto-scroll if near bottom (within 150px)
+        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
+        if (nearBottom) {
+            el.scrollTop = el.scrollHeight
         }
-    }, [messages.length])
+    }, [messages])
 
     if (!debate) return null
 
