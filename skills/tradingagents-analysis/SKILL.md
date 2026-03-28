@@ -18,13 +18,13 @@ tags:
   - 技术分析
   - 基本面分析
 env:
-  TRADINGAGENTS_API_URL:
-    description: "后端 API 地址 (TradingAgents API base URL)"
-    default: "https://api.510168.xyz"
   TRADINGAGENTS_TOKEN:
     description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
     required: true
-primary_credential: TRADINGAGENTS_TOKEN
+    primary_credential: true
+  TRADINGAGENTS_API_URL:
+    description: "后端 API 地址 (TradingAgents API base URL)"
+    default: "https://api.510168.xyz"
 metadata: {"clawdbot":{"emoji":"📈"}}
 ---
 
@@ -91,7 +91,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **敏感内容提示**：请勿在分析请求中粘贴个人账户信息、真实持仓或其他敏感内容，本技能无法阻止用户主动提交这些内容。
 - **自托管**：如需完全掌控数据流向，可参考 [GitHub 文档](https://github.com/KylinMountain/TradingAgents-AShare) 自行部署后端，并将 `TRADINGAGENTS_API_URL` 指向自建服务器。
 
-> **关于凭证元数据**：本技能的授权 frontmatter 已声明 `TRADINGAGENTS_TOKEN` 为 `required: true` 及 `primary_credential`，此为权威配置。若任何注册表缓存显示无必填环境变量，请以本 SKILL.md 为准。
+> **关于凭证元数据**：本技能的 frontmatter 已声明 `TRADINGAGENTS_TOKEN` 为 `required: true` 及 `primary_credential`。
 
 ## 🔒 Privacy & Data Transmission
 
@@ -100,7 +100,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **Sensitive content**: Do not paste personal account data, real positions, or other sensitive information into analysis requests.
 - **Self-hosting**: For full data sovereignty, deploy the backend yourself and set `TRADINGAGENTS_API_URL` to your server. See the [GitHub repo](https://github.com/KylinMountain/TradingAgents-AShare).
 
-> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `required: true` and `primary_credential`. This SKILL.md is authoritative — disregard any registry cache that omits the required env var.
+> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `required: true` and `primary_credential`.
 
 ## ⚙️ 快速配置
 
