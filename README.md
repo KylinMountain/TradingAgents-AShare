@@ -1,57 +1,17 @@
 # TradingAgents-AShare：A股智能投研多智能体系统
-**A-Share Intelligent Investment Research Terminal**
 
-本项目是基于多智能体协作 (Multi-Agent Collaboration) 的 A 股深度分析系统。它模拟顶级投研机构的决策闭环，通过 15名专业分析师的博弈与辩论，为投资者提供结构化的交易建议。
+本项目是基于多智能体协作的 A 股深度分析系统，模拟顶级投研机构的决策闭环，通过 15 名专业 Agent 的博弈与辩论，为投资者提供结构化的交易建议。
 
-**TradingAgents 已正式上线 OpenClaw！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。**
-
-## 核心能力
-
-### v0.6.0（当前版本）
-- **辩论对战可视化**：点击多头/空头/研究总监卡片打开「多空辩论」Drawer，点击激进/中性/稳健/组合经理卡片打开「风控三方辩论」Drawer。辩论过程以垂直时间线呈现，按 Round 分组，Token 级流式实时展示每位 Agent 的发言与裁决。
-- **风控辩论全面异步化**：风控三方辩论（激进/稳健/中性分析师）和风控裁决（组合经理）从同步调用升级为异步流式输出，辩论内容逐字输出到 Drawer，不再等待整段发言完成。
-- **安全存储升级**：API Token 采用 HMAC-SHA256 哈希存储（不可逆），用户 LLM Key 使用 AES 加密并支持密钥轮换时自动重加密。
-- **数据库连接池根治**：分析任务不再长期占用数据库连接（从分钟级降至毫秒级），所有手动 Session 统一改为 Context Manager 管理，杜绝连接泄漏。
-- **A 股决策颜色适配**：决策卡片遵循 A 股惯例，红色代表看多/买入，绿色代表看空/卖出。
-
-### v0.5.x
-- **Token 级流式输出**：全部 15 个 Agent 支持 astream 推送，对话框实时展示 LLM 推理过程。
-- **自选股与定时分析**：数据库持久化自选列表，支持定时自动分析（交易日收盘后触发），连续失败 3 次自动停用。
-- **Anthropic Extended Thinking**：支持 Claude 扩展思考内容块的解析与展示。
-- **OpenClaw Skill 集成**：`analyze.sh` 脚本支持自动化批量提交与轮询。
-- **多模型厂商支持**：OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换。
-
-### v0.4.x
-- **意图驱动解析**：自然语言对话（如"调研茅台短线"）触发自动标的识别与多周期分析。
-- **15 专家协作流**：技术面、基本面、舆情、新闻、宏观及主力资金 6 大维度，经 5 阶段博弈产出研报。
-- **Claim 驱动辩论**：多空研究员结构化辩论从自由辩论升级为 Claim 驱动，论证更聚焦。
-- **任务生命周期持久化**：分析任务支持服务重启恢复，报告增量写入。
-- **极致数据效能**：统一并行采集底座，彻底解决 API 频率限制，实现分析流程秒级启动。
-- **生产级容器化**：全架构 Docker 支持，前后端合一托管，tag 触发自动构建 CI。
-
-## 现代化 Web 交互
-
-系统已由传统的 CLI 界面全面升级为现代化的 Web 交互界面，支持实时任务进度追踪、响应式布局与结构化研报管理。
-[在线 Demo](https://app.510168.xyz)
+[在线 Demo](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://openclaw.com)
 
 <div align="center">
-  <img src="assets/web/analysis.png" width="100%" alt="智能分析"/><br><em>Agent 协作分析</em>
-  <table style="width: 100%">
-    <tr>
-      <td width="50%"><img src="assets/web/reports.png" alt="历史报告"/><br><em>研报历史管理</em></td>
-      <td width="50%"><img src="assets/web/detail.png" alt="研报详情"/><br><em>深度分析详情</em></td>
-    </tr>
-    <tr>
-      <td width="50%"><img src="assets/web/timer_analysis.png" alt="定时分析"/><br><em>定时分析</em></td>
-      <td width="50%"><img src="assets/web/dashboard.png" alt="控制台"/><br><em>数据控制台</em></td>
-    </tr>
-  </table>
+  <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
+  <p><em>15 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
 </div>
 
+## 核心架构
 
-## 核心架构与团队
-
-TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
+TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
 
 <p align="center">
   <img src="assets/schema.png" style="width: 100%; height: auto;">
@@ -59,38 +19,83 @@ TradingAgents 模拟了真实交易机构的部门协作，将复杂任务拆解
 
 *图中仅展示核心节点，完整流程包含 15 名智能体。
 
-### 1. 分析师团队 (Analyst Team)
-基本面、情绪、新闻、技术四大维度分析师同步作业，对市场数据进行深度提取与初步评估。
+**分析师团队** — 基本面、情绪、新闻、技术、宏观、主力资金 6 大维度同步作业，对市场数据进行深度提取与初步评估。
+
 <p align="center">
   <img src="assets/analyst.png" width="90%">
 </p>
 
-### 2. 研究员团队 (Researcher Team)
-由多头与空头研究员组成，针对分析师结论开展结构化辩论（红蓝对抗），在冲突中挖掘潜在收益并识别关键风险。
+**研究员团队** — 多头与空头研究员针对分析师结论开展 Claim 驱动的结构化辩论（红蓝对抗），研究总监综合裁决形成投资计划。
+
 <p align="center">
   <img src="assets/researcher.png" width="60%">
 </p>
 
-### 3. 决策与风控 (Trader & Risk Management)
-交易员根据辩论结果生成初始方案，风控团队进行流动性与波动率审查，最终由组合经理批准执行。
+**决策与风控** — 交易员将研究结论转化为可执行方案，激进/稳健/中性三方风控辩论审查，组合经理最终裁决。
+
 <p align="center">
   <img src="assets/risk.png" width="60%">
 </p>
 
+## 功能特性
 
+### 辩论对战可视化
+
+点击 Agent 卡片即可打开辩论 Drawer，实时观看多空对抗与风控三方辩论。垂直时间线按 Round 分组，Token 级流式呈现每位 Agent 的发言，裁决卡片独立高亮展示。
+
+<div align="center">
+  <img src="assets/web/debate_drawer.png" width="100%" alt="辩论对战可视化"/>
+</div>
+
+### 意图驱动的自然语言交互
+
+直接输入"调研茅台短线"即可自动识别标的、解析投资周期，支持短线与中线双周期并行分析，无需填写表单。
+
+### Token 级全链路流式输出
+
+全部 15 个 Agent 均支持 astream 推送，对话框与辩论 Drawer 实时展示 LLM 推理过程，全程零等待感。
+
+### 自选股与定时分析
+
+数据库持久化自选列表，支持每个交易日收盘后自动触发分析，连续失败自动停用，无需人工干预。
+
+<div align="center">
+  <img src="assets/web/timer_analysis.png" width="80%" alt="定时分析"/>
+</div>
+
+### 结构化研报管理
+
+分析结果结构化存储，支持按标的、日期检索历史研报，决策卡片一目了然地展示方向、置信度、目标价与止损价。
+
+<div align="center">
+  <table style="width: 100%">
+    <tr>
+      <td width="50%"><img src="assets/web/reports.png" alt="历史报告"/><br><em>研报历史</em></td>
+      <td width="50%"><img src="assets/web/detail.png" alt="研报详情"/><br><em>深度详情</em></td>
+    </tr>
+  </table>
+</div>
+
+### 多模型厂商支持
+
+OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型。
+
+### 生产级安全
+
+API Token HMAC-SHA256 哈希存储（不可逆）、用户 LLM Key AES 加密（支持密钥轮换自动重加密）、请求参数白名单过滤。
+
+### 容器化一键部署
+
+全架构 Docker 支持，前后端合一托管，tag 触发 CI 自动构建多平台镜像。
 
 ## 快速上手
 
-### 1. Docker 一键部署 (推荐)
-如果您想快速运行完整服务（前后端合一），可以直接使用我们提供的 Docker 镜像：
+### Docker 一键部署 (推荐)
 
 ```bash
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 
-# 创建数据目录（数据库及 WAL 文件会持久化在此）
 mkdir -p $(pwd)/data
-
-# 生成安全密钥（仅首次需要，请妥善保存）
 export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
 
 docker run -d -p 8000:8000 \
@@ -101,129 +106,76 @@ docker run -d -p 8000:8000 \
   ghcr.io/kylinmountain/tradingagents-ashare:latest
 ```
 
-> **关于 `TA_APP_SECRET_KEY`**：用于加密用户保存的 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且设置后不可更改，否则已加密的数据将无法解密。
-
-> **LLM 配置**：启动后用户可在前端"设置"页面自行配置模型厂商、API Key 和模型名称，无需通过环境变量预设。如需服务端默认值，可添加 `TA_API_KEY` 和 `TA_BASE_URL` 环境变量。
-
-> **从旧版升级？** 如果之前用的是 `-v tradingagents.db:/app/tradingagents.db` 单文件挂载，请将 db 文件移到 `data/` 目录下，改用目录挂载方式。
-
 访问 `http://localhost:8000` 即可使用。
 
-### 2. 源码安装
+> **`TA_APP_SECRET_KEY`**：用于加密用户 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且不可更改。
 
-#### 2.1 环境准备
-克隆项目：
+> **LLM 配置**：启动后在前端"设置"页面配置模型厂商、API Key 和模型名称即可，无需环境变量预设。
+
+### 源码安装
+
 ```bash
 git clone https://github.com/KylinMountain/TradingAgents-AShare.git
 cd TradingAgents-AShare
-```
 
-安装后端（Python 3.10+，推荐使用 [uv](https://github.com/astral-sh/uv)）：
-```bash
+# 后端（Python 3.10+）
 uv sync
-```
 
-安装前端（Node.js 18+）：
-```bash
+# 前端（Node.js 18+）
 cd frontend && npm install
 ```
 
-#### 2.2 配置
-复制 `.env.example` 到 `.env` 并按需修改：
-```env
-# 安全密钥（生产环境必须设置）
-TA_APP_SECRET_KEY=   # openssl rand -base64 32 生成
+复制 `.env.example` 到 `.env` 并按需修改，然后：
 
-# 服务端默认 LLM 配置（可选，用户也可在前端设置页配置）
-TA_API_KEY=你的密钥
-TA_BASE_URL=https://api.openai.com/v1
-TA_LLM_QUICK=gpt-4o-mini
-TA_LLM_DEEP=gpt-4o
-
-# 数据库（默认本地 SQLite）
-DATABASE_URL=sqlite:///./tradingagents.db
-```
-
-#### 2.3 启动运行
-**启动后端 API**：
 ```bash
+# 启动后端
 uv run python -m uvicorn api.main:app --port 8000
-```
 
-**启动前端界面**：
-```bash
+# 启动前端（另一个终端）
 cd frontend && npm run dev
 ```
-访问 `http://localhost:5173` 即可开始您的 AI 投研之旅。
 
+访问 `http://localhost:5173` 即可开始 AI 投研之旅。
 
 ## API 集成
 
-系统提供标准的 REST API，方便集成到自定义脚本、交易机器人或第三方看板：
+系统提供标准 REST API，方便集成到自定义脚本、交易机器人或第三方看板：
 
-1. **触发分析**：`POST /v1/analyze` -> 立即返回 `job_id`
-2. **状态追踪**：`GET /v1/jobs/{job_id}` -> 轮询 `status`
-3. **获取结果**：`GET /v1/jobs/{job_id}/result` -> 拿到结构化研报
-4. **历史检索**：`GET /v1/reports` -> 拉取过往所有分析记录
+| 操作 | 接口 |
+|------|------|
+| 触发分析 | `POST /v1/analyze` → 返回 `job_id` |
+| 状态追踪 | `GET /v1/jobs/{job_id}` |
+| 获取结果 | `GET /v1/jobs/{job_id}/result` |
+| 历史检索 | `GET /v1/reports` |
 
-生产环境 Base URL：
-
-- `https://api.510168.xyz`
-
-认证方式：
-
-- 在 Web 端登录后，进入"设置 / API Token"生成专属 API Key
-- 调用接口时通过 `Authorization: Bearer <YOUR_API_TOKEN>` 传入
-- Token 仅在创建时显示一次，请立即保存
-
-示例：触发一次股票分析
+认证：Web 端登录后在"设置 / API Token"生成密钥，通过 `Authorization: Bearer <TOKEN>` 传入。
 
 ```bash
 curl -X POST 'https://app.510168.xyz/v1/analyze' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
-  -d '{
-    "symbol": "分析一下600519.SH短期趋势",
-    "trade_date": "2026-03-11"
-  }'
-```
-
-拿到 `job_id` 后继续查询：
-
-```bash
-curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
-  'https://app.510168.xyz/v1/jobs/<JOB_ID>'
-
-curl -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
-  'https://app.510168.xyz/v1/jobs/<JOB_ID>/result'
+  -d '{"symbol": "分析一下600519.SH短期趋势", "trade_date": "2026-03-28"}'
 ```
 
 ## 集成 OpenClaw
 
-可以把 TradingAgents-AShare 作为 OpenClaw 的外部分析能力来调用，让 OpenClaw 负责"接收任务 -> 指定股票 -> 发起分析 -> 回收结果 -> 继续编排后续动作"。
-
-推荐接法：
-
 1. 在本站生成 API Key
-2. 在 OpenClaw 中安装技能`tradingagents-analysis`
+2. 在 OpenClaw 中安装技能 `tradingagents-analysis`
 
-一个典型任务可以是：
+示例任务："分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。"
 
-- "分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。"
+## 特别鸣谢
 
-
-## 特别鸣谢 (Credits)
-
-本项目作为二次开发作品，核心架构灵感与部分基础逻辑源自[TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。
+本项目核心架构灵感与部分基础逻辑源自 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。
 
 ## 许可说明
 - 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache 2.0) 二次开发。
 - 新增模块 (`api/`, `frontend/`) 及对核心逻辑的深度修改采用 `PolyForm Noncommercial 1.0.0` 协议。
 - 详情请参阅根目录下的 [LICENSE](./LICENSE) 文件。
 
-## 重要声明 (Disclaimer)
+## 重要声明
 - **仅供学习研究**：本项目仅用于学术研究、技术演示及学习交流目的，不构成任何形式的投资建议。
-- **实盘风险**：证券市场有风险，投资需谨慎。基于本系统智能体生成的任何观点、建议或计划，仅代表算法博弈结果，不对实际投资损益负责。
+- **实盘风险**：证券市场有风险，投资需谨慎。基于本系统生成的任何观点、建议或计划，仅代表算法博弈结果，不对实际投资损益负责。
 - **数据延迟**：分析所依赖的数据源可能存在延迟或偏差，请以交易所实时公告为准。
 
 <div align="center">
