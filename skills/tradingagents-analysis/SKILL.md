@@ -1,22 +1,51 @@
 ---
 name: tradingagents-analysis
-description: 专业 A 股多智能体投研工具。15 名 AI 分析师五阶段协作，深度分析技术面、基本面、市场情绪与资金流向，提供结构化交易建议。Professional multi-agent investment research for A-Share & US stocks — market, fundamentals, sentiment, smart money.
+version: 0.6.0
+description: >-
+  A股/美股多智能体 AI 投研分析工具 — 15 名 AI 分析师协作完成技术分析、基本面分析、
+  市场情绪研判、资金流向追踪（北向资金/主力资金）、宏观经济分析及博弈论推演，
+  输出结构化买卖建议与风险评估。支持沪深 A 股（股票代码、中文名称）和美股 Ticker。
+  Multi-agent AI stock analysis for China A-shares and US equities.
+  15 specialized analysts collaborate across technical analysis, fundamental analysis,
+  sentiment analysis, smart money flow tracking, macro economics, and game theory
+  to deliver structured buy/sell/hold recommendations with risk assessment.
 homepage: https://app.510168.xyz
 repository: https://github.com/KylinMountain/TradingAgents-AShare
 tags:
+  - stock-analysis
+  - A-share
   - A股
   - 股票分析
+  - 股票
+  - 炒股
+  - trading
+  - investment
+  - 投资
+  - 投研
   - 量化投研
-  - 多智能体
-  - TradingAgent
-  - A-share
-  - stock-analysis
-  - China
-  - Multi-Agent
   - 研报
-  - 资金流向
+  - multi-agent
+  - 多智能体
+  - technical-analysis
   - 技术分析
+  - fundamental-analysis
   - 基本面分析
+  - sentiment-analysis
+  - 市场情绪
+  - smart-money
+  - 资金流向
+  - 北向资金
+  - 主力资金
+  - finance
+  - 金融
+  - China
+  - 中国股市
+  - 沪深
+  - US-stocks
+  - 美股
+  - quant
+  - risk-assessment
+  - 风险评估
 env:
   TRADINGAGENTS_TOKEN:
     description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
