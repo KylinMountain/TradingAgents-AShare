@@ -57,19 +57,23 @@ def create_bull_researcher(llm, memory):
 
         # ── 实现 Token 级流式输出 ──────────────────
         tracker = current_tracker_var.get()
+        try:
+            debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
+        except (ValueError, TypeError):
+            debate_round = 1
         full_content = ""
         async for chunk in llm.astream(prompt):
             content = chunk.content if hasattr(chunk, "content") else str(chunk)
             full_content += content
             if tracker:
                 tracker._emit_token("Bull Researcher", "investment_debate_state", content)
+                tracker.emit_debate_token(
+                    debate="research", agent="Bull Researcher",
+                    round_num=debate_round, token=content,
+                )
 
-        # ── 推送辩论消息 ──
+        # ── 推送辩论完整消息（标记流式结束）──
         if tracker:
-            try:
-                debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
-            except (ValueError, TypeError):
-                debate_round = 1
             tracker.emit_debate_message(
                 debate="research", agent="Bull Researcher",
                 round_num=debate_round, content=full_content,

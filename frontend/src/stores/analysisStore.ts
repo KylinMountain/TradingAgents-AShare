@@ -109,6 +109,7 @@ interface AnalysisState {
     setMessageContent: (id: string, content: string) => void
     markAgentMessagesComplete: (msgIds?: string[]) => void
     addDebateMessage: (msg: DebateMessage) => void
+    appendDebateToken: (debate: string, agent: string, round: number, token: string, horizon?: string) => void
     clearChatMessages: () => void
     clearSession: () => void
     reset: () => void
@@ -335,13 +336,34 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         })
     })),
 
+    // upsert: 同 agent+round 则替换（流式结束时用完整内容覆盖）
     addDebateMessage: (msg) => set((state) => {
         const key = msg.debate
         const existing = state.debateMessages[key] || []
+        const idx = existing.findIndex(m => m.agent === msg.agent && m.round === msg.round)
+        const updated = idx >= 0
+            ? existing.map((m, i) => i === idx ? msg : m)
+            : [...existing, msg]
+        return {
+            debateMessages: { ...state.debateMessages, [key]: updated }
+        }
+    }),
+
+    // 流式 token 追加：找到已有消息则追加 content，否则创建新消息
+    appendDebateToken: (debate, agent, round, token, horizon) => set((state) => {
+        const key = debate
+        const existing = state.debateMessages[key] || []
+        const idx = existing.findIndex(m => m.agent === agent && m.round === round)
+        if (idx >= 0) {
+            const updated = existing.map((m, i) =>
+                i === idx ? { ...m, content: m.content + token } : m
+            )
+            return { debateMessages: { ...state.debateMessages, [key]: updated } }
+        }
         return {
             debateMessages: {
                 ...state.debateMessages,
-                [key]: [...existing, msg],
+                [key]: [...existing, { debate: debate as 'research' | 'risk', agent, round, content: token, horizon }],
             }
         }
     }),

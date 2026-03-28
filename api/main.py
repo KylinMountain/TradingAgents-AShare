@@ -1153,6 +1153,27 @@ class AgentProgressTracker:
             },
         )
 
+    def emit_debate_token(
+        self, debate: str, agent: str, round_num: int, token: str,
+    ) -> None:
+        """推送辩论 token（流式输出，每个 chunk 调用一次）"""
+        if not token:
+            return
+        try:
+            _emit_job_event(
+                self.job_id,
+                "agent.debate.token",
+                {
+                    "debate": debate,
+                    "agent": agent,
+                    "round": round_num,
+                    "token": token,
+                    "horizon": self.horizon,
+                },
+            )
+        except Exception:
+            pass
+
     def emit_debate_message(
         self, debate: str, agent: str, round_num: int,
         content: str, is_verdict: bool = False,

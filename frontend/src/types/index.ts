@@ -133,6 +133,7 @@ export type SSEEventType =
     | 'agent.activity_complete'
     | 'agent.token'
     | 'agent.debate'
+    | 'agent.debate.token'
 
 export interface SSEEvent {
     event: SSEEventType

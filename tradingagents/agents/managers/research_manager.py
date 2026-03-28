@@ -50,8 +50,12 @@ def create_research_manager(llm, memory):
             full_content += content
             if tracker:
                 tracker._emit_token("Research Manager", "investment_plan", content)
+                tracker.emit_debate_token(
+                    debate="research", agent="Research Manager",
+                    round_num=-1, token=content,
+                )
 
-        # ── 推送辩论裁决 ──
+        # ── 推送辩论裁决（标记流式结束）──
         if tracker:
             tracker.emit_debate_message(
                 debate="research", agent="Research Manager",
