@@ -9,33 +9,7 @@
   <p><em>15 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
 </div>
 
-## 核心架构
-
-TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
-
-<p align="center">
-  <img src="assets/schema.png" style="width: 100%; height: auto;">
-</p>
-
-*图中仅展示核心节点，完整流程包含 15 名智能体。
-
-**分析师团队** — 基本面、情绪、新闻、技术、宏观、主力资金 6 大维度同步作业，对市场数据进行深度提取与初步评估。
-
-<p align="center">
-  <img src="assets/analyst.png" width="90%">
-</p>
-
-**研究员团队** — 多头与空头研究员针对分析师结论开展 Claim 驱动的结构化辩论（红蓝对抗），研究总监综合裁决形成投资计划。
-
-<p align="center">
-  <img src="assets/researcher.png" width="60%">
-</p>
-
-**决策与风控** — 交易员将研究结论转化为可执行方案，激进/稳健/中性三方风控辩论审查，组合经理最终裁决。
-
-<p align="center">
-  <img src="assets/risk.png" width="60%">
-</p>
+> TradingAgents-AShare 已正式上线 OpenClaw！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。
 
 ## 功能特性
 
@@ -44,7 +18,7 @@ TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为
 点击 Agent 卡片即可打开辩论 Drawer，实时观看多空对抗与风控三方辩论。垂直时间线按 Round 分组，Token 级流式呈现每位 Agent 的发言，裁决卡片独立高亮展示。
 
 <div align="center">
-  <img src="assets/web/debate_drawer.png" width="100%" alt="辩论对战可视化"/>
+  <img src="assets/web/debate_drawer.png" width="80%" alt="辩论对战可视化"/>
 </div>
 
 ### 意图驱动的自然语言交互
@@ -79,6 +53,37 @@ OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动
 <div align="center">
   <img src="assets/web/settings.png" width="80%" alt="定时分析"/>
 </div>
+
+## 核心架构
+
+TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
+
+<p align="center">
+  <img src="assets/schema.png" style="width: 100%; height: auto;">
+</p>
+
+*图中仅展示核心节点，完整流程包含 15 名智能体。
+
+### 分析师团队
+基本面、情绪、新闻、技术、宏观、主力资金 6 大维度同步作业，对市场数据进行深度提取与初步评估。
+
+<p align="center">
+  <img src="assets/analyst.png" width="90%">
+</p>
+
+### 研究员团队
+多头与空头研究员针对分析师结论开展 Claim 驱动的结构化辩论（红蓝对抗），研究总监综合裁决形成投资计划。
+
+<p align="center">
+  <img src="assets/researcher.png" width="80%">
+</p>
+
+### 决策与风控
+交易员将研究结论转化为可执行方案，激进/稳健/中性三方风控辩论审查，组合经理最终裁决。
+
+<p align="center">
+  <img src="assets/risk.png" width="80%">
+</p>
 
 ## 快速上手
 
