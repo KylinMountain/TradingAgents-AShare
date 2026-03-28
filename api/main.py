@@ -2993,7 +2993,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
 @app.post("/v1/auth/request-code")
 def request_login_code(request: AuthRequestCodeRequest):
     email = auth_service.normalize_email(request.email)
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+    if not re.match(r"^[^@\s]+@[^@\s.]+\.[^@\s.]+$", email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     with get_db_ctx() as db:
         code = auth_service.upsert_login_code(db, email)
