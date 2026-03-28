@@ -232,10 +232,6 @@ reports/
 results/
 
 # Private dirs (not open-source for now)
-docs/*
-!docs/design-game-theory-agents.zh-CN.md
-!docs/design-agent-architecture-evolution.zh-CN.md
-!docs/implementation-plan-agent-architecture.zh-CN.md
 deploy/
 
 # Local development artifacts
