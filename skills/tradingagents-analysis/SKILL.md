@@ -131,13 +131,24 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 
 ## ⚙️ 快速配置
 
+**方式一：使用官方托管服务（零部署，开箱即用）**
+
 1. 登录 [https://app.510168.xyz](https://app.510168.xyz)
 2. 进入 **Settings → API Tokens** 创建令牌
 3. 配置环境变量：
 ```bash
 export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
-# 可选，自托管时使用：
-# export TRADINGAGENTS_API_URL="http://your-server:8000"
+```
+
+**方式二：私有化部署（数据完全自主可控）**
+
+如对数据隐私有要求，可自行部署后端，所有分析数据仅在你自己的服务器上处理：
+
+```bash
+# 1. 部署后端，参考 https://github.com/KylinMountain/TradingAgents-AShare
+# 2. 将 API 地址指向自建服务
+export TRADINGAGENTS_API_URL="http://your-server:8000"
+export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
 ```
 
 ## 🚀 常用操作
