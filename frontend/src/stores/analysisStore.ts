@@ -360,10 +360,11 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             )
             return { debateMessages: { ...state.debateMessages, [key]: updated } }
         }
+        const isVerdict = round === -1
         return {
             debateMessages: {
                 ...state.debateMessages,
-                [key]: [...existing, { debate: debate as 'research' | 'risk', agent, round, content: token, horizon }],
+                [key]: [...existing, { debate: debate as 'research' | 'risk', agent, round, content: token, isVerdict, horizon }],
             }
         }
     }),

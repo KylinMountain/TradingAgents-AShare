@@ -58,7 +58,7 @@ def create_bear_researcher(llm, memory):
         # ── 实现 Token 级流式输出 ──────────────────
         tracker = current_tracker_var.get()
         try:
-            debate_round = int(investment_debate_state.get("count", 0) or 0) + 1
+            debate_round = int(investment_debate_state.get("count", 0) or 0) // 2 + 1
         except (ValueError, TypeError):
             debate_round = 1
         full_content = ""

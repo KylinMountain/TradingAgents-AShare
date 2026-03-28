@@ -13,7 +13,7 @@ from tradingagents.agents.utils.debate_utils import (
 
 
 def create_risk_manager(llm, memory):
-    def risk_manager_node(state) -> dict:
+    async def risk_manager_node(state) -> dict:
 
         company_name = state["company_of_interest"]
 
@@ -47,8 +47,19 @@ def create_risk_manager(llm, memory):
             round_summary=risk_debate_state.get("round_summary", "暂无风险轮次摘要。"),
         )
 
-        response = llm.invoke(prompt)
-        judge_result = extract_risk_judge_result(response.content)
+        # ── 流式输出 ──
+        tracker = current_tracker_var.get()
+        full_content = ""
+        async for chunk in llm.astream(prompt):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            full_content += content
+            if tracker:
+                tracker.emit_debate_token(
+                    debate="risk", agent="Portfolio Manager",
+                    round_num=-1, token=content,
+                )
+
+        judge_result = extract_risk_judge_result(full_content)
         cleaned_response = judge_result["cleaned_response"]
         verdict = judge_result["verdict"]
         hard_constraints = judge_result["hard_constraints"]
@@ -57,8 +68,7 @@ def create_risk_manager(llm, memory):
         de_risk_triggers = judge_result["de_risk_triggers"]
         revision_reason = judge_result["revision_reason"]
 
-        # ── 推送辩论裁决 ──
-        tracker = current_tracker_var.get()
+        # ── 推送辩论裁决（用 cleaned 覆盖流式 raw content）──
         if tracker:
             tracker.emit_debate_message(
                 debate="risk", agent="Portfolio Manager",

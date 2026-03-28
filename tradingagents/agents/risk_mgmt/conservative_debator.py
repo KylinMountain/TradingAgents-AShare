@@ -1,4 +1,3 @@
-from langchain_core.messages import AIMessage
 import time
 import json
 from tradingagents.dataflows.config import get_config
@@ -13,7 +12,7 @@ from tradingagents.agents.utils.debate_utils import (
 
 
 def create_conservative_debator(llm):
-    def conservative_node(state) -> dict:
+    async def conservative_node(state) -> dict:
         risk_debate_state = state["risk_debate_state"]
         history = risk_debate_state.get("history", "")
         conservative_history = risk_debate_state.get("conservative_history", "")
@@ -49,12 +48,26 @@ def create_conservative_debator(llm):
             round_goal=round_goal,
         )
 
-        response = llm.invoke(prompt)
+        # ── 流式输出 ──
+        tracker = current_tracker_var.get()
+        try:
+            debate_round = int(risk_debate_state.get("count", 0) or 0) // 3 + 1
+        except (ValueError, TypeError):
+            debate_round = 1
+        full_content = ""
+        async for chunk in llm.astream(prompt):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            full_content += content
+            if tracker:
+                tracker.emit_debate_token(
+                    debate="risk", agent="Conservative Analyst",
+                    round_num=debate_round, token=content,
+                )
 
-        clean_response = strip_tagged_json(response.content, "RISK_STATE")
+        clean_response = strip_tagged_json(full_content, "RISK_STATE")
         new_risk_debate_state = update_debate_state_with_payload(
             state=risk_debate_state,
-            raw_response=response.content,
+            raw_response=full_content,
             speaker_label="Conservative Analyst",
             speaker_key="Conservative",
             stance="conservative",
@@ -65,13 +78,7 @@ def create_conservative_debator(llm):
             speaker_field="latest_speaker",
             store_current_response=False,
         )
-        # ── 推送辩论消息 ──
-        tracker = current_tracker_var.get()
         if tracker:
-            try:
-                debate_round = int(risk_debate_state.get("count", 0) or 0) + 1
-            except (ValueError, TypeError):
-                debate_round = 1
             tracker.emit_debate_message(
                 debate="risk", agent="Conservative Analyst",
                 round_num=debate_round, content=clean_response,
