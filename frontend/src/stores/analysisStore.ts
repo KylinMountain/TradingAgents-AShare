@@ -66,6 +66,7 @@ interface AnalysisState {
 
     // Debate messages (transient, for battle view)
     debateMessages: Record<string, DebateMessage[]>
+    debateScrollTick: number
 
     // Chat messages (persisted across route changes)
     chatMessages: ChatMessage[]
@@ -179,6 +180,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     streamingSections: {},
     milestones: [],
     debateMessages: {},
+        debateScrollTick: 0,
     chatMessages: createInitialChatMessages(),
     logs: [],
     isAnalyzing: false,
@@ -352,20 +354,22 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     // 流式 token 追加：找到已有消息则追加 content，否则创建新消息
     appendDebateToken: (debate, agent, round, token, horizon) => set((state) => {
         const key = debate
+        const tick = state.debateScrollTick + 1
         const existing = state.debateMessages[key] || []
         const idx = existing.findIndex(m => m.agent === agent && m.round === round)
         if (idx >= 0) {
             const updated = existing.map((m, i) =>
                 i === idx ? { ...m, content: m.content + token } : m
             )
-            return { debateMessages: { ...state.debateMessages, [key]: updated } }
+            return { debateMessages: { ...state.debateMessages, [key]: updated }, debateScrollTick: tick }
         }
         const isVerdict = round === -1
         return {
             debateMessages: {
                 ...state.debateMessages,
                 [key]: [...existing, { debate: debate as 'research' | 'risk', agent, round, content: token, isVerdict, horizon }],
-            }
+            },
+            debateScrollTick: tick,
         }
     }),
 
@@ -387,6 +391,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobStopLoss: null,
         streamingSections: {},
         debateMessages: {},
+        debateScrollTick: 0,
         milestones: [],
         chatMessages: createInitialChatMessages(),
         logs: [],
@@ -431,6 +436,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobStopLoss: null,
         streamingSections: {},
         debateMessages: {},
+        debateScrollTick: 0,
         milestones: [],
         // 注意：reset时不清空chatMessages，保持对话历史
         logs: [],
@@ -464,6 +470,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             agents: initialAgents.map(a => ({ ...a, status: 'pending' })),
             streamingSections: {},
             debateMessages: {},
+        debateScrollTick: 0,
             milestones: [],
             logs: [],
             isAnalyzing: false,

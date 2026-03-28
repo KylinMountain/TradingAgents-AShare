@@ -29,7 +29,9 @@ interface DebateDrawerProps {
 
 export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
     const debateMessages = useAnalysisStore(s => s.debateMessages)
+    const scrollTick = useAnalysisStore(s => s.debateScrollTick)
     const scrollRef = useRef<HTMLDivElement>(null)
+    const userScrolledUp = useRef(false)
     const messages = debate ? (debateMessages[debate] || []) : []
     const meta = debate ? DEBATE_TITLES[debate] : null
     const participants = debate ? DEBATE_PARTICIPANTS[debate] : []
@@ -46,20 +48,19 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
         }
     }, [debate, handleKeyDown])
 
-    // Auto-scroll during streaming — skip if user has scrolled up
-    const lastContentLen = useRef(0)
-    useEffect(() => {
+    // Track if user has scrolled up
+    const handleScroll = useCallback(() => {
         const el = scrollRef.current
         if (!el) return
-        const totalLen = messages.reduce((s, m) => s + m.content.length, 0)
-        if (totalLen === lastContentLen.current) return
-        lastContentLen.current = totalLen
-        // Only auto-scroll if near bottom (within 150px)
-        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
-        if (nearBottom) {
-            el.scrollTop = el.scrollHeight
-        }
-    }, [messages])
+        userScrolledUp.current = el.scrollHeight - el.scrollTop - el.clientHeight > 80
+    }, [])
+
+    // Auto-scroll on every token tick — skip if user scrolled up
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!el || userScrolledUp.current) return
+        el.scrollTop = el.scrollHeight
+    }, [scrollTick, messages.length])
 
     if (!debate) return null
 
@@ -98,7 +99,7 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
                 </div>
 
                 {/* Scrollable timeline */}
-                <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+                <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
                     <DebateTimeline messages={messages} debate={debate} />
                 </div>
             </div>
