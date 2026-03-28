@@ -2,10 +2,10 @@
 name: tradingagents-analysis
 version: 0.6.0
 description: >-
-  A股/美股多智能体 AI 投研分析工具 — 15 名 AI 分析师协作完成技术分析、基本面分析、
+  A股多智能体 AI 投研分析工具 — 15 名 AI 分析师协作完成技术分析、基本面分析、
   市场情绪研判、资金流向追踪（北向资金/主力资金）、宏观经济分析及博弈论推演，
-  输出结构化买卖建议与风险评估。支持沪深 A 股（股票代码、中文名称）和美股 Ticker。
-  Multi-agent AI stock analysis for China A-shares and US equities.
+  输出结构化买卖建议与风险评估。支持沪深 A 股股票代码和中文名称。
+  Multi-agent AI stock analysis for China A-shares.
   15 specialized analysts collaborate across technical analysis, fundamental analysis,
   sentiment analysis, smart money flow tracking, macro economics, and game theory
   to deliver structured buy/sell/hold recommendations with risk assessment.
@@ -41,8 +41,6 @@ tags:
   - China
   - 中国股市
   - 沪深
-  - US-stocks
-  - 美股
   - quant
   - risk-assessment
   - 风险评估
@@ -87,7 +85,7 @@ metadata: {"clawdbot":{"emoji":"📈"}}
 
 # TradingAgents Multi-Agent Investment Research
 
-Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, five-stage collaborative research on A-Share and US stocks, delivering structured trading recommendations.
+Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, five-stage collaborative research on A-Share stocks, delivering structured trading recommendations.
 
 ## 🤖 System Architecture: 5 Stages · 15 Agents
 
@@ -111,7 +109,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 ❌ **不适合：**
 - 盘中实时盯盘（分析需要 1-5 分钟）
 - 超短线交易（分钟级决策）
-- 加密货币分析（仅支持 A 股/美股）
+- 加密货币、美股等非 A 股市场
 
 ## 🔒 隐私与安全
 
@@ -153,7 +151,7 @@ bash scripts/analyze.sh <symbol[,symbol2,...]> [trade_date] [horizons]
 # 单个分析
 bash scripts/analyze.sh 贵州茅台
 bash scripts/analyze.sh 600519.SH 2026-03-22
-bash scripts/analyze.sh AAPL 2026-03-22 short,medium
+bash scripts/analyze.sh 600519.SH 2026-03-22 short,medium
 
 # 批量分析（逗号分隔，并行提交，统一等待）
 bash scripts/analyze.sh 贵州茅台,比亚迪,宁德时代
@@ -226,8 +224,7 @@ curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" 
 
 ## 📌 支持标的范围
 
-- **A 股**：中文名称（如 "比亚迪"、"宁德时代"）或代码（`002594.SZ`、`601012.SH`）
-- **美股**：`AAPL`、`TSLA`、`NVDA` 等标准 Ticker
+- **沪深 A 股**：中文名称（如 "比亚迪"、"宁德时代"）或代码（`002594.SZ`、`601012.SH`）
 
 ## 💡 注意事项
 
