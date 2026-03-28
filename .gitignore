@@ -1,3 +1,6 @@
+# Docs (local design/plan documents)
+docs/
+
 # LangGraph Checkpoints
 graph_checkpoints.db
 graph_checkpoints.db-shm
