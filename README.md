@@ -2,7 +2,7 @@
 
 本项目是基于多智能体协作的 A 股深度分析系统，模拟顶级投研机构的决策闭环，通过 15 名专业 Agent 的博弈与辩论，为投资者提供结构化的交易建议。
 
-[在线 Demo](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://openclaw.com)
+[在线体验](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://openclaw.com)
 
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
@@ -49,11 +49,7 @@ TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为
 
 ### 意图驱动的自然语言交互
 
-直接输入"调研茅台短线"即可自动识别标的、解析投资周期，支持短线与中线双周期并行分析，无需填写表单。
-
-### Token 级全链路流式输出
-
-全部 15 个 Agent 均支持 astream 推送，对话框与辩论 Drawer 实时展示 LLM 推理过程，全程零等待感。
+直接输入"调研茅台短线"即可自动识别标的、解析投资周期，支持短线与中线双周期分析，无需填写表单。
 
 ### 自选股与定时分析
 
@@ -80,13 +76,9 @@ TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为
 
 OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型。
 
-### 生产级安全
-
-API Token HMAC-SHA256 哈希存储（不可逆）、用户 LLM Key AES 加密（支持密钥轮换自动重加密）、请求参数白名单过滤。
-
-### 容器化一键部署
-
-全架构 Docker 支持，前后端合一托管，tag 触发 CI 自动构建多平台镜像。
+<div align="center">
+  <img src="assets/web/settings.png" width="80%" alt="定时分析"/>
+</div>
 
 ## 快速上手
 
@@ -122,7 +114,7 @@ cd TradingAgents-AShare
 uv sync
 
 # 前端（Node.js 18+）
-cd frontend && npm install
+cd frontend && npm run build
 ```
 
 复制 `.env.example` 到 `.env` 并按需修改，然后：
@@ -130,12 +122,9 @@ cd frontend && npm install
 ```bash
 # 启动后端
 uv run python -m uvicorn api.main:app --port 8000
-
-# 启动前端（另一个终端）
-cd frontend && npm run dev
 ```
 
-访问 `http://localhost:5173` 即可开始 AI 投研之旅。
+访问 `http://localhost:8000` 即可开始 AI 投研之旅。
 
 ## API 集成
 
