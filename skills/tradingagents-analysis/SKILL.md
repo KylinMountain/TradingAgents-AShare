@@ -1,6 +1,6 @@
 ---
 name: tradingagents-analysis
-version: 0.6.0
+version: 0.6.1
 description: >-
   A股多智能体 AI 投研分析工具 — 15 名 AI 分析师协作完成技术分析、基本面分析、
   市场情绪研判、资金流向追踪（北向资金/主力资金）、宏观经济分析及博弈论推演，
