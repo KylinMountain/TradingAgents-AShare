@@ -18,16 +18,23 @@ tags:
   - 股票分析
   - 股票
   - 炒股
+  - 选股
+  - 荐股
   - trading
   - investment
   - 投资
   - 投研
   - 量化投研
   - 研报
+  - 盘后分析
+  - 复盘
   - multi-agent
   - 多智能体
+  - AI分析
+  - AI炒股
   - technical-analysis
   - 技术分析
+  - K线
   - fundamental-analysis
   - 基本面分析
   - sentiment-analysis
@@ -36,14 +43,20 @@ tags:
   - 资金流向
   - 北向资金
   - 主力资金
+  - 龙虎榜
   - finance
   - 金融
   - China
   - 中国股市
   - 沪深
+  - 上证
+  - 深证
   - quant
   - risk-assessment
   - 风险评估
+  - 买卖建议
+  - claude-code
+  - openclaw
 env:
   TRADINGAGENTS_TOKEN:
     description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
