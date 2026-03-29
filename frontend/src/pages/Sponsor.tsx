@@ -13,7 +13,7 @@ export default function Sponsor() {
                     {/* Header */}
                     <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-6 py-5 text-center">
                         <Heart className="w-8 h-8 text-white mx-auto mb-2" fill="white" />
-                        <h1 className="text-xl font-bold text-white">支持 TradingAgents</h1>
+                        <h1 className="text-xl font-bold text-white">支持 TradingAgents-AShare</h1>
                         <p className="text-pink-100 text-sm mt-1">你的支持是项目持续发展的动力</p>
                     </div>
 
