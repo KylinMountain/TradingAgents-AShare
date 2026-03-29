@@ -28,6 +28,7 @@ export default function Sponsor() {
                             />
                         </div>
                         <p className="text-xs text-slate-400 dark:text-slate-500 mt-4">金额随意，心意最重要</p>
+                        <p className="text-sm text-rose-400 dark:text-rose-300 mt-2 font-medium">祝您股市长红，收益长虹 🚀</p>
                     </div>
 
                     {/* Footer links */}
