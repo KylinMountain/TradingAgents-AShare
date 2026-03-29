@@ -104,7 +104,10 @@ _AGENT_SECTIONS = [
 ]
 
 
-def render_report_html(report: "ReportDB") -> str:
+_GITHUB_URL = "https://github.com/KylinMountain/TradingAgents-AShare"
+
+
+def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
     """Render a *ReportDB* instance as an HTML email string with inline CSS."""
 
     symbol = _escape(report.symbol or "")
@@ -214,9 +217,28 @@ def render_report_html(report: "ReportDB") -> str:
         parts.append(f'<div style="font-size:13px;color:#374151;line-height:1.6;background:#f9fafb;padding:12px;border-radius:4px;">{escaped_ftd}</div>')
         parts.append('</td></tr>')
 
+    # --- view full report button ---
+    if frontend_url:
+        report_url = f"{frontend_url.rstrip('/')}/reports?report={report.id}"
+        parts.append('<tr><td style="padding:20px 24px;" align="center">')
+        parts.append(
+            f'<a href="{_escape(report_url)}" target="_blank" style="'
+            'display:inline-block;background:#1e3a5f;color:#ffffff;'
+            'font-size:14px;font-weight:bold;padding:10px 28px;'
+            'border-radius:6px;text-decoration:none;">'
+            '查看完整报告</a>'
+        )
+        parts.append('</td></tr>')
+
     # --- footer ---
     parts.append('<tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;text-align:center;">')
     parts.append('<p style="margin:0;font-size:11px;color:#9ca3af;">本报告由 TradingAgents 系统自动生成，仅供参考，不构成投资建议。</p>')
+    parts.append(
+        f'<p style="margin:6px 0 0;font-size:11px;color:#9ca3af;">'
+        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">TradingAgents-AShare</a>'
+        f' — A 股多智能体智能投研系统，15 名 AI Agent 协作分析，全流程可视化。'
+        f'</p>'
+    )
     parts.append('</td></tr>')
     parts.append('</table></td></tr></table></body></html>')
 
@@ -248,9 +270,14 @@ def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
     smtp_ssl_tls_str = _get_env_alias(["MAIL_SSL", "MAIL_SSL_TLS"], "0").strip().lower()
     smtp_ssl_tls = smtp_ssl_tls_str in ("1", "true", "on", "yes")
 
-    html_body = render_report_html(report)
+    frontend_url = _get_env_alias(["FRONTEND_URL", "BASE_URL"]).strip()
+    html_body = render_report_html(report, frontend_url=frontend_url)
     symbol = report.symbol or ""
     trade_date = report.trade_date or ""
+
+    report_link = ""
+    if frontend_url:
+        report_link = f"\n\n查看完整报告: {frontend_url.rstrip('/')}/reports?report={report.id}"
 
     msg = EmailMessage()
     msg["Subject"] = f"TradingAgents 投研报告 - {symbol} ({trade_date})"
@@ -258,7 +285,7 @@ def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
     msg["To"] = user.email
 
     # text/plain fallback
-    plain = f"TradingAgents 投研报告\n{symbol} {trade_date}\n决策: {report.decision or '-'}\n方向: {report.direction or '-'}\n置信度: {report.confidence or '-'}%\n\n请使用支持 HTML 的邮件客户端查看完整报告。"
+    plain = f"TradingAgents 投研报告\n{symbol} {trade_date}\n决策: {report.decision or '-'}\n方向: {report.direction or '-'}\n置信度: {report.confidence or '-'}%{report_link}\n\n请使用支持 HTML 的邮件客户端查看完整报告。"
     msg.set_content(plain)
     msg.add_alternative(html_body, subtype="html")
 

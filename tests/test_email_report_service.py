@@ -110,6 +110,23 @@ class TestRenderReportHtml:
         html = render_report_html(_make_report())
         assert "Buy at open with 50% position." in html
 
+    def test_contains_report_link_when_frontend_url_set(self):
+        from api.services.email_report_service import render_report_html
+        html = render_report_html(_make_report(), frontend_url="https://example.com")
+        assert "https://example.com/reports?report=rpt-1" in html
+        assert "查看完整报告" in html
+
+    def test_no_report_link_when_frontend_url_empty(self):
+        from api.services.email_report_service import render_report_html
+        html = render_report_html(_make_report(), frontend_url="")
+        assert "查看完整报告" not in html
+
+    def test_contains_github_promo(self):
+        from api.services.email_report_service import render_report_html
+        html = render_report_html(_make_report())
+        assert "TradingAgents-AShare" in html
+        assert "github.com" in html
+
     def test_returns_valid_html(self):
         from api.services.email_report_service import render_report_html
         html = render_report_html(_make_report())
