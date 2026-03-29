@@ -210,12 +210,19 @@ async def _run_scheduled_job(task: dict, trade_date: str):
         # Send email report
         try:
             from api.services.email_report_service import send_report_email_with_retry
+            _email_user = None
+            _email_report = None
             with get_db_ctx() as db:
                 user = db.query(UserDB).filter(UserDB.id == user_id).first()
                 report = db.query(ReportDB).filter(ReportDB.id == job_id).first()
                 if user and report and getattr(user, 'email_report_enabled', True):
-                    _log(f"[Scheduler] Sending email report for {symbol} to {user.email}")
-                    await send_report_email_with_retry(user, report)
+                    db.expunge(user)
+                    db.expunge(report)
+                    _email_user = user
+                    _email_report = report
+            if _email_user and _email_report:
+                _log(f"[Scheduler] Sending email report for {symbol} to {_email_user.email}")
+                await send_report_email_with_retry(_email_user, _email_report)
         except Exception as e:
             logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
 
