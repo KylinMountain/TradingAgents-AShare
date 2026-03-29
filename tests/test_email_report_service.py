@@ -23,16 +23,20 @@ def _make_report(**overrides):
         confidence=85,
         target_price=1800.0,
         stop_loss_price=1650.0,
-        market_report="Market looks good.",
-        sentiment_report="Positive sentiment.",
+        market_report='Full market analysis...\n<!-- VERDICT: {"direction": "BULLISH", "reason": "均线多头排列，MACD金叉确认上涨趋势"} -->',
+        sentiment_report='Full sentiment analysis...\n<!-- VERDICT: {"direction": "BULLISH", "reason": "社交媒体情绪积极，机构评级上调"} -->',
         news_report=None,
-        fundamentals_report="Strong fundamentals.",
+        fundamentals_report='Full fundamentals analysis...\n<!-- VERDICT: {"direction": "NEUTRAL", "reason": "营收增长但利润率承压"} -->',
         macro_report=None,
         smart_money_report=None,
         game_theory_report=None,
         risk_items=[
             {"name": "政策风险", "level": "high", "description": "Regulatory changes"},
             {"name": "流动性风险", "level": "low", "description": "Normal liquidity"},
+        ],
+        key_metrics=[
+            {"name": "PE(TTM)", "value": "35.2", "status": "neutral"},
+            {"name": "营收增长", "value": "12.5%", "status": "good"},
         ],
         final_trade_decision="Buy at open with 50% position.",
     )
@@ -66,20 +70,33 @@ class TestRenderReportHtml:
         assert "1800" in html
         assert "1650" in html
 
-    def test_contains_analysis_sections(self):
+    def test_contains_agent_verdicts(self):
         from api.services.email_report_service import render_report_html
         html = render_report_html(_make_report())
-        assert "Market looks good." in html
-        assert "Positive sentiment." in html
-        assert "Strong fundamentals." in html
+        # Should show verdict one-liners, not full report text
+        assert "均线多头排列" in html
+        assert "社交媒体情绪积极" in html
+        assert "营收增长但利润率承压" in html
+        # Full report text should NOT appear
+        assert "Full market analysis" not in html
 
     def test_skips_none_sections(self):
         from api.services.email_report_service import render_report_html
         html = render_report_html(_make_report())
-        # news_report is None, so its section title should not appear
-        # unless another section uses the same heading; check that
-        # "新闻分析" heading is absent
         assert "新闻分析" not in html
+
+    def test_contains_key_metrics(self):
+        from api.services.email_report_service import render_report_html
+        html = render_report_html(_make_report())
+        assert "PE(TTM)" in html
+        assert "35.2" in html
+        assert "营收增长" in html
+        assert "12.5%" in html
+
+    def test_omits_key_metrics_when_empty(self):
+        from api.services.email_report_service import render_report_html
+        html = render_report_html(_make_report(key_metrics=None))
+        assert "关键指标" not in html
 
     def test_contains_risk_items(self):
         from api.services.email_report_service import render_report_html

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
+import re
 import smtplib
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, List, Optional
@@ -37,6 +39,35 @@ def _escape(text: str) -> str:
     return html.escape(str(text))
 
 
+_VERDICT_RE = re.compile(r"<!--\s*VERDICT:\s*(\{[^>]+\})\s*-->")
+_DIRECTION_ALIAS = {
+    "BULLISH": "看多",
+    "BEARISH": "看空",
+    "NEUTRAL": "中性",
+    "CAUTIOUS": "谨慎",
+}
+
+
+def _extract_verdict(text: str) -> Optional[dict]:
+    """Extract structured verdict from agent report HTML comment.
+
+    Returns {"direction": "看多", "reason": "..."} or None.
+    """
+    m = _VERDICT_RE.search(text)
+    if not m:
+        return None
+    try:
+        parsed = json.loads(m.group(1))
+        direction = parsed.get("direction", "")
+        reason = parsed.get("reason", "")
+        if not direction or not reason:
+            return None
+        direction = _DIRECTION_ALIAS.get(direction.upper(), direction)
+        return {"direction": direction, "reason": reason.strip()[:42]}
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # HTML rendering
 # ---------------------------------------------------------------------------
@@ -56,7 +87,13 @@ _RISK_LEVEL_COLORS = {
     "low": "#16a34a",
 }
 
-_SECTION_TITLES = [
+_KEY_METRIC_STATUS_COLORS = {
+    "good": "#16a34a",
+    "neutral": "#6b7280",
+    "bad": "#dc2626",
+}
+
+_AGENT_SECTIONS = [
     ("market_report", "市场分析"),
     ("sentiment_report", "舆情分析"),
     ("news_report", "新闻分析"),
@@ -110,16 +147,48 @@ def render_report_html(report: "ReportDB") -> str:
         parts.append(f'<tr style="background:{bg};"><td style="width:30%;color:#6b7280;font-size:13px;">{label}</td><td style="font-size:13px;">{value}</td></tr>')
     parts.append('</table></td></tr>')
 
-    # --- analysis sections ---
-    for attr, title in _SECTION_TITLES:
+    # --- agent verdicts (one-line summaries, not full reports) ---
+    verdicts: list[tuple[str, dict]] = []
+    for attr, title in _AGENT_SECTIONS:
         content = getattr(report, attr, None)
         if content is None:
             continue
-        escaped = _escape(content).replace("\n", "<br>")
+        verdict = _extract_verdict(content)
+        if verdict:
+            verdicts.append((title, verdict))
+
+    if verdicts:
         parts.append('<tr><td style="padding:12px 24px;">')
-        parts.append(f'<h3 style="font-size:14px;margin:0 0 8px;color:#1e3a5f;">{title}</h3>')
-        parts.append(f'<div style="font-size:13px;color:#374151;line-height:1.6;">{escaped}</div>')
-        parts.append('</td></tr>')
+        parts.append('<h2 style="font-size:16px;margin:0 0 12px;color:#1e3a5f;">各方观点</h2>')
+        parts.append('<table width="100%" cellpadding="8" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;">')
+        for i, (title, v) in enumerate(verdicts):
+            bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
+            d_color = _DIRECTION_COLOR.get(v["direction"], "#6b7280")
+            parts.append(
+                f'<tr style="background:{bg};">'
+                f'<td style="width:25%;font-size:13px;color:#6b7280;">{title}</td>'
+                f'<td style="width:15%;font-size:13px;font-weight:bold;color:{d_color};">{_escape(v["direction"])}</td>'
+                f'<td style="font-size:13px;color:#374151;">{_escape(v["reason"])}</td>'
+                f'</tr>'
+            )
+        parts.append('</table></td></tr>')
+
+    # --- key metrics ---
+    key_metrics: Optional[List[dict]] = getattr(report, "key_metrics", None)
+    if key_metrics:
+        parts.append('<tr><td style="padding:12px 24px;">')
+        parts.append('<h2 style="font-size:16px;margin:0 0 12px;color:#1e3a5f;">关键指标</h2>')
+        parts.append('<table width="100%" cellpadding="6" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;font-size:13px;">')
+        parts.append('<tr style="background:#f1f5f9;"><th style="text-align:left;">指标</th><th style="text-align:left;">数值</th><th style="text-align:left;">状态</th></tr>')
+        status_labels = {"good": "良好", "neutral": "中性", "bad": "不佳"}
+        for item in key_metrics:
+            name = _escape(item.get("name", ""))
+            value = _escape(item.get("value", ""))
+            status = item.get("status", "")
+            s_color = _KEY_METRIC_STATUS_COLORS.get(status, "#6b7280")
+            s_label = status_labels.get(status, status)
+            parts.append(f'<tr><td>{name}</td><td>{value}</td><td style="color:{s_color};font-weight:bold;">{_escape(s_label)}</td></tr>')
+        parts.append('</table></td></tr>')
 
     # --- risk items ---
     risk_items: Optional[List[dict]] = getattr(report, "risk_items", None)
