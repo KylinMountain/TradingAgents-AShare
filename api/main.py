@@ -207,7 +207,7 @@ async def _run_scheduled_job(task: dict, trade_date: str):
             scheduled_service.mark_run_success(db, task_id, trade_date, job_id)
         _log(f"[Scheduler] Completed {symbol}")
 
-        # Send email report
+        # Send email report (fire-and-forget so it doesn't block the scheduler)
         try:
             from api.services.email_report_service import send_report_email_with_retry
             _email_user = None
@@ -222,7 +222,7 @@ async def _run_scheduled_job(task: dict, trade_date: str):
                     _email_report = report
             if _email_user and _email_report:
                 _log(f"[Scheduler] Sending email report for {symbol} to {_email_user.email}")
-                await send_report_email_with_retry(_email_user, _email_report)
+                asyncio.create_task(send_report_email_with_retry(_email_user, _email_report))
         except Exception as e:
             logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
 
@@ -3040,7 +3040,6 @@ def delete_backtest(job_id: str) -> Dict:
 _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
     "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
-    "email_report_enabled",
 }
 
 
@@ -3120,7 +3119,6 @@ def update_runtime_config(
     if updates.email_report_enabled is not None:
         current_user.email_report_enabled = updates.email_report_enabled
         db.commit()
-        db.refresh(current_user)
     filtered = {
         k: v
         for k, v in updates.model_dump().items()

@@ -164,7 +164,7 @@ class TestSendReportEmailWithRetry:
         from api.services.email_report_service import send_report_email_with_retry
         with patch("api.services.email_report_service.send_report_email", return_value=True) as mock_send, \
              patch("api.services.email_report_service.asyncio.sleep", side_effect=_noop_sleep):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 send_report_email_with_retry(_make_user(), _make_report())
             )
             assert result is True
@@ -174,7 +174,7 @@ class TestSendReportEmailWithRetry:
         from api.services.email_report_service import send_report_email_with_retry
         with patch("api.services.email_report_service.send_report_email", side_effect=[False, True]) as mock_send, \
              patch("api.services.email_report_service.asyncio.sleep", side_effect=_noop_sleep):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 send_report_email_with_retry(_make_user(), _make_report())
             )
             assert result is True
@@ -184,7 +184,7 @@ class TestSendReportEmailWithRetry:
         from api.services.email_report_service import send_report_email_with_retry
         with patch("api.services.email_report_service.send_report_email", return_value=False) as mock_send, \
              patch("api.services.email_report_service.asyncio.sleep", side_effect=_noop_sleep):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 send_report_email_with_retry(_make_user(), _make_report())
             )
             assert result is False
