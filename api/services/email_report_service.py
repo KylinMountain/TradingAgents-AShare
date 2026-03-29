@@ -258,6 +258,15 @@ def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
         f' — A 股多智能体智能投研系统，15 名 AI Agent 协作分析，全流程可视化。'
         f'</p>'
     )
+    parts.append(
+        f'<p style="margin:6px 0 0;font-size:11px;color:#9ca3af;">'
+        f'觉得有帮助？给项目点个 '
+        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">⭐ Star</a>'
+        f' 或 '
+        f'<a href="{_GITHUB_URL}/sponsors" style="color:#3b82f6;text-decoration:none;">赞助支持</a>'
+        f' 让更多人发现它。'
+        f'</p>'
+    )
     parts.append('</td></tr>')
     parts.append('</table></td></tr></table></body></html>')
 
