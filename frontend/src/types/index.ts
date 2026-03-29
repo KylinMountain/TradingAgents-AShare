@@ -408,6 +408,7 @@ export interface RuntimeConfig {
     max_risk_discuss_rounds: number
     has_api_key?: boolean
     server_fallback_enabled?: boolean
+    email_report_enabled?: boolean
 }
 
 export interface RuntimeConfigUpdateResponse {
@@ -426,6 +427,7 @@ export interface RuntimeConfigUpdate {
     max_risk_discuss_rounds?: number
     api_key?: string
     clear_api_key?: boolean
+    email_report_enabled?: boolean
 }
 
 export interface AuthUser {

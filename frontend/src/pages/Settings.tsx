@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2 } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { UserToken } from '@/types'
@@ -52,6 +52,7 @@ export default function Settings() {
     const [maxDebateRounds, setMaxDebateRounds] = useState(1)
     const [maxRiskRounds, setMaxRiskRounds] = useState(1)
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
+    const [emailReportEnabled, setEmailReportEnabled] = useState(true)
 
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -104,6 +105,7 @@ export default function Settings() {
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
                 setHasStoredApiKey(!!cfg.has_api_key)
                 setServerFallbackEnabled(!!cfg.server_fallback_enabled)
+                setEmailReportEnabled(cfg.email_report_enabled !== false)
             })
             .catch(err => {
                 setConfigError(err instanceof Error ? err.message : '无法连接到后端')
@@ -174,6 +176,7 @@ export default function Settings() {
                 max_debate_rounds: maxDebateRounds,
                 max_risk_discuss_rounds: maxRiskRounds,
                 api_key: llmApiKey || undefined,
+                email_report_enabled: emailReportEnabled,
             })
             setHasStoredApiKey(!!response.has_api_key)
             setLlmApiKey('')
@@ -507,6 +510,33 @@ export default function Settings() {
                 {tokens.length >= 10 && (
                     <p className="text-[10px] text-amber-500">已达到 Token 创建上限（10个）</p>
                 )}
+            </div>
+
+            <div className="card space-y-3">
+                <div className="flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">邮件报告推送</h2>
+                </div>
+                <div className="flex items-center justify-between">
+                    <div>
+                        <div className="text-sm text-slate-600 dark:text-slate-300">定时分析完成时自动发送报告到邮箱</div>
+                        <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">发送至 {user?.email || '-'}</div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setEmailReportEnabled(!emailReportEnabled)}
+                        disabled={configLoading}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            emailReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                        }`}
+                    >
+                        <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                emailReportEnabled ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                        />
+                    </button>
+                </div>
             </div>
 
             <div className="card space-y-4">
