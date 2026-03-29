@@ -201,7 +201,7 @@ export default function Header() {
                         title="赞助支持"
                     >
                         <Heart className="w-4 h-4 text-pink-500 dark:text-pink-400 group-hover:text-pink-600 dark:group-hover:text-pink-300" />
-                        <span className="text-[13px] font-medium text-pink-600 dark:text-pink-400 group-hover:text-pink-700 dark:group-hover:text-pink-300 hidden sm:inline">Sponsor</span>
+                        <span className="text-[13px] font-medium text-pink-600 dark:text-pink-400 group-hover:text-pink-700 dark:group-hover:text-pink-300 hidden sm:inline">赞助</span>
                     </Link>
                     <a
                         href="https://github.com/KylinMountain/TradingAgents-AShare"
