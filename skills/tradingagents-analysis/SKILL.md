@@ -57,15 +57,19 @@ tags:
   - 买卖建议
   - claude-code
   - openclaw
-env:
-  TRADINGAGENTS_TOKEN:
-    description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
-    required: true
-    primary_credential: true
-  TRADINGAGENTS_API_URL:
-    description: "后端 API 地址 (TradingAgents API base URL)"
-    default: "https://api.510168.xyz"
-metadata: {"clawdbot":{"emoji":"📈"}}
+metadata:
+  openclaw:
+    requires:
+      env:
+        - TRADINGAGENTS_TOKEN
+        - TRADINGAGENTS_API_URL
+      bins:
+        - curl
+        - python3
+        - bash
+    primaryEnv: TRADINGAGENTS_TOKEN
+    emoji: "📈"
+    homepage: https://app.510168.xyz
 ---
 
 # TradingAgents 多智能体 A 股投研分析
@@ -131,7 +135,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **敏感内容提示**：请勿在分析请求中粘贴个人账户信息、真实持仓或其他敏感内容，本技能无法阻止用户主动提交这些内容。
 - **自托管**：如需完全掌控数据流向，可参考 [GitHub 文档](https://github.com/KylinMountain/TradingAgents-AShare) 自行部署后端，并将 `TRADINGAGENTS_API_URL` 指向自建服务器。
 
-> **关于凭证元数据**：本技能的 frontmatter 已声明 `TRADINGAGENTS_TOKEN` 为 `required: true` 及 `primary_credential`。
+> **关于凭证元数据**：本技能的 frontmatter 在 `metadata.openclaw` 中声明了 `TRADINGAGENTS_TOKEN` 为 `primaryEnv`，并列入 `requires.env`。
 
 ## 🔒 Privacy & Data Transmission
 
@@ -140,7 +144,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **Sensitive content**: Do not paste personal account data, real positions, or other sensitive information into analysis requests.
 - **Self-hosting**: For full data sovereignty, deploy the backend yourself and set `TRADINGAGENTS_API_URL` to your server. See the [GitHub repo](https://github.com/KylinMountain/TradingAgents-AShare).
 
-> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `required: true` and `primary_credential`.
+> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `primaryEnv` under `metadata.openclaw.requires.env`.
 
 ## ⚙️ 快速配置
 
