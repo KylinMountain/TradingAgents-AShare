@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, init_db, get_db, get_db_ctx
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, init_db, get_db, get_db_ctx
 from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -206,6 +206,18 @@ async def _run_scheduled_job(task: dict, trade_date: str):
         with get_db_ctx() as db:
             scheduled_service.mark_run_success(db, task_id, trade_date, job_id)
         _log(f"[Scheduler] Completed {symbol}")
+
+        # Send email report
+        try:
+            from api.services.email_report_service import send_report_email_with_retry
+            with get_db_ctx() as db:
+                user = db.query(UserDB).filter(UserDB.id == user_id).first()
+                report = db.query(ReportDB).filter(ReportDB.id == job_id).first()
+                if user and report and getattr(user, 'email_report_enabled', True):
+                    _log(f"[Scheduler] Sending email report for {symbol} to {user.email}")
+                    await send_report_email_with_retry(user, report)
+        except Exception as e:
+            logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
 
     except Exception as e:
         import traceback
@@ -641,6 +653,7 @@ class UserResponse(BaseModel):
     email: str
     created_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
+    email_report_enabled: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -673,6 +686,7 @@ class UserRuntimeConfigResponse(BaseModel):
     max_risk_discuss_rounds: int
     has_api_key: bool = False
     server_fallback_enabled: bool = True
+    email_report_enabled: bool = True
 
 
 class UserRuntimeConfigUpdateRequest(BaseModel):
@@ -682,6 +696,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     backend_url: Optional[str] = None
     max_debate_rounds: Optional[int] = None
     max_risk_discuss_rounds: Optional[int] = None
+    email_report_enabled: Optional[bool] = None
     api_key: Optional[str] = None
     clear_api_key: bool = False
 
@@ -3018,6 +3033,7 @@ def delete_backtest(job_id: str) -> Dict:
 _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
     "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
+    "email_report_enabled",
 }
 
 
@@ -3033,6 +3049,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         max_risk_discuss_rounds=cfg["max_risk_discuss_rounds"],
         has_api_key=bool(user_cfg and user_cfg.api_key_encrypted),
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
+        email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
     )
 
 
@@ -3093,6 +3110,10 @@ def update_runtime_config(
         api_key=updates.api_key,
         clear_api_key=updates.clear_api_key,
     )
+    if updates.email_report_enabled is not None:
+        current_user.email_report_enabled = updates.email_report_enabled
+        db.commit()
+        db.refresh(current_user)
     filtered = {
         k: v
         for k, v in updates.model_dump().items()

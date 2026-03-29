@@ -123,6 +123,8 @@ def _ensure_user_schema() -> None:
             columns = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
             if "last_login_ip" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(45)"))
+            if "email_report_enabled" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
     except Exception as e:
         print(f"Warning: Failed to ensure user schema: {e}")
 
@@ -293,6 +295,7 @@ class UserDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(String(45), nullable=True)
+    email_report_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
 
 
 class EmailVerificationCodeDB(Base):
