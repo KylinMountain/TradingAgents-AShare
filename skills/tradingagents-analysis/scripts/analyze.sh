@@ -28,20 +28,29 @@ TOKEN="${TRADINGAGENTS_TOKEN:?请设置 TRADINGAGENTS_TOKEN 环境变量}"
 INTERVAL="${POLL_INTERVAL:-15}"
 TIMEOUT="${POLL_TIMEOUT:-600}"
 
-# horizons: "short,medium" -> ["short","medium"]
-IFS=',' read -ra H_ARR <<< "$HORIZONS"
-H_JSON=$(printf '"%s",' "${H_ARR[@]}")
-H_JSON="[${H_JSON%,}]"
-
 # ---------- 工具函数 ----------
+
+# Safely build JSON payload using Python to prevent injection
+_build_payload() {
+  local symbol="$1"
+  python3 -c "
+import json, sys
+print(json.dumps({
+    'symbol': sys.argv[1],
+    'trade_date': sys.argv[2],
+    'horizons': sys.argv[3].split(',')
+}))" "$symbol" "$TRADE_DATE" "$HORIZONS"
+}
+
 submit_job() {
   local symbol="$1"
-  local resp http_code body job_id
+  local payload resp http_code body job_id
 
+  payload=$(_build_payload "$symbol")
   resp=$(curl -s -w "\n%{http_code}" -X POST "${API_URL}/v1/analyze" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "{\"symbol\": \"${symbol}\", \"trade_date\": \"${TRADE_DATE}\", \"horizons\": ${H_JSON}}")
+    -d "$payload")
 
   http_code=$(echo "$resp" | tail -1)
   body=$(echo "$resp" | sed '$d')

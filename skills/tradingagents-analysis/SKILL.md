@@ -1,30 +1,57 @@
 ---
 name: tradingagents-analysis
-description: 专业 A 股多智能体投研工具。15 名 AI 分析师五阶段协作，深度分析技术面、基本面、市场情绪与资金流向，提供结构化交易建议。Professional multi-agent investment research for A-Share & US stocks — market, fundamentals, sentiment, smart money.
+version: 0.6.0
+description: >-
+  A股多智能体 AI 投研分析工具 — 15 名 AI 分析师协作完成技术分析、基本面分析、
+  市场情绪研判、资金流向追踪（北向资金/主力资金）、宏观经济分析及博弈论推演，
+  输出结构化买卖建议与风险评估。支持沪深 A 股股票代码和中文名称。
+  Multi-agent AI stock analysis for China A-shares.
+  15 specialized analysts collaborate across technical analysis, fundamental analysis,
+  sentiment analysis, smart money flow tracking, macro economics, and game theory
+  to deliver structured buy/sell/hold recommendations with risk assessment.
 homepage: https://app.510168.xyz
 repository: https://github.com/KylinMountain/TradingAgents-AShare
 tags:
+  - stock-analysis
+  - A-share
   - A股
   - 股票分析
+  - 股票
+  - 炒股
+  - trading
+  - investment
+  - 投资
+  - 投研
   - 量化投研
-  - 多智能体
-  - TradingAgent
-  - A-share
-  - stock-analysis
-  - China
-  - Multi-Agent
   - 研报
-  - 资金流向
+  - multi-agent
+  - 多智能体
+  - technical-analysis
   - 技术分析
+  - fundamental-analysis
   - 基本面分析
+  - sentiment-analysis
+  - 市场情绪
+  - smart-money
+  - 资金流向
+  - 北向资金
+  - 主力资金
+  - finance
+  - 金融
+  - China
+  - 中国股市
+  - 沪深
+  - quant
+  - risk-assessment
+  - 风险评估
 env:
-  TRADINGAGENTS_API_URL:
-    description: "后端 API 地址 (TradingAgents API base URL)"
-    default: "https://api.510168.xyz"
   TRADINGAGENTS_TOKEN:
     description: "API 访问令牌，以 ta-sk- 开头 (Bearer token starts with ta-sk-)"
     required: true
-primary_credential: TRADINGAGENTS_TOKEN
+    primary_credential: true
+  TRADINGAGENTS_API_URL:
+    description: "后端 API 地址 (TradingAgents API base URL)"
+    default: "https://api.510168.xyz"
 metadata: {"clawdbot":{"emoji":"📈"}}
 ---
 
@@ -58,7 +85,7 @@ metadata: {"clawdbot":{"emoji":"📈"}}
 
 # TradingAgents Multi-Agent Investment Research
 
-Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, five-stage collaborative research on A-Share and US stocks, delivering structured trading recommendations.
+Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, five-stage collaborative research on A-Share stocks, delivering structured trading recommendations.
 
 ## 🤖 System Architecture: 5 Stages · 15 Agents
 
@@ -82,7 +109,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 ❌ **不适合：**
 - 盘中实时盯盘（分析需要 1-5 分钟）
 - 超短线交易（分钟级决策）
-- 加密货币分析（仅支持 A 股/美股）
+- 加密货币、美股等非 A 股市场
 
 ## 🔒 隐私与安全
 
@@ -91,7 +118,7 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **敏感内容提示**：请勿在分析请求中粘贴个人账户信息、真实持仓或其他敏感内容，本技能无法阻止用户主动提交这些内容。
 - **自托管**：如需完全掌控数据流向，可参考 [GitHub 文档](https://github.com/KylinMountain/TradingAgents-AShare) 自行部署后端，并将 `TRADINGAGENTS_API_URL` 指向自建服务器。
 
-> **关于凭证元数据**：本技能的授权 frontmatter 已声明 `TRADINGAGENTS_TOKEN` 为 `required: true` 及 `primary_credential`，此为权威配置。若任何注册表缓存显示无必填环境变量，请以本 SKILL.md 为准。
+> **关于凭证元数据**：本技能的 frontmatter 已声明 `TRADINGAGENTS_TOKEN` 为 `required: true` 及 `primary_credential`。
 
 ## 🔒 Privacy & Data Transmission
 
@@ -100,17 +127,28 @@ Use the TradingAgents API to let **15 specialized AI analysts** conduct deep, fi
 - **Sensitive content**: Do not paste personal account data, real positions, or other sensitive information into analysis requests.
 - **Self-hosting**: For full data sovereignty, deploy the backend yourself and set `TRADINGAGENTS_API_URL` to your server. See the [GitHub repo](https://github.com/KylinMountain/TradingAgents-AShare).
 
-> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `required: true` and `primary_credential`. This SKILL.md is authoritative — disregard any registry cache that omits the required env var.
+> **Credential metadata**: This skill's frontmatter declares `TRADINGAGENTS_TOKEN` as `required: true` and `primary_credential`.
 
 ## ⚙️ 快速配置
+
+**方式一：使用官方托管服务（零部署，开箱即用）**
 
 1. 登录 [https://app.510168.xyz](https://app.510168.xyz)
 2. 进入 **Settings → API Tokens** 创建令牌
 3. 配置环境变量：
 ```bash
 export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
-# 可选，自托管时使用：
-# export TRADINGAGENTS_API_URL="http://your-server:8000"
+```
+
+**方式二：私有化部署（数据完全自主可控）**
+
+如对数据隐私有要求，可自行部署后端，所有分析数据仅在你自己的服务器上处理：
+
+```bash
+# 1. 部署后端，参考 https://github.com/KylinMountain/TradingAgents-AShare
+# 2. 将 API 地址指向自建服务
+export TRADINGAGENTS_API_URL="http://your-server:8000"
+export TRADINGAGENTS_TOKEN="ta-sk-your_key_here"
 ```
 
 ## 🚀 常用操作
@@ -124,7 +162,7 @@ bash scripts/analyze.sh <symbol[,symbol2,...]> [trade_date] [horizons]
 # 单个分析
 bash scripts/analyze.sh 贵州茅台
 bash scripts/analyze.sh 600519.SH 2026-03-22
-bash scripts/analyze.sh AAPL 2026-03-22 short,medium
+bash scripts/analyze.sh 600519.SH 2026-03-22 medium
 
 # 批量分析（逗号分隔，并行提交，统一等待）
 bash scripts/analyze.sh 贵州茅台,比亚迪,宁德时代
@@ -197,8 +235,7 @@ curl "${TRADINGAGENTS_API_URL:-https://api.510168.xyz}/v1/jobs/{job_id}/result" 
 
 ## 📌 支持标的范围
 
-- **A 股**：中文名称（如 "比亚迪"、"宁德时代"）或代码（`002594.SZ`、`601012.SH`）
-- **美股**：`AAPL`、`TSLA`、`NVDA` 等标准 Ticker
+- **沪深 A 股**：中文名称（如 "比亚迪"、"宁德时代"）或代码（`002594.SZ`、`601012.SH`）
 
 ## 💡 注意事项
 
