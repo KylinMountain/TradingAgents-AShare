@@ -7,6 +7,7 @@ import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Portfolio from './pages/Portfolio'
 import Login from './pages/Login'
+import Sponsor from './pages/Sponsor'
 import { useAuthStore } from './stores/authStore'
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -32,6 +33,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/sponsor" element={<Sponsor />} />
         <Route
           path="*"
           element={

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Heart, Megaphone } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { Announcement } from '@/types'
@@ -195,16 +195,14 @@ export default function Header() {
                             )}
                         </div>
                     )}
-                    <a
-                        href="https://github.com/KylinMountain/TradingAgents-AShare/sponsors"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                    <Link
+                        to="/sponsor"
                         className="group flex items-center gap-2 rounded-2xl border border-pink-200 dark:border-pink-900 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-pink-300 dark:hover:border-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/30 transition-all mr-1"
                         title="赞助支持"
                     >
                         <Heart className="w-4 h-4 text-pink-500 dark:text-pink-400 group-hover:text-pink-600 dark:group-hover:text-pink-300" />
                         <span className="text-[13px] font-medium text-pink-600 dark:text-pink-400 group-hover:text-pink-700 dark:group-hover:text-pink-300 hidden sm:inline">Sponsor</span>
-                    </a>
+                    </Link>
                     <a
                         href="https://github.com/KylinMountain/TradingAgents-AShare"
                         target="_blank"
