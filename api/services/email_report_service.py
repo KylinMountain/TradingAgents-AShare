@@ -39,6 +39,25 @@ def _escape(text: str) -> str:
     return html.escape(str(text))
 
 
+def _infer_frontend_url() -> str:
+    """Infer frontend URL from FRONTEND_URL or CORS_ALLOW_ORIGINS.
+
+    Priority: FRONTEND_URL env > first non-localhost CORS origin > first CORS origin > "".
+    """
+    explicit = os.getenv("FRONTEND_URL", "").strip()
+    if explicit:
+        return explicit
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if not raw:
+        return ""
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    # Prefer non-localhost origin (production URL)
+    for o in origins:
+        if "localhost" not in o and "127.0.0.1" not in o:
+            return o
+    return origins[0] if origins else ""
+
+
 _VERDICT_RE = re.compile(r"<!--\s*VERDICT:\s*(\{[^>]+\})\s*-->")
 _DIRECTION_ALIAS = {
     "BULLISH": "看多",
@@ -270,7 +289,7 @@ def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
     smtp_ssl_tls_str = _get_env_alias(["MAIL_SSL", "MAIL_SSL_TLS"], "0").strip().lower()
     smtp_ssl_tls = smtp_ssl_tls_str in ("1", "true", "on", "yes")
 
-    frontend_url = _get_env_alias(["FRONTEND_URL", "BASE_URL"]).strip()
+    frontend_url = _infer_frontend_url()
     html_body = render_report_html(report, frontend_url=frontend_url)
     symbol = report.symbol or ""
     trade_date = report.trade_date or ""
