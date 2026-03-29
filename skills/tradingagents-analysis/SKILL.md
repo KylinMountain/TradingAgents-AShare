@@ -162,7 +162,7 @@ bash scripts/analyze.sh <symbol[,symbol2,...]> [trade_date] [horizons]
 # 单个分析
 bash scripts/analyze.sh 贵州茅台
 bash scripts/analyze.sh 600519.SH 2026-03-22
-bash scripts/analyze.sh 600519.SH 2026-03-22 short,medium
+bash scripts/analyze.sh 600519.SH 2026-03-22 medium
 
 # 批量分析（逗号分隔，并行提交，统一等待）
 bash scripts/analyze.sh 贵州茅台,比亚迪,宁德时代
