@@ -13,7 +13,7 @@ import { useAnalysisStore } from '@/stores/analysisStore'
 import type { AgentStatus } from '@/types'
 import {
     TrendingUp, MessageCircle, Newspaper, Calculator,
-    BarChart2, DollarSign, Swords, ArrowBigUp, ArrowBigDown,
+    BarChart2, DollarSign, ArrowBigUp, ArrowBigDown,
     Brain, Briefcase, Flame, Scale, Shield, CheckCircle2, Loader2,
 } from 'lucide-react'
 import { extractVerdict, type Verdict } from '@/utils/reportText'
@@ -38,7 +38,6 @@ const META: AgentMeta[] = [
     { name: 'Fundamentals Analyst', label: '基本面', goal: '财务报表与估值分析', section: 'fundamentals_report', Icon: Calculator, badgeBg: 'bg-emerald-100 dark:bg-emerald-500/20', badgeText: 'text-emerald-600 dark:text-emerald-400' },
     { name: 'Macro Analyst', label: '宏观', goal: '板块轮动与政策驱动分析', section: 'macro_report', Icon: BarChart2, badgeBg: 'bg-violet-100 dark:bg-violet-500/20', badgeText: 'text-violet-600 dark:text-violet-400' },
     { name: 'Smart Money Analyst', label: '主力资金', goal: '机构资金行为与龙虎榜', section: 'smart_money_report', Icon: DollarSign, badgeBg: 'bg-amber-100 dark:bg-amber-500/20', badgeText: 'text-amber-600 dark:text-amber-400' },
-    { name: 'Game Theory Manager', label: '博弈裁判', goal: '主力与散户预期差裁判', section: 'game_theory_report', Icon: Swords, badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400' },
     { name: 'Bull Researcher', label: '多头', goal: '评估投资价值与上行潜力', section: 'investment_plan', debate: 'research', Icon: ArrowBigUp, badgeBg: 'bg-emerald-100 dark:bg-emerald-500/20', badgeText: 'text-emerald-600 dark:text-emerald-400' },
     { name: 'Bear Researcher', label: '空头', goal: '评估下行风险与潜在危机', section: 'investment_plan', debate: 'research', Icon: ArrowBigDown, badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400' },
     { name: 'Research Manager', label: '研究总监', goal: '综合多空论据形成投资计划', section: 'investment_plan', debate: 'research', Icon: Brain, badgeBg: 'bg-indigo-100 dark:bg-indigo-500/20', badgeText: 'text-indigo-600 dark:text-indigo-400' },
@@ -55,9 +54,11 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
 
 const VERDICT_COLORS: Record<string, string> = {
     '看多': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300',
-    '看空': 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
+    '偏多': 'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
     '中性': 'bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400',
-    '谨慎': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+    '偏空': 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+    '看空': 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
+    '谨慎': 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300', // 向后兼容旧报告
     _default: 'bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400',
 }
 
@@ -71,8 +72,6 @@ const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
     'Fundamentals Analyst': { x: 0, y: 315 },
     'Macro Analyst':        { x: 0, y: 420 },
     'Smart Money Analyst':  { x: 0, y: 525 },
-    // 博弈裁判
-    'Game Theory Manager':  { x: 310, y: 240 },
     // 研究团队
     'Bull Researcher':      { x: 600, y: 80 },
     'Research Manager':     { x: 600, y: 240 },
@@ -103,12 +102,11 @@ interface EdgeDef {
 }
 
 const EDGE_DEFS: EdgeDef[] = [
-    // 数据源 → 博弈裁判
+    // 数据源 → 多空研究员
     ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst']
-        .map(s => ({ source: s, target: 'Game Theory Manager', thin: true } as EdgeDef)),
-    // 博弈裁判 → 多空研究员
-    { source: 'Game Theory Manager', target: 'Bull Researcher' },
-    { source: 'Game Theory Manager', target: 'Bear Researcher' },
+        .map(s => ({ source: s, target: 'Bull Researcher', thin: true } as EdgeDef)),
+    ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst']
+        .map(s => ({ source: s, target: 'Bear Researcher', thin: true } as EdgeDef)),
     // 多空辩论（双向）
     { source: 'Bull Researcher', target: 'Bear Researcher', sourceHandle: 'bottom', targetHandle: 'top', label: '辩论', bidirectional: true },
     // 研究员 → 研究总监

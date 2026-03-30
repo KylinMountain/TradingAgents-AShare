@@ -47,10 +47,12 @@ export interface Verdict {
 
 // Map English direction values (en.py prompts) to Chinese display labels
 const DIRECTION_ALIAS: Record<string, string> = {
-    BULLISH:  '看多',
-    BEARISH:  '看空',
-    NEUTRAL:  '中性',
-    CAUTIOUS: '谨慎',
+    BULLISH:       '看多',
+    LEAN_BULLISH:  '偏多',
+    BEARISH:       '看空',
+    LEAN_BEARISH:  '偏空',
+    NEUTRAL:       '中性',
+    CAUTIOUS:      '谨慎',  // 向后兼容旧报告
 }
 
 /**
