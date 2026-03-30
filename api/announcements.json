@@ -1,6 +1,44 @@
 {
   "announcements": [
     {
+      "id": "2026-03-30-v070-accuracy-overhaul",
+      "tag": "Major",
+      "title": "V0.7.0：决策准确率大幅优化 & 架构精简",
+      "summary": "重构决策链路，消除方向翻转隐患；Verdict 5 级量表取代模糊「谨慎」；移除 Game Theory Manager，Research Manager 内置博弈分析；Agent 流程图可视化上线。",
+      "published_at": "2026-03-30",
+      "items": [
+        {
+          "title": "Verdict 5 级方向量表",
+          "detail": "分析师判定从「看多/看空/中性/谨慎」升级为「看多/偏多/中性/偏空/看空」。消灭被滥用的「谨慎」选项，强制每个分析师给出方向倾向，提高信号区分度。"
+        },
+        {
+          "title": "方向翻转链路治理",
+          "detail": "移除 Game Theory Manager 独立节点（14 Agent 架构），预期差分析合并进 Research Manager 直读原始数据。Trader 方向锚定：必须跟随 Research Manager 结论，用户约束只影响仓位和节奏。"
+        },
+        {
+          "title": "BUY/SELL/HOLD 决策对称化",
+          "detail": "BUY 和 SELL 确认条件对称（技术/资金/基本面满足其一即可）。HOLD 从默认选项变为限制选项：技术面无趋势 + 资金面无方向 + 基本面无催化，三无才允许 HOLD。"
+        },
+        {
+          "title": "Research Manager 智能权重",
+          "detail": "按证据质量而非数人头决策。短线视角下技术面和资金面权重高，中线视角下基本面和宏观面权重高，叠加市场环境动态调整。"
+        },
+        {
+          "title": "数据完整性升级",
+          "detail": "所有分析师始终运行，去掉按 horizon 过滤分析师的机制。每个分析师使用自己的自然时间窗口（技术/资金看 14 天，基本面/宏观看 90 天），一次分析覆盖全维度。"
+        },
+        {
+          "title": "Agent 流程图可视化",
+          "detail": "基于 React Flow 重构协同工作流为水平节点连线图，节点固定尺寸不随屏幕缩放，小屏通过拖拽平移查看。连线颜色随 Agent 状态动态变化。"
+        },
+        {
+          "title": "Bull Researcher 强化",
+          "detail": "多头研究员新增量化上涨驱动力、风险收益比估算、识别市场过度悲观等要求，平衡系统的看空偏见。"
+        }
+      ],
+      "active": true
+    },
+    {
       "id": "2026-03-28-v060-debate-view",
       "tag": "Major",
       "title": "V0.6.0：辩论对战可视化、安全加固与稳定性大幅提升",
@@ -38,7 +76,7 @@
       "id": "2026-03-22-v050-release",
       "tag": "功能更新",
       "title": "V0.5.0 正式版：自选股定时分析、流式输出、依赖瘦身",
-      "summary": "支持自选股管理与每日定时自动分析，全链路 Token 流式输出，移除 12 个冗余依赖，15 Agent 全面协作。",
+      "summary": "支持自选股管理与每日定时自动分析，全链路 Token 流式输出，移除 12 个冗余依赖，14 Agent 全面协作。",
       "published_at": "2026-03-22",
       "items": [
         {
