@@ -223,11 +223,11 @@ function AgentNodeComponent({ data }: NodeProps<Node<AgentNodeData>>) {
 
             {/* 第二行：完成后的判定结果 */}
             {done && verdict && (
-                <div className="flex items-center gap-2 mt-2 min-w-0">
-                    <span className={`shrink-0 text-[11px] font-black px-2 py-0.5 rounded-full leading-none ${VERDICT_COLORS[verdict.direction] ?? VERDICT_COLORS._default}`}>
+                <div className="flex items-start gap-2 mt-2 min-w-0">
+                    <span className={`shrink-0 mt-0.5 text-[11px] font-black px-2 py-0.5 rounded-full leading-none ${VERDICT_COLORS[verdict.direction] ?? VERDICT_COLORS._default}`}>
                         {verdict.direction}
                     </span>
-                    <span className="text-[12px] text-slate-500 dark:text-slate-400 leading-tight line-clamp-1">
+                    <span className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug line-clamp-2">
                         {verdict.reason}
                     </span>
                 </div>
