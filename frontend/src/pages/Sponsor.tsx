@@ -25,7 +25,7 @@ export default function Sponsor() {
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 font-medium">微信支付</p>
                                 <div className="inline-block rounded-2xl border border-slate-200 dark:border-slate-700 p-3 bg-white">
                                     <img
-                                        src="/assets/wechat.png"
+                                        src="/wechatpay.jpg"
                                         alt="微信收款码"
                                         className="w-48 h-48 object-contain"
                                     />
@@ -36,7 +36,7 @@ export default function Sponsor() {
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 font-medium">支付宝</p>
                                 <div className="inline-block rounded-2xl border border-slate-200 dark:border-slate-700 p-3 bg-white">
                                     <img
-                                        src="/assets/alipay.png"
+                                        src="/alipay.jpg"
                                         alt="支付宝收款码"
                                         className="w-48 h-48 object-contain"
                                     />
