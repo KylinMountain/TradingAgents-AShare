@@ -295,13 +295,13 @@ class TradingAgentsGraph:
         trade_date: str,
         query: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run dual-horizon analysis concurrently.
+        """Run analysis for the horizons specified in user intent.
 
         Parses the natural language query (if provided), pre-collects data once,
-        then runs short-term and medium-term graph invocations in parallel via
-        asyncio.gather.
+        then runs graph invocations for each requested horizon.
+        Defaults to short-only; medium is added only when explicitly requested.
 
-        Returns a dict with keys: short_term, medium_term, user_intent.
+        Returns a dict with horizon results and user_intent.
         """
         self.ticker = company_name
 
@@ -314,14 +314,16 @@ class TradingAgentsGraph:
             user_intent = {
                 "raw_query": "",
                 "ticker": ticker,
-                "horizons": ["short", "medium"],
+                "horizons": ["short"],
                 "focus_areas": [],
                 "specific_questions": [],
                 "user_context": {},
             }
 
+        horizons = user_intent.get("horizons") or ["short"]
+
         # Pre-collect data once; analysts will read from cache
-        print(f"[TradingAgentsGraph] Collecting data for {ticker} {trade_date}…")
+        print(f"[TradingAgentsGraph] Collecting data for {ticker} {trade_date}… horizons={horizons}")
         self.data_collector.collect(ticker, trade_date)
 
         graph_args = self.propagator.get_graph_args()
@@ -332,21 +334,27 @@ class TradingAgentsGraph:
             )
             return await self.graph.ainvoke(state, **graph_args)
 
-        short_state, medium_state = await asyncio.gather(
-            _run("short"), _run("medium")
-        )
+        # Run only the requested horizons
+        results = await asyncio.gather(*[_run(h) for h in horizons])
 
         # Evict cached data to free memory
         self.data_collector.evict(ticker, trade_date)
 
-        short_result = self._build_horizon_result("short", short_state)
-        medium_result = self._build_horizon_result("medium", medium_state)
+        horizon_results = {
+            h: self._build_horizon_result(h, state)
+            for h, state in zip(horizons, results)
+        }
 
-        self._log_state_dual(trade_date, short_result, medium_result, user_intent)
+        self._log_state_dual(
+            trade_date,
+            horizon_results.get("short", {}),
+            horizon_results.get("medium", {}),
+            user_intent,
+        )
 
         return {
-            "short_term": short_result,
-            "medium_term": medium_result,
+            "short_term": horizon_results.get("short"),
+            "medium_term": horizon_results.get("medium"),
             "user_intent": user_intent,
         }
 
