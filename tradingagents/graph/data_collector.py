@@ -51,16 +51,16 @@ def _safe(tool, payload: dict) -> Any:
         return f"{getattr(tool, 'name', str(tool))} 调用失败：{type(exc).__name__}: {exc}"
 
 
-def _fetch_all(ticker: str, trade_date: str, short_only: bool = False) -> Dict[str, Any]:
-    """Fetch data sources in parallel.
+def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
+    """Fetch all data sources in parallel.
 
-    short_only=True (horizons==['short']): 14-day lookback, skips fundamentals/financials.
-    short_only=False: 90-day lookback, fetches full data including financial statements.
+    Always fetches full data including financial statements, regardless of horizon.
+    The horizon only affects the analysis window, not data collection.
     """
-    lookback = SHORT_DAYS if short_only else LONG_DAYS
+    lookback = LONG_DAYS
     end_dt = datetime.strptime(trade_date, "%Y-%m-%d")
-    # 为了计算指标准确（如 200 SMA），我们需要比 90 天更多的历史数据
-    fetch_lookback = 365 if not short_only else 60
+    # 为了计算指标准确（如 200 SMA），需要比分析窗口更长的历史数据
+    fetch_lookback = 365
     start_str = (end_dt - timedelta(days=fetch_lookback)).strftime("%Y-%m-%d")
 
     tasks: Dict[str, tuple] = {
@@ -75,14 +75,13 @@ def _fetch_all(ticker: str, trade_date: str, short_only: bool = False) -> Dict[s
         "hot_stocks": (get_hot_stocks_xq, {}),
     }
 
-    # 财务报表类数据仅中线/全量模式需要，短线跳过
-    if not short_only:
-        tasks.update({
-            "fundamentals": (get_fundamentals, {"ticker": ticker, "curr_date": trade_date}),
-            "balance_sheet": (get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
-            "cashflow": (get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
-            "income_statement": (get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
-        })
+    # 财务报表类数据始终拉取，Research Manager 根据 horizon 自行判断权重
+    tasks.update({
+        "fundamentals": (get_fundamentals, {"ticker": ticker, "curr_date": trade_date}),
+        "balance_sheet": (get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
+        "cashflow": (get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
+        "income_statement": (get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
+    })
 
     results: Dict[str, Any] = {}
     fetch_start = time.time()
@@ -159,16 +158,14 @@ class DataCollector:
         self._cache: Dict[str, Dict[str, Any]] = {}
 
     def collect(self, ticker: str, trade_date: str, horizons: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Fetch data and store in cache.
+        """Fetch all data and store in cache.
 
-        Passes short_only=True when horizons is EXACTLY ['short'] to use a 14-day lookback
-        and skip financial statements, speeding up short-term-only analysis.
+        Always fetches full data (including financial statements) regardless of horizon.
+        Data is collected once and shared across all horizon runs.
         """
         key = make_cache_key(ticker, trade_date)
         if key not in self._cache:
-            # Only use short_only optimization if we only have one horizon and it's 'short'
-            short_only = horizons is not None and len(horizons) == 1 and horizons[0] == "short"
-            self._cache[key] = _fetch_all(ticker, trade_date, short_only=short_only)
+            self._cache[key] = _fetch_all(ticker, trade_date)
         return self._cache[key]
 
     def get(self, ticker: str, trade_date: str) -> Optional[Dict[str, Any]]:

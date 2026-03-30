@@ -16,15 +16,6 @@ _HORIZON_LABELS = {
     "medium": "中线（1-3月，基本面主导）",
 }
 
-# (horizon, agent_type) -> weight hint appended to context block
-_WEIGHT_HINTS: Dict[tuple, str] = {
-    ("short", "fundamentals"): "本维度为次要参考，简要输出核心风险即可，无需完整基本面分析。",
-    ("short", "macro"): "本维度为次要参考，仅关注近期政策冲击信号，简要输出即可。",
-    ("medium", "smart_money"): "本维度为次要参考，仅判断大资金方向，简要输出即可。",
-    ("medium", "social"): "本维度为次要参考，情绪仅作辅助参考，简要输出即可。",
-    ("medium", "game_theory"): "本维度为次要参考，简要输出即可。",
-}
-
 
 def parse_intent(
     query: str,
@@ -58,7 +49,7 @@ def parse_intent(
         return {
             "raw_query": query,
             "ticker": parsed.get("ticker") or fallback_ticker or "",
-            "horizons": parsed.get("horizons") if isinstance(parsed.get("horizons"), list) else ["short", "medium"],
+            "horizons": ["short"],  # 固定单次运行，每个分析师用自己的自然时间窗口
             "focus_areas": parsed.get("focus_areas") if isinstance(parsed.get("focus_areas"), list) else [],
             "specific_questions": parsed.get("specific_questions") if isinstance(parsed.get("specific_questions"), list) else [],
             "user_context": _merge_inferred_user_context(parsed_user_context, fallback_user_context),
@@ -67,7 +58,7 @@ def parse_intent(
         return {
             "raw_query": query,
             "ticker": fallback_ticker or "",
-            "horizons": ["short", "medium"],
+            "horizons": ["short"],
             "focus_areas": [],
             "specific_questions": [],
             "user_context": fallback_user_context,
@@ -87,13 +78,12 @@ def build_horizon_context(
     horizon_label = _HORIZON_LABELS.get(horizon, horizon)
     focus_str = "、".join(focus_areas) if focus_areas else "无特殊关注"
     questions_str = "；".join(specific_questions) if specific_questions else "无"
-    weight_hint = _WEIGHT_HINTS.get((horizon, agent_type), "") if agent_type else ""
 
     return template.format(
         horizon_label=horizon_label,
         focus_areas_str=focus_str,
         specific_questions_str=questions_str,
-        weight_hint=weight_hint,
+        weight_hint="",
     )
 
 

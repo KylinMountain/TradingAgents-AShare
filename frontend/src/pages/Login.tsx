@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useNavigate } from 'react-router-dom'
 
 const SIGNALS = [
-    { label: '研究框架', value: '15-Agent' },
+    { label: '研究框架', value: '14-Agent' },
     { label: '工作区', value: '私有' },
     { label: '报告流', value: '实时' },
 ]
@@ -19,9 +19,9 @@ const AGENT_GROUPS = [
     },
     {
         title: '研究团队',
-        count: '4',
-        items: ['博弈裁判', '多头研究', '空头研究', '研究总监'],
-        description: '组织多空论证与博弈推演，收敛成投资计划与核心分歧。',
+        count: '3',
+        items: ['多头研究', '空头研究', '研究总监'],
+        description: '组织多空辩论，收敛成投资计划与核心分歧。',
     },
     {
         title: '交易与风控',
@@ -101,7 +101,7 @@ export default function Login() {
                                 </span>
                             </h1>
                             <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600 dark:text-slate-300 md:text-lg">
-                                从市场、舆情、新闻、基本面、宏观、主力资金到风控与组合决策，将 15 个 Agent 的协作过程沉淀为可追踪、可复盘、可持续更新的研究链路。
+                                从市场、舆情、新闻、基本面、宏观、主力资金到风控与组合决策，将 14 个 Agent 的协作过程沉淀为可追踪、可复盘、可持续更新的研究链路。
                             </p>
                         </div>
 
@@ -118,7 +118,7 @@ export default function Login() {
                     <div className="relative mt-10 rounded-[36px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-800/90 dark:bg-slate-950 dark:shadow-[0_28px_88px_rgba(2,6,23,0.5)] lg:mt-0">
                         <div className="flex items-center justify-between">
                             <div>
-                                <div className="text-[11px] tracking-[0.22em] text-slate-400 dark:text-slate-500">15-AGENT 架构</div>
+                                <div className="text-[11px] tracking-[0.22em] text-slate-400 dark:text-slate-500">14-AGENT 架构</div>
                                 <div className="mt-2 text-xl font-semibold text-slate-950 dark:text-white">协同分工概览</div>
                             </div>
                             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-950 text-white dark:bg-white dark:text-slate-950">

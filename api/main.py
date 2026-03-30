@@ -448,7 +448,7 @@ FIXED_TEAMS = {
         "Macro Analyst",
         "Smart Money Analyst",
     ],
-    "Research Team": ["Game Theory Manager", "Bull Researcher", "Bear Researcher", "Research Manager"],
+    "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
     "Trading Team": ["Trader"],
     "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
     "Portfolio Management": ["Portfolio Manager"],
@@ -461,7 +461,6 @@ ANALYST_AGENT_NAMES = {
     "fundamentals": "Fundamentals Analyst",
     "macro": "Macro Analyst",
     "smart_money": "Smart Money Analyst",
-    "game_theory": "Game Theory Manager",
     "bull": "Bull Researcher",
     "bear": "Bear Researcher",
     "Bull_Initial": "Bull Researcher",
@@ -484,18 +483,11 @@ ANALYST_REPORT_MAP = {
     "smart_money": "smart_money_report",
 }
 
-# Analysts that are relevant per investment horizon
-HORIZON_ANALYSTS = {
-    "short": ["market", "social", "news", "smart_money"],
-    "medium": ["market", "news", "fundamentals", "macro"],
-}
-
-
+# All analysts always run — each uses its own natural time window
+# (technical/funds → short, fundamentals/macro → medium)
 def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
-    """Return the subset of available analysts relevant for the given horizon."""
-    relevant = set(HORIZON_ANALYSTS.get(horizon, available))
-    filtered = [a for a in available if a in relevant]
-    return filtered if filtered else list(available)
+    """Return all available analysts regardless of horizon."""
+    return list(available)
 
 
 def _announcements_file() -> Path:
@@ -1258,20 +1250,10 @@ class AgentProgressTracker:
             else:
                 self._set_status(agent_name, "pending")
 
-        # Game Theory Manager 状态跟踪
-        if chunk.get("game_theory_report"):
-            self.report_sections["game_theory_report"] = chunk.get("game_theory_report")
-            if self.status.get("Game Theory Manager") != "completed":
-                self._set_status("Game Theory Manager", "completed")
-        elif not found_active and self.selected_analysts:
-            if self.status.get("Game Theory Manager") == "pending":
-                self._set_status("Game Theory Manager", "in_progress")
-
+        # 分析师全部完成后，启动 Bull Researcher
         if not found_active and self.selected_analysts:
-            if self.status.get("Game Theory Manager") == "completed" and self.status.get("Bull Researcher") == "pending":
+            if self.status.get("Bull Researcher") == "pending":
                 self._set_status("Bull Researcher", "in_progress")
-            elif self.status.get("Game Theory Manager") != "completed" and self.status.get("Game Theory Manager") != "in_progress":
-                pass  # wait for game theory
 
         # 研究团队状态更新
         debate_state = chunk.get("investment_debate_state") or {}
@@ -1497,7 +1479,7 @@ async def _run_job(
 
             report_keys = (
                 "market_report", "sentiment_report", "news_report", "fundamentals_report",
-                "macro_report", "smart_money_report", "game_theory_report",
+                "macro_report", "smart_money_report",
                 "investment_plan", "trader_investment_plan", "final_trade_decision",
             )
 
@@ -1568,10 +1550,12 @@ async def _run_job(
                                 seen[rkey] = True
                                 h_tracker._set_status(aname, "completed")
 
-                        # 2. game_theory_report 出现 → GTM completed, Bull/Bear/ResearchManager 开始
-                        if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
-                            seen["game_theory_report"] = True
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                        # 2. 分析师全部完成后 → Bull/Bear/ResearchManager 开始
+                        all_analysts_done = all(
+                            seen.get(ANALYST_REPORT_MAP.get(a, "")) for a in h_tracker.selected_analysts
+                        )
+                        if all_analysts_done and not seen.get("_research_started"):
+                            seen["_research_started"] = True
                             h_tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
                             h_tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
                             h_tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")
@@ -1753,7 +1737,6 @@ async def _run_job(
                 "fundamentals_report",
                 "macro_report",
                 "smart_money_report",
-                "game_theory_report",
                 "investment_plan",
                 "trader_investment_plan",
                 "final_trade_decision",
@@ -1776,10 +1759,12 @@ async def _run_job(
                             seen[rkey] = True
                             tracker._set_status(aname, "completed")
 
-                    # 2. 其他团队状态推进
-                    if chunk.get("game_theory_report") and not seen.get("game_theory_report"):
-                        seen["game_theory_report"] = True
-                        tracker._set_status(ANALYST_AGENT_NAMES["game_theory"], "completed")
+                    # 2. 分析师全部完成 → 研究团队开始
+                    all_analysts_done = all(
+                        seen.get(ANALYST_REPORT_MAP.get(a, "")) for a in tracker.selected_analysts
+                    )
+                    if all_analysts_done and not seen.get("_research_started"):
+                        seen["_research_started"] = True
                         tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
                         tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
                         tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")

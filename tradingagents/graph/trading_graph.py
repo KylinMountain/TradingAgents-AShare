@@ -295,13 +295,13 @@ class TradingAgentsGraph:
         trade_date: str,
         query: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run dual-horizon analysis concurrently.
+        """Run a single integrated analysis.
 
-        Parses the natural language query (if provided), pre-collects data once,
-        then runs short-term and medium-term graph invocations in parallel via
-        asyncio.gather.
+        Each analyst uses its own natural time window (technical/funds → short,
+        fundamentals/macro → medium). The graph runs once; Research Manager
+        synthesizes both short and long term perspectives.
 
-        Returns a dict with keys: short_term, medium_term, user_intent.
+        Returns a dict with short_term result and user_intent.
         """
         self.ticker = company_name
 
@@ -314,39 +314,33 @@ class TradingAgentsGraph:
             user_intent = {
                 "raw_query": "",
                 "ticker": ticker,
-                "horizons": ["short", "medium"],
+                "horizons": ["short"],
                 "focus_areas": [],
                 "specific_questions": [],
                 "user_context": {},
             }
 
-        # Pre-collect data once; analysts will read from cache
+        # Pre-collect data once (always full data); analysts will read from cache
         print(f"[TradingAgentsGraph] Collecting data for {ticker} {trade_date}…")
         self.data_collector.collect(ticker, trade_date)
 
         graph_args = self.propagator.get_graph_args()
 
-        async def _run(horizon: str):
-            state = self.propagator.create_initial_state(
-                ticker, trade_date, user_intent=user_intent, horizon=horizon
-            )
-            return await self.graph.ainvoke(state, **graph_args)
-
-        short_state, medium_state = await asyncio.gather(
-            _run("short"), _run("medium")
+        state = self.propagator.create_initial_state(
+            ticker, trade_date, user_intent=user_intent, horizon="short"
         )
+        final_state = await self.graph.ainvoke(state, **graph_args)
 
         # Evict cached data to free memory
         self.data_collector.evict(ticker, trade_date)
 
-        short_result = self._build_horizon_result("short", short_state)
-        medium_result = self._build_horizon_result("medium", medium_state)
+        result = self._build_horizon_result("short", final_state)
 
-        self._log_state_dual(trade_date, short_result, medium_result, user_intent)
+        self._log_state_dual(trade_date, result, {}, user_intent)
 
         return {
-            "short_term": short_result,
-            "medium_term": medium_result,
+            "short_term": result,
+            "medium_term": None,
             "user_intent": user_intent,
         }
 

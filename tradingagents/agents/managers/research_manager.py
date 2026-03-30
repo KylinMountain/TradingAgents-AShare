@@ -1,12 +1,9 @@
-import time
-import json
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.agents.utils.agent_states import current_tracker_var
 from tradingagents.agents.utils.debate_utils import (
     format_claim_subset_for_prompt,
     format_claims_for_prompt,
-    summarize_game_theory_signals,
 )
 
 
@@ -17,8 +14,7 @@ def create_research_manager(llm, memory):
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
-        game_theory_report = state.get("game_theory_report", "")
-        game_theory_signals = state.get("game_theory_signals", {})
+        smart_money_report = state.get("smart_money_report", "")
 
         investment_debate_state = state["investment_debate_state"]
         claims = investment_debate_state.get("claims", [])
@@ -35,8 +31,8 @@ def create_research_manager(llm, memory):
         prompt = get_prompt("research_manager_prompt", config=get_config()).format(
             past_memory_str=past_memory_str,
             history=history,
-            game_theory_report=game_theory_report,
-            game_theory_signals_summary=summarize_game_theory_signals(game_theory_signals),
+            smart_money_report=smart_money_report,
+            sentiment_report=sentiment_report,
             claims_text=format_claims_for_prompt(claims),
             unresolved_claims_text=format_claim_subset_for_prompt(claims, unresolved_claim_ids),
             round_summary=round_summary or "暂无轮次摘要。",

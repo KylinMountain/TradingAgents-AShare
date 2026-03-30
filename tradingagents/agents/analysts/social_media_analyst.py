@@ -29,7 +29,7 @@ def create_social_media_analyst(llm, data_collector=None):
     async def social_media_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
-        horizon = state.get("horizon", "short")
+        horizon = "short"  # 情绪面固定短期视角
         user_intent = state.get("user_intent") or {}
         focus_areas = user_intent.get("focus_areas", [])
         specific_questions = user_intent.get("specific_questions", [])

@@ -109,7 +109,6 @@ class GraphSetup:
         bear_researcher_node = create_bear_researcher(
             self.quick_thinking_llm, self.bear_memory
         )
-        game_theory_manager_node = create_game_theory_manager(self.quick_thinking_llm)
         research_manager_node = create_research_manager(
             self.deep_thinking_llm, self.invest_judge_memory
         )
@@ -137,7 +136,6 @@ class GraphSetup:
             workflow.add_node(f"{analyst_display_name(analyst_type)} Analyst Done", done_nodes[analyst_type])
 
         # Add other nodes
-        workflow.add_node("Game Theory Manager", game_theory_manager_node)
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -168,13 +166,11 @@ class GraphSetup:
             )
             workflow.add_edge(current_tools, current_analyst)
 
-        # All analysts complete → Game Theory Manager
+        # All analysts complete → Bull Researcher (start debate)
         workflow.add_edge(
             [f"{analyst_display_name(analyst_type)} Analyst Done" for analyst_type in selected_analysts],
-            "Game Theory Manager",
+            "Bull Researcher",
         )
-        # Game Theory Manager → Bull Researcher
-        workflow.add_edge("Game Theory Manager", "Bull Researcher")
 
         # Add remaining edges
         workflow.add_conditional_edges(
