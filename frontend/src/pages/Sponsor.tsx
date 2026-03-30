@@ -8,7 +8,7 @@ export default function Sponsor() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/30 to-slate-100 dark:from-slate-950 dark:via-pink-950/10 dark:to-slate-950 flex items-center justify-center p-6">
-            <div className="w-full max-w-md">
+            <div className="w-full max-w-2xl">
                 <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden">
                     {/* Header */}
                     <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-6 py-5 text-center">
@@ -17,19 +17,37 @@ export default function Sponsor() {
                         <p className="text-pink-100 text-sm mt-1">你的支持是项目持续发展的动力</p>
                     </div>
 
-                    {/* QR Code */}
-                    <div className="px-6 py-6 text-center">
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">支付宝扫码赞助</p>
-                        <div className="inline-block rounded-2xl border border-slate-200 dark:border-slate-700 p-3 bg-white">
-                            <img
-                                src="/assets/alipay.png"
-                                alt="支付宝收款码"
-                                className="w-56 h-56 object-contain"
-                            />
+                    {/* QR Codes */}
+                    <div className="px-6 py-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {/* WeChat */}
+                            <div className="text-center">
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 font-medium">微信支付</p>
+                                <div className="inline-block rounded-2xl border border-slate-200 dark:border-slate-700 p-3 bg-white">
+                                    <img
+                                        src="/assets/wechat.png"
+                                        alt="微信收款码"
+                                        className="w-48 h-48 object-contain"
+                                    />
+                                </div>
+                            </div>
+                            {/* Alipay */}
+                            <div className="text-center">
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 font-medium">支付宝</p>
+                                <div className="inline-block rounded-2xl border border-slate-200 dark:border-slate-700 p-3 bg-white">
+                                    <img
+                                        src="/assets/alipay.png"
+                                        alt="支付宝收款码"
+                                        className="w-48 h-48 object-contain"
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-4">金额随意，心意最重要</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">转账时可备注您的昵称和邮箱或 GitHub ID，方便致谢</p>
-                        <p className="text-sm text-rose-400 dark:text-rose-300 mt-2 font-medium">祝您股市长红，收益长虹 🚀</p>
+                        <div className="text-center mt-5">
+                            <p className="text-xs text-slate-400 dark:text-slate-500">金额随意，心意最重要</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">转账时可备注您的昵称和邮箱或 GitHub ID，方便致谢</p>
+                            <p className="text-sm text-rose-400 dark:text-rose-300 mt-2 font-medium">祝您股市长红，收益长虹 🚀</p>
+                        </div>
                     </div>
 
                     {/* Footer links */}
