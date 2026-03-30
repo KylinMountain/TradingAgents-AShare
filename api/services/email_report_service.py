@@ -15,6 +15,8 @@ import smtplib
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, List, Optional
 
+import markdown as _md
+
 if TYPE_CHECKING:
     from api.database import ReportDB, UserDB
 
@@ -37,6 +39,39 @@ def _get_env_alias(keys: list[str], default: str = "") -> str:
 def _escape(text: str) -> str:
     """HTML-escape user-supplied text."""
     return html.escape(str(text))
+
+
+def _render_markdown(text: str) -> str:
+    """Convert markdown to HTML with inline styles for email clients."""
+    raw = _md.markdown(text, extensions=["tables"])
+    # Add inline styles for elements that email clients won't style via CSS classes
+    raw = raw.replace("<table>",
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0;">')
+    raw = raw.replace("<thead>",
+        '<thead style="background:#e0f2fe;">')
+    raw = raw.replace("<th>",
+        '<th style="text-align:left;padding:8px 12px;border:1px solid #cbd5e1;font-weight:600;color:#0f172a;">')
+    raw = raw.replace("<td>",
+        '<td style="padding:8px 12px;border:1px solid #e2e8f0;color:#334155;">')
+    raw = raw.replace("<h3>",
+        '<h3 style="font-size:14px;font-weight:700;color:#0f172a;margin:16px 0 8px;">')
+    raw = raw.replace("<h4>",
+        '<h4 style="font-size:13px;font-weight:700;color:#1e293b;margin:14px 0 6px;">')
+    raw = raw.replace("<strong>",
+        '<strong style="font-weight:700;color:#0f172a;">')
+    raw = raw.replace("<hr>",
+        '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0;">')
+    raw = raw.replace("<hr />",
+        '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0;">')
+    raw = raw.replace("<ol>",
+        '<ol style="margin:8px 0;padding-left:20px;color:#334155;">')
+    raw = raw.replace("<ul>",
+        '<ul style="margin:8px 0;padding-left:20px;color:#334155;">')
+    raw = raw.replace("<li>",
+        '<li style="margin:4px 0;">')
+    raw = raw.replace("<blockquote>",
+        '<blockquote style="margin:12px 0;padding:10px 16px;border-left:3px solid #3b82f6;background:#f8fafc;color:#475569;">')
+    return raw
 
 
 def _infer_frontend_url() -> str:
@@ -134,42 +169,100 @@ def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
     decision = _escape(report.decision or "-")
     direction = report.direction or ""
     direction_color = _DIRECTION_COLOR.get(direction, "#6b7280")
-    confidence = report.confidence if report.confidence is not None else "-"
-    target_price = report.target_price if report.target_price is not None else "-"
-    stop_loss = report.stop_loss_price if report.stop_loss_price is not None else "-"
+    # Direction badge background (lighter tint)
+    direction_bg = {
+        "看多": "#dcfce7", "多": "#dcfce7",
+        "看空": "#fee2e2", "空": "#fee2e2",
+        "中性": "#f3f4f6", "谨慎": "#fef3c7",
+    }.get(direction, "#f3f4f6")
+    confidence = report.confidence if report.confidence is not None else None
+    target_price = report.target_price
+    stop_loss = report.stop_loss_price
 
-    # --- header ---
+    # --- start ---
     parts: list[str] = [
         "<!DOCTYPE html>",
-        '<html lang="zh"><head><meta charset="utf-8"></head>',
-        '<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">',
-        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;">',
-        '<tr><td align="center" style="padding:24px 0;">',
-        '<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">',
-        # header bar
-        '<tr><td style="background:#1e3a5f;padding:20px 24px;">',
-        f'<h1 style="margin:0;color:#ffffff;font-size:18px;">TradingAgents 投研报告</h1>',
-        f'<p style="margin:4px 0 0;color:#93c5fd;font-size:14px;">{symbol} | {trade_date}</p>',
-        '</td></tr>',
+        '<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>',
+        '<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,\'Helvetica Neue\',Arial,sans-serif;-webkit-font-smoothing:antialiased;">',
+        '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">',
+        '<tr><td align="center" style="padding:32px 16px;">',
+        '<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">',
     ]
 
-    # --- decision summary ---
-    parts.append('<tr><td style="padding:20px 24px;">')
-    parts.append('<h2 style="font-size:16px;margin:0 0 12px;color:#1e3a5f;">决策摘要</h2>')
-    parts.append('<table width="100%" cellpadding="6" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;">')
-    summary_rows = [
-        ("决策", decision),
-        ("方向", f'<span style="color:{direction_color};font-weight:bold;">{_escape(direction)}</span>'),
-        ("置信度", f"{confidence}%"if confidence != "-" else "-"),
-        ("目标价", str(target_price)),
-        ("止损价", str(stop_loss)),
-    ]
-    for i, (label, value) in enumerate(summary_rows):
-        bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
-        parts.append(f'<tr style="background:{bg};"><td style="width:30%;color:#6b7280;font-size:13px;">{label}</td><td style="font-size:13px;">{value}</td></tr>')
-    parts.append('</table></td></tr>')
+    # --- header with gradient ---
+    parts.append(
+        '<tr><td style="background:#0f172a;padding:28px 32px;">'
+        f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        f'<td><p style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">TradingAgents 投研报告</p>'
+        f'<p style="margin:6px 0 0;font-size:14px;color:#94a3b8;">{symbol} &middot; {trade_date}</p></td>'
+        f'<td align="right" valign="top">'
+        f'<span style="display:inline-block;background:{direction_bg};color:{direction_color};font-size:15px;font-weight:700;padding:6px 16px;border-radius:20px;">{_escape(direction) or "-"}</span>'
+        f'</td></tr></table>'
+        '</td></tr>'
+    )
 
-    # --- agent verdicts (one-line summaries, not full reports) ---
+    # --- decision card: 3-column summary ---
+    conf_str = f"{confidence}%" if confidence is not None else "-"
+    conf_width = confidence if confidence is not None else 0
+
+    parts.append('<tr><td style="padding:24px 32px 0;">')
+    parts.append('<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;">')
+    parts.append('<tr>')
+
+    # Decision column
+    parts.append(
+        '<td width="33%" style="padding:16px;background:#f8fafc;border-radius:12px;text-align:center;border:1px solid #e2e8f0;">'
+        f'<p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">决策</p>'
+        f'<p style="margin:8px 0 0;font-size:24px;font-weight:800;color:#0f172a;">{decision}</p>'
+        '</td>'
+    )
+    parts.append('<td width="2%"></td>')
+
+    # Confidence column with progress bar
+    parts.append(
+        '<td width="32%" style="padding:16px;background:#f8fafc;border-radius:12px;text-align:center;border:1px solid #e2e8f0;">'
+        f'<p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">置信度</p>'
+        f'<p style="margin:8px 0 6px;font-size:24px;font-weight:800;color:#0f172a;">{conf_str}</p>'
+        f'<div style="background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;">'
+        f'<div style="background:linear-gradient(90deg,#3b82f6,#06b6d4);width:{conf_width}%;height:6px;border-radius:4px;"></div>'
+        f'</div>'
+        '</td>'
+    )
+    parts.append('<td width="2%"></td>')
+
+    # Direction column
+    parts.append(
+        '<td width="33%" style="padding:16px;background:#f8fafc;border-radius:12px;text-align:center;border:1px solid #e2e8f0;">'
+        f'<p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#64748b;">方向</p>'
+        f'<p style="margin:8px 0 0;font-size:24px;font-weight:800;color:{direction_color};">{_escape(direction) or "-"}</p>'
+        '</td>'
+    )
+
+    parts.append('</tr></table>')
+    parts.append('</td></tr>')
+
+    # --- target / stop-loss price boxes ---
+    if target_price is not None or stop_loss is not None:
+        parts.append('<tr><td style="padding:12px 32px 0;">')
+        parts.append('<table width="100%" cellpadding="0" cellspacing="0"><tr>')
+        if target_price is not None:
+            parts.append(
+                f'<td width="49%" style="background:#fef2f2;border-radius:10px;padding:14px 16px;border:1px solid #fecaca;">'
+                f'<p style="margin:0;font-size:11px;color:#991b1b;text-transform:uppercase;letter-spacing:0.5px;">&#127919; 目标价</p>'
+                f'<p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#dc2626;">¥{target_price:.2f}</p>'
+                f'</td>'
+            )
+            parts.append('<td width="2%"></td>')
+        if stop_loss is not None:
+            parts.append(
+                f'<td width="49%" style="background:#f0fdf4;border-radius:10px;padding:14px 16px;border:1px solid #bbf7d0;">'
+                f'<p style="margin:0;font-size:11px;color:#166534;text-transform:uppercase;letter-spacing:0.5px;">&#128737; 止损价</p>'
+                f'<p style="margin:4px 0 0;font-size:20px;font-weight:700;color:#16a34a;">¥{stop_loss:.2f}</p>'
+                f'</td>'
+            )
+        parts.append('</tr></table></td></tr>')
+
+    # --- agent verdicts ---
     verdicts: list[tuple[str, dict]] = []
     for attr, title in _AGENT_SECTIONS:
         content = getattr(report, attr, None)
@@ -180,94 +273,124 @@ def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
             verdicts.append((title, verdict))
 
     if verdicts:
-        parts.append('<tr><td style="padding:12px 24px;">')
-        parts.append('<h2 style="font-size:16px;margin:0 0 12px;color:#1e3a5f;">各方观点</h2>')
-        parts.append('<table width="100%" cellpadding="8" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;">')
+        parts.append('<tr><td style="padding:24px 32px 0;">')
+        parts.append('<p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#0f172a;">&#128101; 各方观点</p>')
         for i, (title, v) in enumerate(verdicts):
-            bg = "#f9fafb" if i % 2 == 0 else "#ffffff"
             d_color = _DIRECTION_COLOR.get(v["direction"], "#6b7280")
+            d_bg = {
+                "看多": "#dcfce7", "多": "#dcfce7",
+                "看空": "#fee2e2", "空": "#fee2e2",
+                "中性": "#f3f4f6", "谨慎": "#fef3c7",
+            }.get(v["direction"], "#f3f4f6")
+            border_bottom = "border-bottom:1px solid #f1f5f9;" if i < len(verdicts) - 1 else ""
             parts.append(
-                f'<tr style="background:{bg};">'
-                f'<td style="width:25%;font-size:13px;color:#6b7280;">{title}</td>'
-                f'<td style="width:15%;font-size:13px;font-weight:bold;color:{d_color};">{_escape(v["direction"])}</td>'
-                f'<td style="font-size:13px;color:#374151;">{_escape(v["reason"])}</td>'
-                f'</tr>'
+                f'<table width="100%" cellpadding="0" cellspacing="0" style="{border_bottom}">'
+                f'<tr><td style="padding:10px 0;">'
+                f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+                f'<td style="width:110px;font-size:13px;color:#64748b;font-weight:500;">{title}</td>'
+                f'<td style="width:60px;"><span style="display:inline-block;background:{d_bg};color:{d_color};font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;">{_escape(v["direction"])}</span></td>'
+                f'<td style="font-size:13px;color:#475569;padding-left:8px;">{_escape(v["reason"])}</td>'
+                f'</tr></table>'
+                f'</td></tr></table>'
             )
-        parts.append('</table></td></tr>')
+        parts.append('</td></tr>')
 
     # --- key metrics ---
     key_metrics: Optional[List[dict]] = getattr(report, "key_metrics", None)
     if key_metrics:
-        parts.append('<tr><td style="padding:12px 24px;">')
-        parts.append('<h2 style="font-size:16px;margin:0 0 12px;color:#1e3a5f;">关键指标</h2>')
-        parts.append('<table width="100%" cellpadding="6" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;font-size:13px;">')
-        parts.append('<tr style="background:#f1f5f9;"><th style="text-align:left;">指标</th><th style="text-align:left;">数值</th><th style="text-align:left;">状态</th></tr>')
+        parts.append('<tr><td style="padding:24px 32px 0;">')
+        parts.append('<p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#0f172a;">&#128200; 关键指标</p>')
+        parts.append('<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">')
+        parts.append(
+            '<tr style="background:#f8fafc;">'
+            '<td style="padding:10px 14px;font-size:12px;font-weight:600;color:#64748b;">指标</td>'
+            '<td style="padding:10px 14px;font-size:12px;font-weight:600;color:#64748b;">数值</td>'
+            '<td style="padding:10px 14px;font-size:12px;font-weight:600;color:#64748b;">状态</td>'
+            '</tr>'
+        )
         status_labels = {"good": "良好", "neutral": "中性", "bad": "不佳"}
-        for item in key_metrics:
+        status_emoji = {"good": "&#9989;", "neutral": "&#9898;", "bad": "&#10060;"}
+        for i, item in enumerate(key_metrics):
             name = _escape(item.get("name", ""))
             value = _escape(item.get("value", ""))
             status = item.get("status", "")
             s_color = _KEY_METRIC_STATUS_COLORS.get(status, "#6b7280")
             s_label = status_labels.get(status, status)
-            parts.append(f'<tr><td>{name}</td><td>{value}</td><td style="color:{s_color};font-weight:bold;">{_escape(s_label)}</td></tr>')
+            s_icon = status_emoji.get(status, "")
+            bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+            parts.append(
+                f'<tr style="background:{bg};">'
+                f'<td style="padding:10px 14px;font-size:13px;color:#334155;">{name}</td>'
+                f'<td style="padding:10px 14px;font-size:13px;font-weight:600;color:#0f172a;">{value}</td>'
+                f'<td style="padding:10px 14px;font-size:13px;font-weight:600;color:{s_color};">{s_icon} {_escape(s_label)}</td>'
+                f'</tr>'
+            )
         parts.append('</table></td></tr>')
 
     # --- risk items ---
     risk_items: Optional[List[dict]] = getattr(report, "risk_items", None)
     if risk_items:
-        parts.append('<tr><td style="padding:12px 24px;">')
-        parts.append('<h3 style="font-size:14px;margin:0 0 8px;color:#1e3a5f;">风险提示</h3>')
-        parts.append('<table width="100%" cellpadding="6" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:4px;font-size:13px;">')
-        parts.append('<tr style="background:#f1f5f9;"><th style="text-align:left;">风险</th><th style="text-align:left;">等级</th><th style="text-align:left;">说明</th></tr>')
+        parts.append('<tr><td style="padding:24px 32px 0;">')
+        parts.append('<p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#0f172a;">&#9888;&#65039; 风险提示</p>')
         for item in risk_items:
             name = _escape(item.get("name", ""))
             level = item.get("level", "")
             level_color = _RISK_LEVEL_COLORS.get(level, "#6b7280")
+            level_bg = {"high": "#fef2f2", "medium": "#fffbeb", "low": "#f0fdf4"}.get(level, "#f8fafc")
+            level_label = {"high": "高", "medium": "中", "low": "低"}.get(level, level)
             desc = _escape(item.get("description", ""))
-            parts.append(f'<tr><td>{name}</td><td style="color:{level_color};font-weight:bold;">{_escape(level)}</td><td>{desc}</td></tr>')
-        parts.append('</table></td></tr>')
+            parts.append(
+                f'<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;background:{level_bg};border-radius:10px;border:1px solid #e2e8f0;">'
+                f'<tr><td style="padding:12px 16px;">'
+                f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+                f'<td><span style="font-size:13px;font-weight:600;color:#0f172a;">{name}</span></td>'
+                f'<td align="right"><span style="display:inline-block;background:{level_color};color:#ffffff;font-size:11px;font-weight:700;padding:2px 10px;border-radius:10px;">{_escape(level_label)}</span></td>'
+                f'</tr></table>'
+                f'<p style="margin:6px 0 0;font-size:12px;color:#64748b;line-height:1.5;">{desc}</p>'
+                f'</td></tr></table>'
+            )
+        parts.append('</td></tr>')
 
     # --- final trade decision ---
     ftd = getattr(report, "final_trade_decision", None)
     if ftd:
-        escaped_ftd = _escape(ftd).replace("\n", "<br>")
-        parts.append('<tr><td style="padding:12px 24px;">')
-        parts.append('<h3 style="font-size:14px;margin:0 0 8px;color:#1e3a5f;">最终交易决策</h3>')
-        parts.append(f'<div style="font-size:13px;color:#374151;line-height:1.6;background:#f9fafb;padding:12px;border-radius:4px;">{escaped_ftd}</div>')
-        parts.append('</td></tr>')
+        ftd_html = _render_markdown(ftd)
+        parts.append(
+            '<tr><td style="padding:24px 32px 0;">'
+            '<p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#0f172a;">&#128221; 最终交易决策</p>'
+            f'<div style="font-size:13px;color:#334155;line-height:1.7;background:#f0f9ff;padding:16px 20px;border-radius:10px;border-left:4px solid #3b82f6;">{ftd_html}</div>'
+            '</td></tr>'
+        )
 
     # --- view full report button ---
     if frontend_url:
         report_url = f"{frontend_url.rstrip('/')}/reports?report={report.id}"
-        parts.append('<tr><td style="padding:20px 24px;" align="center">')
         parts.append(
+            '<tr><td style="padding:28px 32px 0;" align="center">'
             f'<a href="{_escape(report_url)}" target="_blank" style="'
-            'display:inline-block;background:#1e3a5f;color:#ffffff;'
-            'font-size:14px;font-weight:bold;padding:10px 28px;'
-            'border-radius:6px;text-decoration:none;">'
-            '查看完整报告</a>'
+            'display:inline-block;background:linear-gradient(135deg,#3b82f6,#06b6d4);color:#ffffff;'
+            'font-size:14px;font-weight:700;padding:12px 36px;'
+            'border-radius:10px;text-decoration:none;letter-spacing:0.3px;">'
+            '&#128196; 查看完整报告</a>'
+            '</td></tr>'
         )
-        parts.append('</td></tr>')
 
     # --- footer ---
-    parts.append('<tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;text-align:center;">')
-    parts.append('<p style="margin:0;font-size:11px;color:#9ca3af;">本报告由 TradingAgents 系统自动生成，仅供参考，不构成投资建议。</p>')
     parts.append(
-        f'<p style="margin:6px 0 0;font-size:11px;color:#9ca3af;">'
-        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">TradingAgents-AShare</a>'
-        f' — A 股多智能体智能投研系统，15 名 AI Agent 协作分析，全流程可视化。'
-        f'</p>'
-    )
-    parts.append(
-        f'<p style="margin:6px 0 0;font-size:11px;color:#9ca3af;">'
+        '<tr><td style="padding:28px 32px;border-top:1px solid #e2e8f0;margin-top:24px;text-align:center;">'
+        '<p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">本报告由 TradingAgents 多智能体系统自动生成，仅供参考，不构成投资建议。</p>'
+        f'<p style="margin:10px 0 0;font-size:12px;color:#94a3b8;">'
+        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;font-weight:600;">TradingAgents-AShare</a>'
+        f' &mdash; 15 名 AI Agent 协作分析的 A 股智能投研系统</p>'
+        f'<p style="margin:8px 0 0;font-size:12px;color:#94a3b8;">'
         f'觉得有帮助？给项目点个 '
-        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">⭐ Star</a>'
+        f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">&#11088; Star</a>'
         f' 或 '
-        f'<a href="{_GITHUB_URL}/sponsors" style="color:#3b82f6;text-decoration:none;">赞助支持</a>'
-        f' 让更多人发现它。'
+        f'<a href="{_GITHUB_URL}/sponsors" style="color:#3b82f6;text-decoration:none;">&#10084;&#65039; 赞助支持</a>'
         f'</p>'
+        f'<p style="margin:12px 0 0;font-size:11px;color:#cbd5e1;">不想收到此邮件？请登录后在「设置」页面关闭「邮件报告推送」即可取消订阅。</p>'
+        '</td></tr>'
     )
-    parts.append('</td></tr>')
     parts.append('</table></td></tr></table></body></html>')
 
     return "\n".join(parts)

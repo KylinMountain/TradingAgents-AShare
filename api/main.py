@@ -251,15 +251,24 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
-    # 启动时把卡在 running 的定时任务重置，让它们今天可以重新触发
+    # 启动时把卡在 running 的定时任务重置
     with get_db_ctx() as db:
         stale = db.query(ScheduledAnalysisDB).filter(
             ScheduledAnalysisDB.last_run_status == "running"
         ).all()
         if stale:
             for item in stale:
-                item.last_run_status = "stale"
-                item.last_run_date = None  # 允许今天重新触发
+                # 检查是否已有对应的成功报告（任务实际完成了但状态卡在 running）
+                has_report = item.last_report_id and db.query(ReportDB).filter(
+                    ReportDB.id == item.last_report_id,
+                    ReportDB.status == "completed",
+                ).first()
+                if has_report:
+                    item.last_run_status = "success"
+                    # 保留 last_run_date，不重新触发
+                else:
+                    item.last_run_status = "stale"
+                    item.last_run_date = None  # 真正未完成，允许重新触发
             db.commit()
             _log(f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup.")
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
