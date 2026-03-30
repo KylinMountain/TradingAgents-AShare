@@ -124,8 +124,7 @@ class TestRenderReportHtml:
     def test_contains_github_promo(self):
         from api.services.email_report_service import render_report_html
         html = render_report_html(_make_report())
-        assert "TradingAgents-AShare" in html
-        assert "github.com" in html
+        assert "https://github.com/KylinMountain/TradingAgents-AShare" in html
 
     def test_returns_valid_html(self):
         from api.services.email_report_service import render_report_html
