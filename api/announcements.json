@@ -3,37 +3,25 @@
     {
       "id": "2026-03-30-v070-accuracy-overhaul",
       "tag": "Major",
-      "title": "V0.7.0：决策准确率大幅优化 & 架构精简",
-      "summary": "重构决策链路，消除方向翻转隐患；Verdict 5 级量表取代模糊「谨慎」；移除 Game Theory Manager，Research Manager 内置博弈分析；Agent 流程图可视化上线。",
+      "title": "V0.7.0：基于 1200+ 份报告回测，系统性优化决策准确率",
+      "summary": "通过对 1093 份历史报告的准确率回测，发现 BUY 信号 T+3 仅 25%、HOLD 占比 53% 等核心问题，针对性重构决策链路与 Agent 架构。",
       "published_at": "2026-03-30",
       "items": [
         {
-          "title": "Verdict 5 级方向量表",
-          "detail": "分析师判定从「看多/看空/中性/谨慎」升级为「看多/偏多/中性/偏空/看空」。消灭被滥用的「谨慎」选项，强制每个分析师给出方向倾向，提高信号区分度。"
+          "title": "回测驱动的问题诊断",
+          "detail": "对 1093 份报告进行 T+1/T+3/T+5 准确率回测，发现三大问题：BUY 信号 T+3 仅 25%（反向指标）、HOLD 占比 53%（系统回避判断）、6 个分析师准确率几乎无差异（44%~48%）。所有优化均针对这些数据发现展开。"
         },
         {
-          "title": "方向翻转链路治理",
-          "detail": "移除 Game Theory Manager 独立节点（14 Agent 架构），预期差分析合并进 Research Manager 直读原始数据。Trader 方向锚定：必须跟随 Research Manager 结论，用户约束只影响仓位和节奏。"
+          "title": "决策链路重构",
+          "detail": "消除三个方向翻转节点：移除 Game Theory Manager（14 Agent 架构），Trader 锚定 Research Manager 方向，Risk Judge 不再独立翻转方向。BUY/SELL 确认条件对称化，HOLD 需满足「三无条件」才允许使用。"
         },
         {
-          "title": "BUY/SELL/HOLD 决策对称化",
-          "detail": "BUY 和 SELL 确认条件对称（技术/资金/基本面满足其一即可）。HOLD 从默认选项变为限制选项：技术面无趋势 + 资金面无方向 + 基本面无催化，三无才允许 HOLD。"
+          "title": "分析师信号质量提升",
+          "detail": "Verdict 从 4 级升级为 5 级方向量表（看多/偏多/中性/偏空/看空），消灭被滥用的「谨慎」；Research Manager 按证据质量和市场环境动态调整分析师权重，而非简单数人头。"
         },
         {
-          "title": "Research Manager 智能权重",
-          "detail": "按证据质量而非数人头决策。短线视角下技术面和资金面权重高，中线视角下基本面和宏观面权重高，叠加市场环境动态调整。"
-        },
-        {
-          "title": "数据完整性升级",
-          "detail": "所有分析师始终运行，去掉按 horizon 过滤分析师的机制。每个分析师使用自己的自然时间窗口（技术/资金看 14 天，基本面/宏观看 90 天），一次分析覆盖全维度。"
-        },
-        {
-          "title": "Agent 流程图可视化",
-          "detail": "基于 React Flow 重构协同工作流为水平节点连线图，节点固定尺寸不随屏幕缩放，小屏通过拖拽平移查看。连线颜色随 Agent 状态动态变化。"
-        },
-        {
-          "title": "Bull Researcher 强化",
-          "detail": "多头研究员新增量化上涨驱动力、风险收益比估算、识别市场过度悲观等要求，平衡系统的看空偏见。"
+          "title": "数据与架构精简",
+          "detail": "所有分析师始终运行并使用自然时间窗口（技术面看 14 天、基本面看 90 天），去掉双 horizon 重复跑的机制。Agent 协同工作流升级为 React Flow 可视化流程图。"
         }
       ],
       "active": true
