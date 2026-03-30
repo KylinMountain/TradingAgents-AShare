@@ -30,7 +30,7 @@ def create_smart_money_analyst(llm, data_collector=None):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
         print(f"[Smart Money Analyst] START {ticker} {current_date}")
-        horizon = state.get("horizon", "short")
+        horizon = "short"  # 资金面固定短期视角
         user_intent = state.get("user_intent") or {}
         focus_areas = user_intent.get("focus_areas", [])
         specific_questions = user_intent.get("specific_questions", [])

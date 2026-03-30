@@ -29,7 +29,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
     async def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
-        horizon = state.get("horizon", "medium")
+        horizon = "medium"  # 基本面固定中长期视角
         user_intent = state.get("user_intent") or {}
         focus_areas = user_intent.get("focus_areas", [])
         specific_questions = user_intent.get("specific_questions", [])
