@@ -58,7 +58,7 @@ def parse_intent(
         return {
             "raw_query": query,
             "ticker": parsed.get("ticker") or fallback_ticker or "",
-            "horizons": parsed.get("horizons") if isinstance(parsed.get("horizons"), list) else ["short", "medium"],
+            "horizons": parsed.get("horizons") if isinstance(parsed.get("horizons"), list) else ["short"],
             "focus_areas": parsed.get("focus_areas") if isinstance(parsed.get("focus_areas"), list) else [],
             "specific_questions": parsed.get("specific_questions") if isinstance(parsed.get("specific_questions"), list) else [],
             "user_context": _merge_inferred_user_context(parsed_user_context, fallback_user_context),
@@ -67,7 +67,7 @@ def parse_intent(
         return {
             "raw_query": query,
             "ticker": fallback_ticker or "",
-            "horizons": ["short", "medium"],
+            "horizons": ["short"],
             "focus_areas": [],
             "specific_questions": [],
             "user_context": fallback_user_context,
