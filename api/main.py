@@ -484,18 +484,11 @@ ANALYST_REPORT_MAP = {
     "smart_money": "smart_money_report",
 }
 
-# Analysts that are relevant per investment horizon
-HORIZON_ANALYSTS = {
-    "short": ["market", "social", "news", "smart_money"],
-    "medium": ["market", "news", "fundamentals", "macro"],
-}
-
-
+# All analysts always run — each uses its own natural time window
+# (technical/funds → short, fundamentals/macro → medium)
 def _get_horizon_analysts(horizon: str, available: List[str]) -> List[str]:
-    """Return the subset of available analysts relevant for the given horizon."""
-    relevant = set(HORIZON_ANALYSTS.get(horizon, available))
-    filtered = [a for a in available if a in relevant]
-    return filtered if filtered else list(available)
+    """Return all available analysts regardless of horizon."""
+    return list(available)
 
 
 def _announcements_file() -> Path:
@@ -1497,7 +1490,7 @@ async def _run_job(
 
             report_keys = (
                 "market_report", "sentiment_report", "news_report", "fundamentals_report",
-                "macro_report", "smart_money_report", "game_theory_report",
+                "macro_report", "smart_money_report",
                 "investment_plan", "trader_investment_plan", "final_trade_decision",
             )
 
