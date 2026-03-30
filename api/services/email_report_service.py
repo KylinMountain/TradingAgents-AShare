@@ -161,10 +161,11 @@ _AGENT_SECTIONS = [
 _GITHUB_URL = "https://github.com/KylinMountain/TradingAgents-AShare"
 
 
-def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
+def render_report_html(report: "ReportDB", frontend_url: str = "", stock_name: str = "") -> str:
     """Render a *ReportDB* instance as an HTML email string with inline CSS."""
 
     symbol = _escape(report.symbol or "")
+    name = _escape(stock_name) if stock_name and stock_name != report.symbol else ""
     trade_date = _escape(report.trade_date or "")
     decision = _escape(report.decision or "-")
     direction = report.direction or ""
@@ -194,7 +195,7 @@ def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
         '<tr><td style="background:#0f172a;padding:28px 32px;">'
         f'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
         f'<td><p style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">TradingAgents 投研报告</p>'
-        f'<p style="margin:6px 0 0;font-size:14px;color:#94a3b8;">{symbol} &middot; {trade_date}</p></td>'
+        f'<p style="margin:6px 0 0;font-size:14px;color:#94a3b8;">{name + " " if name else ""}{symbol} &middot; {trade_date}</p></td>'
         f'<td align="right" valign="top">'
         f'<span style="display:inline-block;background:{direction_bg};color:{direction_color};font-size:15px;font-weight:700;padding:6px 16px;border-radius:20px;">{_escape(direction) or "-"}</span>'
         f'</td></tr></table>'
@@ -400,7 +401,7 @@ def render_report_html(report: "ReportDB", frontend_url: str = "") -> str:
 # SMTP sending
 # ---------------------------------------------------------------------------
 
-def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
+def send_report_email(user: "UserDB", report: "ReportDB", stock_name: str = "") -> bool:
     """Send the rendered report email via SMTP.
 
     Returns True on success, False on failure.  Never raises.
@@ -422,21 +423,22 @@ def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
     smtp_ssl_tls = smtp_ssl_tls_str in ("1", "true", "on", "yes")
 
     frontend_url = _infer_frontend_url()
-    html_body = render_report_html(report, frontend_url=frontend_url)
+    html_body = render_report_html(report, frontend_url=frontend_url, stock_name=stock_name)
     symbol = report.symbol or ""
     trade_date = report.trade_date or ""
+    display_name = f"{stock_name} {symbol}" if stock_name and stock_name != symbol else symbol
 
     report_link = ""
     if frontend_url:
         report_link = f"\n\n查看完整报告: {frontend_url.rstrip('/')}/reports?report={report.id}"
 
     msg = EmailMessage()
-    msg["Subject"] = f"TradingAgents 投研报告 - {symbol} ({trade_date})"
+    msg["Subject"] = f"TradingAgents 投研报告 - {display_name} ({trade_date})"
     msg["From"] = smtp_from
     msg["To"] = user.email
 
     # text/plain fallback
-    plain = f"TradingAgents 投研报告\n{symbol} {trade_date}\n决策: {report.decision or '-'}\n方向: {report.direction or '-'}\n置信度: {report.confidence or '-'}%{report_link}\n\n请使用支持 HTML 的邮件客户端查看完整报告。"
+    plain = f"TradingAgents 投研报告\n{display_name} {trade_date}\n决策: {report.decision or '-'}\n方向: {report.direction or '-'}\n置信度: {report.confidence or '-'}%{report_link}\n\n请使用支持 HTML 的邮件客户端查看完整报告。"
     msg.set_content(plain)
     msg.add_alternative(html_body, subtype="html")
 
@@ -460,16 +462,16 @@ def send_report_email(user: "UserDB", report: "ReportDB") -> bool:
 # Async wrapper with retry
 # ---------------------------------------------------------------------------
 
-async def send_report_email_with_retry(user: "UserDB", report: "ReportDB") -> bool:
+async def send_report_email_with_retry(user: "UserDB", report: "ReportDB", stock_name: str = "") -> bool:
     """Send report email asynchronously, retrying once on failure after 180 s."""
-    ok = await asyncio.to_thread(send_report_email, user, report)
+    ok = await asyncio.to_thread(send_report_email, user, report, stock_name)
     if ok:
         logger.info(f"[email_report] first attempt succeeded for {user.email}")
         return True
 
     logger.warning(f"[email_report] first attempt failed for {user.email}, retrying in 180s")
     await asyncio.sleep(180)
-    ok = await asyncio.to_thread(send_report_email, user, report)
+    ok = await asyncio.to_thread(send_report_email, user, report, stock_name)
     if ok:
         logger.info(f"[email_report] retry succeeded for {user.email}")
     else:

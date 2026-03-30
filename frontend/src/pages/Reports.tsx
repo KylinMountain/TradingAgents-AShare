@@ -169,9 +169,10 @@ export default function Reports() {
             .finally(() => setDetailLoading(false))
     }, [searchParams, selectedReport?.id])
 
-    const filteredReports = reports.filter(r =>
-        r.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    const filteredReports = reports.filter(r => {
+        const q = searchQuery.toLowerCase()
+        return r.symbol.toLowerCase().includes(q) || (r.name?.toLowerCase().includes(q) ?? false)
+    })
 
     // ─── 详情视图 ────────────────────────────────────────────────────────────
     if (detailLoading) {
@@ -201,7 +202,10 @@ export default function Reports() {
                         返回列表
                     </button>
                     <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                        {selectedReport.symbol} 分析报告
+                        {selectedReport.name || selectedReport.symbol} 分析报告
+                        {selectedReport.name && selectedReport.name !== selectedReport.symbol && (
+                            <span className="ml-2 text-base font-normal text-slate-400">{selectedReport.symbol}</span>
+                        )}
                     </h1>
                     <button
                         onClick={() => exportReport(selectedReport)}
@@ -223,7 +227,7 @@ export default function Reports() {
                     <div className="card">
                         <div className="flex items-center gap-2 mb-3">
                             <History className="w-4 h-4 text-slate-400" />
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{selectedReport.symbol} 历史决策</h3>
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{selectedReport.name || selectedReport.symbol} 历史决策</h3>
                         </div>
                         <div className="flex items-center gap-2 overflow-x-auto pb-1">
                             {symbolHistory.slice().reverse().map(r => {
@@ -251,6 +255,7 @@ export default function Reports() {
                     {selectedReport.status === 'completed' ? (
                         <DecisionCard
                             symbol={selectedReport.symbol}
+                            name={selectedReport.name}
                             decision={action}
                             direction={selectedReport.direction}
                             confidence={selectedReport.confidence ?? undefined}
@@ -302,7 +307,7 @@ export default function Reports() {
                         type="text"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="搜索股票代码..."
+                        placeholder="搜索股票代码或名称..."
                         className="input w-full pl-10"
                     />
                 </div>
@@ -338,7 +343,7 @@ export default function Reports() {
                         <table className="w-full">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    {['股票代码', '分析日期', '决策建议', '置信度', '目标价/止损价', '生成时间', '操作'].map(h => (
+                                    {['股票', '分析日期', '决策建议', '置信度', '目标价/止损价', '生成时间', '操作'].map(h => (
                                         <th key={h} className={`py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400 ${h === '操作' ? 'text-right' : 'text-left'}`}>
                                             {h}
                                         </th>
@@ -358,7 +363,12 @@ export default function Reports() {
                                                     <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
                                                         <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                                     </div>
-                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{report.symbol}</p>
+                                                    <div>
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{report.name || report.symbol}</p>
+                                                        {report.name && report.name !== report.symbol && (
+                                                            <p className="text-xs text-slate-400 dark:text-slate-500">{report.symbol}</p>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="py-3 px-4 text-slate-600 dark:text-slate-400">{report.trade_date}</td>

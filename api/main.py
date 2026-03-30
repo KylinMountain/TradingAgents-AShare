@@ -221,8 +221,9 @@ async def _run_scheduled_job(task: dict, trade_date: str):
                     _email_user = user
                     _email_report = report
             if _email_user and _email_report:
+                _stock_name = _get_reverse_stock_map().get(symbol, "")
                 _log(f"[Scheduler] Sending email report for {symbol} to {_email_user.email}")
-                asyncio.create_task(send_report_email_with_retry(_email_user, _email_report))
+                asyncio.create_task(send_report_email_with_retry(_email_user, _email_report, _stock_name))
         except Exception as e:
             logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
 
@@ -604,6 +605,7 @@ class ReportResponse(BaseModel):
     id: str
     user_id: Optional[str]
     symbol: str
+    name: Optional[str] = None
     trade_date: str
     status: Literal["pending", "running", "completed", "failed"] = "completed"
     error: Optional[str] = None
@@ -2919,6 +2921,9 @@ def list_reports(
         skip=skip,
         limit=limit,
     )
+    code_to_name = _get_reverse_stock_map()
+    for r in reports:
+        r.name = code_to_name.get(r.symbol, r.symbol)
     return {"total": total, "reports": reports}
 
 
@@ -2932,6 +2937,8 @@ def get_report_endpoint(
     report = report_service.get_report(db, report_id, user_id=current_user.id)
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
+    code_to_name = _get_reverse_stock_map()
+    report.name = code_to_name.get(report.symbol, report.symbol)
     return report
 
 

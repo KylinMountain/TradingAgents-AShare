@@ -129,7 +129,7 @@ export default function Dashboard() {
                                             <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                         </div>
                                         <div>
-                                            <p className="font-medium text-slate-900 dark:text-slate-100 text-sm">{report.symbol}</p>
+                                            <p className="font-medium text-slate-900 dark:text-slate-100 text-sm">{report.name || report.symbol}</p>
                                             <p className="text-xs text-slate-400 dark:text-slate-500">{report.trade_date}</p>
                                         </div>
                                     </div>

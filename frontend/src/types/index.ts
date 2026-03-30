@@ -316,6 +316,7 @@ export interface Report {
     id: string
     user_id?: string
     symbol: string
+    name?: string
     trade_date: string
     status: 'pending' | 'running' | 'completed' | 'failed'
     error?: string
