@@ -12,9 +12,29 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from api.database import ReportDB
+
+
+REPORT_SUMMARY_COLUMNS = (
+    ReportDB.id,
+    ReportDB.user_id,
+    ReportDB.symbol,
+    ReportDB.trade_date,
+    ReportDB.status,
+    ReportDB.error,
+    ReportDB.decision,
+    ReportDB.direction,
+    ReportDB.confidence,
+    ReportDB.target_price,
+    ReportDB.stop_loss_price,
+    ReportDB.risk_items,
+    ReportDB.key_metrics,
+    ReportDB.analyst_traces,
+    ReportDB.created_at,
+    ReportDB.updated_at,
+)
 
 
 # ─── Structured extraction schemas ───────────────────────────────────────────
@@ -393,7 +413,7 @@ def get_reports_by_user(
     skip: int = 0,
     limit: int = 100,
 ) -> List[ReportDB]:
-    query = db.query(ReportDB)
+    query = db.query(ReportDB).options(load_only(*REPORT_SUMMARY_COLUMNS))
     if user_id:
         query = query.filter(ReportDB.user_id == user_id)
     if symbol:
@@ -410,7 +430,7 @@ def get_latest_reports_by_symbols(
     if not normalized_symbols:
         return []
 
-    query = db.query(ReportDB)
+    query = db.query(ReportDB).options(load_only(*REPORT_SUMMARY_COLUMNS))
     if user_id:
         query = query.filter(ReportDB.user_id == user_id)
 

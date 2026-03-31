@@ -98,41 +98,22 @@ export default function Portfolio() {
     const fetchAll = async () => {
         setLoading(true)
         try {
-            const [wRes, sRes, qmtRes] = await Promise.all([
-                api.getWatchlist(),
-                api.getScheduled(),
-                api.getQmtImportState(),
-            ])
-            setWatchlist(wRes.items)
-            setScheduled(sRes.items)
-            setQmtImportState(qmtRes)
-        } catch {}
-        setLoading(false)
-    }
-
-    const fetchLatestReports = async (items: WatchlistItem[]) => {
-        if (items.length === 0) {
-            setLatestReports({})
-            return
-        }
-
-        try {
-            const result = await api.getLatestReportsBySymbols(items.map(item => item.symbol))
+            const overview = await api.getPortfolioOverview()
+            setWatchlist(overview.watchlist)
+            setScheduled(overview.scheduled)
+            setQmtImportState(overview.qmt_import)
             const reportMap: Record<string, Report> = {}
-            for (const report of result.reports) {
+            for (const report of overview.latest_reports) {
                 reportMap[report.symbol] = report
             }
             setLatestReports(reportMap)
-        } catch {
-            setLatestReports({})
+        } catch {}
+        finally {
+            setLoading(false)
         }
     }
 
-    useEffect(() => { fetchAll() }, [])
-
-    useEffect(() => {
-        void fetchLatestReports(watchlist)
-    }, [watchlist])
+    useEffect(() => { void fetchAll() }, [])
 
     // Close dropdown on outside click
     useEffect(() => {

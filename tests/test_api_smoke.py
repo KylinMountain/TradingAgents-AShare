@@ -417,6 +417,90 @@ class TestReportsEndpoint:
         assert body["reports"][1]["decision"] == "BUY"
 
 
+class TestPortfolioOverviewEndpoint:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.client = _get_client()
+        self.token = _auth_unique(self.client)
+        self.headers = {"Authorization": f"Bearer {self.token}"}
+        self.name_to_code = {
+            "贵州茅台": "600519.SH",
+            "宁德时代": "300750.SZ",
+        }
+        self.code_to_name = {value: key for key, value in self.name_to_code.items()}
+
+    def _add_watchlist(self, text: str):
+        with patch("api.main._load_cn_stock_map", return_value=self.name_to_code), \
+             patch("api.main._get_reverse_stock_map", return_value=self.code_to_name):
+            response = self.client.post("/v1/watchlist", headers=self.headers, json={"text": text})
+        assert response.status_code == 200
+
+    def _create_scheduled(self, symbol: str):
+        with patch("api.main._get_reverse_stock_map", return_value=self.code_to_name):
+            response = self.client.post(
+                "/v1/scheduled",
+                headers=self.headers,
+                json={"symbol": symbol, "horizon": "short", "trigger_time": "20:00"},
+            )
+        assert response.status_code == 201
+
+    def test_overview_returns_watchlist_scheduled_qmt_and_latest_reports(self):
+        from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, get_db_ctx
+
+        self._add_watchlist("600519.SH 300750.SZ")
+        self._create_scheduled("600519.SH")
+
+        self.client.post("/v1/reports", headers=self.headers, json={
+            "symbol": "600519.SH",
+            "trade_date": "2026-03-30",
+            "decision": "BUY",
+        })
+        self.client.post("/v1/reports", headers=self.headers, json={
+            "symbol": "300750.SZ",
+            "trade_date": "2026-03-29",
+            "decision": "SELL",
+        })
+
+        current_user = self.client.get("/v1/auth/me", headers=self.headers).json()
+        with get_db_ctx() as db:
+            db.add(
+                QmtImportConfigDB(
+                    id=uuid4().hex,
+                    user_id=current_user["id"],
+                    qmt_path="D:/QMT/userdata_mini",
+                    account_id="demo-account",
+                    account_type="STOCK",
+                    auto_apply_scheduled=True,
+                )
+            )
+            db.add(
+                ImportedPortfolioPositionDB(
+                    id=uuid4().hex,
+                    user_id=current_user["id"],
+                    source="qmt_xtquant",
+                    symbol="600519.SH",
+                    security_name="贵州茅台",
+                    current_position=300.0,
+                    average_cost=1680.5,
+                    market_value=504150.0,
+                )
+            )
+            db.commit()
+
+        with patch("api.main._get_reverse_stock_map", return_value=self.code_to_name):
+            response = self.client.get("/v1/portfolio/overview", headers=self.headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [item["symbol"] for item in body["watchlist"]] == ["600519.SH", "300750.SZ"]
+        assert body["watchlist"][0]["name"] == "贵州茅台"
+        assert len(body["scheduled"]) == 1
+        assert body["scheduled"][0]["symbol"] == "600519.SH"
+        assert body["scheduled"][0]["has_imported_context"] is True
+        assert [item["symbol"] for item in body["latest_reports"]] == ["600519.SH", "300750.SZ"]
+        assert body["qmt_import"]["summary"]["positions"] == 1
+
+
 class TestScheduledBatchEndpoints:
     @pytest.fixture(autouse=True)
     def setup(self):

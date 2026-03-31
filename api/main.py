@@ -740,6 +740,13 @@ class LatestReportsBySymbolsResponse(BaseModel):
     reports: List[ReportResponse]
 
 
+class PortfolioOverviewResponse(BaseModel):
+    watchlist: List[dict]
+    scheduled: List[dict]
+    latest_reports: List[ReportResponse]
+    qmt_import: Optional[dict] = None
+
+
 class AnnouncementItemResponse(BaseModel):
     title: str
     detail: str
@@ -3676,6 +3683,13 @@ def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) 
     return _merge_imported_user_context(*contexts)
 
 
+def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List[dict]:
+    for item in items:
+        symbol = str(item.get("symbol") or "").upper()
+        item["name"] = code_to_name.get(symbol, symbol or item.get("name") or "")
+    return items
+
+
 @app.get("/v1/portfolio/imports/qmt")
 def get_qmt_import_state(
     current_user: UserDB = Depends(_require_api_user),
@@ -3727,9 +3741,7 @@ def list_watchlist(
     db: Session = Depends(get_db),
 ):
     items = watchlist_service.list_watchlist(db, current_user.id)
-    code_to_name = _get_reverse_stock_map()
-    for item in items:
-        item["name"] = code_to_name.get(item["symbol"], item["symbol"])
+    _attach_stock_names(items, _get_reverse_stock_map())
     return {"items": items}
 
 
@@ -3830,10 +3842,40 @@ def list_scheduled_analyses(
     db: Session = Depends(get_db),
 ):
     items = scheduled_service.list_scheduled(db, current_user.id)
-    code_to_name = _get_reverse_stock_map()
-    for item in items:
-        item["name"] = code_to_name.get(item["symbol"], item["symbol"])
+    _attach_stock_names(items, _get_reverse_stock_map())
     return {"items": _annotate_scheduled_with_imported_context(items, db, current_user.id)}
+
+
+@app.get("/v1/portfolio/overview", response_model=PortfolioOverviewResponse)
+def get_portfolio_overview(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    code_to_name = _get_reverse_stock_map()
+
+    watchlist_items = watchlist_service.list_watchlist(db, current_user.id)
+    _attach_stock_names(watchlist_items, code_to_name)
+
+    scheduled_items = scheduled_service.list_scheduled(db, current_user.id)
+    _attach_stock_names(scheduled_items, code_to_name)
+    scheduled_items = _annotate_scheduled_with_imported_context(scheduled_items, db, current_user.id)
+
+    latest_reports = report_service.get_latest_reports_by_symbols(
+        db=db,
+        user_id=current_user.id,
+        symbols=[item["symbol"] for item in watchlist_items],
+    )
+    for report in latest_reports:
+        report.name = code_to_name.get(report.symbol, report.symbol)
+
+    qmt_import = qmt_import_service.get_import_state(db, current_user.id)
+
+    return {
+        "watchlist": watchlist_items,
+        "scheduled": scheduled_items,
+        "latest_reports": latest_reports,
+        "qmt_import": qmt_import,
+    }
 
 
 @app.post("/v1/scheduled", status_code=201)

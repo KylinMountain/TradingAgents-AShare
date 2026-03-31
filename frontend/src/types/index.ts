@@ -487,6 +487,13 @@ export interface QmtImportState {
     positions: ImportedPortfolioPosition[]
 }
 
+export interface PortfolioOverviewResponse {
+    watchlist: WatchlistItem[]
+    scheduled: ScheduledAnalysis[]
+    latest_reports: Report[]
+    qmt_import: QmtImportState | null
+}
+
 export interface TrackingBoardAnalysis {
     report_id: string
     trade_date: string
