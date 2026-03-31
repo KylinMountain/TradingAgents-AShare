@@ -380,6 +380,26 @@ export interface WatchlistItem {
     has_scheduled: boolean
 }
 
+export interface WatchlistBatchResult {
+    input: string
+    symbol?: string
+    name?: string
+    status: 'added' | 'duplicate' | 'invalid' | 'failed'
+    message: string
+    item?: WatchlistItem
+}
+
+export interface WatchlistBatchResponse {
+    message: string
+    summary: {
+        total: number
+        added: number
+        duplicate: number
+        failed: number
+    }
+    results: WatchlistBatchResult[]
+}
+
 export interface ScheduledAnalysis {
     id: string
     symbol: string
@@ -392,11 +412,129 @@ export interface ScheduledAnalysis {
     last_report_id: string | null
     consecutive_failures: number
     created_at: string
+    has_imported_context?: boolean
+    imported_current_position?: number | null
+    imported_average_cost?: number | null
+    imported_trade_points_count?: number
+}
+
+export interface ScheduledBatchUpdateResponse {
+    items: ScheduledAnalysis[]
+}
+
+export interface ScheduledBatchDeleteResponse {
+    deleted_ids: string[]
+    missing_ids: string[]
+}
+
+export interface ScheduledBatchTriggerJob {
+    item_id: string
+    job_id: string
+    symbol: string
+    name: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    created_at: string
+    current_position?: number | null
+    average_cost?: number | null
+}
+
+export interface ScheduledBatchTriggerResponse {
+    summary: {
+        total: number
+        with_position_context: number
+    }
+    jobs: ScheduledBatchTriggerJob[]
 }
 
 export interface StockSearchResult {
     symbol: string
     name: string
+}
+
+export interface ImportedPortfolioPosition {
+    symbol: string
+    name: string
+    current_position?: number | null
+    available_position?: number | null
+    average_cost?: number | null
+    market_value?: number | null
+    current_position_pct?: number | null
+    trade_points_count: number
+    latest_trade_at?: string | null
+    latest_trade_action?: string | null
+    last_imported_at?: string | null
+    recent_trade_points?: Array<Record<string, unknown>>
+}
+
+export interface ImportedScheduledSyncSummary {
+    created: string[]
+    existing: string[]
+    skipped_limit: string[]
+}
+
+export interface QmtImportState {
+    broker: string
+    qmt_path?: string | null
+    account_id?: string | null
+    account_type?: string | null
+    auto_apply_scheduled: boolean
+    last_synced_at?: string | null
+    last_error?: string | null
+    summary: {
+        positions: number
+    }
+    scheduled_sync?: ImportedScheduledSyncSummary
+    positions: ImportedPortfolioPosition[]
+}
+
+export interface TrackingBoardAnalysis {
+    report_id: string
+    trade_date: string
+    is_previous_trade_day: boolean
+    decision?: string | null
+    direction?: string | null
+    high_price?: number | null
+    low_price?: number | null
+    trader_advice_summary?: string | null
+    trader_investment_plan?: string | null
+    final_trade_decision?: string | null
+}
+
+export interface TrackingBoardItem {
+    symbol: string
+    name: string
+    current_position?: number | null
+    available_position?: number | null
+    average_cost?: number | null
+    market_value?: number | null
+    current_position_pct?: number | null
+    live_market_value?: number | null
+    floating_pnl?: number | null
+    floating_pnl_pct?: number | null
+    live_price?: number | null
+    day_open?: number | null
+    price_change?: number | null
+    price_change_pct?: number | null
+    day_high?: number | null
+    day_low?: number | null
+    previous_close?: number | null
+    volume?: number | null
+    amount?: number | null
+    quote_time?: string | null
+    quote_source?: string | null
+    last_imported_at?: string | null
+    analysis?: TrackingBoardAnalysis | null
+}
+
+export interface TrackingBoardResponse {
+    broker: string
+    qmt_path?: string | null
+    account_id?: string | null
+    account_type?: string | null
+    last_synced_at?: string | null
+    previous_trade_date: string
+    refresh_interval_seconds: number
+    items: TrackingBoardItem[]
 }
 
 // Runtime config
@@ -417,6 +555,7 @@ export interface RuntimeConfigUpdateResponse {
     applied: RuntimeConfigUpdate
     has_api_key: boolean
     current: RuntimeConfig
+    warmup?: RuntimeConfigWarmup
 }
 
 export interface RuntimeConfigUpdate {
@@ -429,6 +568,32 @@ export interface RuntimeConfigUpdate {
     api_key?: string
     clear_api_key?: boolean
     email_report_enabled?: boolean
+    warmup?: boolean
+    force_warmup?: boolean
+}
+
+export interface RuntimeWarmupRequest extends RuntimeConfigUpdate {
+    prompt?: string
+}
+
+export interface RuntimeConfigWarmup {
+    requested: boolean
+    triggered: boolean
+    status: 'scheduled' | 'skipped' | 'disabled'
+    message: string
+    models?: string[]
+}
+
+export interface RuntimeWarmupResult {
+    model: string
+    targets: string[]
+    content?: string | null
+    error?: string | null
+}
+
+export interface RuntimeWarmupResponse {
+    prompt: string
+    results: RuntimeWarmupResult[]
 }
 
 export interface AuthUser {

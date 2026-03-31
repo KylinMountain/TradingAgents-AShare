@@ -401,6 +401,34 @@ def get_reports_by_user(
     return query.order_by(ReportDB.created_at.desc()).offset(skip).limit(limit).all()
 
 
+def get_latest_reports_by_symbols(
+    db: Session,
+    symbols: List[str],
+    user_id: Optional[str] = None,
+) -> List[ReportDB]:
+    normalized_symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
+    if not normalized_symbols:
+        return []
+
+    query = db.query(ReportDB)
+    if user_id:
+        query = query.filter(ReportDB.user_id == user_id)
+
+    rows = (
+        query.filter(ReportDB.symbol.in_(normalized_symbols))
+        .order_by(ReportDB.symbol.asc(), ReportDB.created_at.desc())
+        .all()
+    )
+
+    latest_by_symbol: dict[str, ReportDB] = {}
+    for row in rows:
+        symbol = str(row.symbol or "").upper()
+        if symbol and symbol not in latest_by_symbol:
+            latest_by_symbol[symbol] = row
+
+    return [latest_by_symbol[symbol] for symbol in normalized_symbols if symbol in latest_by_symbol]
+
+
 def count_reports(
     db: Session,
     user_id: Optional[str] = None,

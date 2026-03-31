@@ -7,6 +7,7 @@ import {
     type Node,
     type Edge,
     type NodeProps,
+    type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useAnalysisStore } from '@/stores/analysisStore'
@@ -151,7 +152,16 @@ interface AgentNodeData {
     [key: string]: unknown
 }
 
-function AgentNodeComponent({ data }: NodeProps<Node<AgentNodeData>>) {
+type AgentFlowNode = Node<AgentNodeData, 'agent'>
+type GroupLabelNodeData = {
+    label: string
+    width: number
+    height: number
+    [key: string]: unknown
+}
+type GroupLabelFlowNode = Node<GroupLabelNodeData, 'groupLabel'>
+
+function AgentNodeComponent({ data }: NodeProps<AgentFlowNode>) {
     const { meta, status, verdict, isParticipating, selected } = data
     const active = status === 'in_progress'
     const done = status === 'completed'
@@ -244,7 +254,7 @@ function AgentNodeComponent({ data }: NodeProps<Node<AgentNodeData>>) {
 }
 
 // 分组背景标签节点
-function GroupLabelNode({ data }: NodeProps<Node<{ label: string; width: number; height: number; [key: string]: unknown }>>) {
+function GroupLabelNode({ data }: NodeProps<GroupLabelFlowNode>) {
     return (
         <div
             className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700/60 pointer-events-none"
@@ -259,7 +269,7 @@ function GroupLabelNode({ data }: NodeProps<Node<{ label: string; width: number;
     )
 }
 
-const nodeTypes = {
+const nodeTypes: NodeTypes = {
     agent: memo(AgentNodeComponent),
     groupLabel: memo(GroupLabelNode),
 }
@@ -296,8 +306,8 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
     const participatingCount = cards.filter(c => c.status !== 'skipped').length
 
     // 构建 React Flow 节点
-    const nodes: Node[] = useMemo(() => {
-        const agentNodes: Node[] = cards.map(card => ({
+    const nodes: (AgentFlowNode | GroupLabelFlowNode)[] = useMemo(() => {
+        const agentNodes: AgentFlowNode[] = cards.map(card => ({
             id: card.meta.name,
             type: 'agent',
             position: NODE_POSITIONS[card.meta.name] ?? { x: 0, y: 0 },
@@ -310,7 +320,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
             } satisfies AgentNodeData,
         }))
 
-        const labelNodes: Node[] = GROUP_LABELS.map(g => ({
+        const labelNodes: GroupLabelFlowNode[] = GROUP_LABELS.map(g => ({
             id: g.id,
             type: 'groupLabel',
             position: g.position,

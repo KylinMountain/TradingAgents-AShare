@@ -6,6 +6,7 @@ import Analysis from './pages/Analysis'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Portfolio from './pages/Portfolio'
+import TrackingBoard from './pages/TrackingBoard'
 import Login from './pages/Login'
 import Sponsor from './pages/Sponsor'
 import { useAuthStore } from './stores/authStore'
@@ -41,6 +42,7 @@ function App() {
               <Layout>
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/tracking-board" element={<TrackingBoard />} />
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />

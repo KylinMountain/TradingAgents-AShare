@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { UserToken } from '@/types'
+import type { QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
+import { buildQmtSyncSummary } from '@/utils/qmtSync'
 
 type ProviderPreset = {
     id: string
@@ -53,11 +54,22 @@ export default function Settings() {
     const [maxRiskRounds, setMaxRiskRounds] = useState(1)
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
+    const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
+    const [qmtLoading, setQmtLoading] = useState(false)
+    const [qmtSyncing, setQmtSyncing] = useState(false)
+    const [qmtPath, setQmtPath] = useState('')
+    const [qmtAccountId, setQmtAccountId] = useState('')
+    const [qmtAccountType, setQmtAccountType] = useState('STOCK')
+    const [qmtAutoApply, setQmtAutoApply] = useState(true)
 
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [warmingUp, setWarmingUp] = useState(false)
     const [saved, setSaved] = useState(false)
+    const [saveMessage, setSaveMessage] = useState('设置已保存')
     const [configError, setConfigError] = useState<string | null>(null)
+    const [warmupResults, setWarmupResults] = useState<RuntimeWarmupResult[]>([])
+    const [warmupError, setWarmupError] = useState<string | null>(null)
 
     // API Token states
     const [tokens, setTokens] = useState<UserToken[]>([])
@@ -74,6 +86,12 @@ export default function Settings() {
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
+    const qmtSummary = buildQmtSyncSummary(qmtImportState)
+
+    useEffect(() => {
+        setWarmupResults([])
+        setWarmupError(null)
+    }, [providerPreset, customBaseUrl, deepThinkLlm, quickThinkLlm, llmApiKey])
 
     useEffect(() => {
         try {
@@ -114,6 +132,7 @@ export default function Settings() {
 
         // Fetch tokens
         fetchTokens()
+        void fetchQmtImportState()
     }, [])
 
     const fetchTokens = async () => {
@@ -125,6 +144,22 @@ export default function Settings() {
             console.error('Failed to fetch tokens:', err)
         } finally {
             setTokensLoading(false)
+        }
+    }
+
+    const fetchQmtImportState = async () => {
+        setQmtLoading(true)
+        try {
+            const state = await api.getQmtImportState()
+            setQmtImportState(state)
+            setQmtPath(state.qmt_path || '')
+            setQmtAccountId(state.account_id || '')
+            setQmtAccountType(state.account_type || 'STOCK')
+            setQmtAutoApply(state.auto_apply_scheduled)
+        } catch (err) {
+            console.error('Failed to fetch QMT import state:', err)
+        } finally {
+            setQmtLoading(false)
         }
     }
 
@@ -160,28 +195,45 @@ export default function Settings() {
         setTimeout(() => setCopiedTokenId(null), 2000)
     }
 
-    const handleSave = async () => {
-        setSaving(true)
+    const persistLocalSettings = () => {
         localStorage.setItem('tradingagents-settings', JSON.stringify({
             defaultAnalysts,
             customPrompt,
         }))
         localStorage.setItem('ta-custom-prompt', customPrompt)
+    }
+
+    const buildRuntimeConfigPayload = () => ({
+        llm_provider: effectiveProvider,
+        backend_url: effectiveBaseUrl || undefined,
+        deep_think_llm: deepThinkLlm,
+        quick_think_llm: quickThinkLlm,
+        max_debate_rounds: maxDebateRounds,
+        max_risk_discuss_rounds: maxRiskRounds,
+        api_key: llmApiKey || undefined,
+        email_report_enabled: emailReportEnabled,
+    })
+
+    const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string }) => {
+        persistLocalSettings()
+        const { forceWarmup = false, successMessage = '设置已保存' } = options || {}
+        const response = await api.updateConfig({
+            ...buildRuntimeConfigPayload(),
+            warmup: true,
+            force_warmup: forceWarmup,
+        })
+        setHasStoredApiKey(!!response.has_api_key)
+        setLlmApiKey('')
+        setSaveMessage(response.warmup?.message || successMessage)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+        return response
+    }
+
+    const handleSave = async () => {
+        setSaving(true)
         try {
-            const response = await api.updateConfig({
-                llm_provider: effectiveProvider,
-                backend_url: effectiveBaseUrl || undefined,
-                deep_think_llm: deepThinkLlm,
-                quick_think_llm: quickThinkLlm,
-                max_debate_rounds: maxDebateRounds,
-                max_risk_discuss_rounds: maxRiskRounds,
-                api_key: llmApiKey || undefined,
-                email_report_enabled: emailReportEnabled,
-            })
-            setHasStoredApiKey(!!response.has_api_key)
-            setLlmApiKey('')
-            setSaved(true)
-            setTimeout(() => setSaved(false), 2000)
+            await submitConfig()
         } catch (err) {
             alert(err instanceof Error ? err.message : '保存配置失败')
         } finally {
@@ -189,6 +241,22 @@ export default function Settings() {
         }
     }
 
+    const handleWarmup = async () => {
+        setWarmingUp(true)
+        setWarmupError(null)
+        setWarmupResults([])
+        try {
+            const response = await api.warmupConfig({
+                ...buildRuntimeConfigPayload(),
+                prompt: '你好',
+            })
+            setWarmupResults(response.results || [])
+        } catch (err) {
+            setWarmupError(err instanceof Error ? err.message : 'Warmup 触发失败')
+        } finally {
+            setWarmingUp(false)
+        }
+    }
     const handleClearApiKey = async () => {
         if (!hasStoredApiKey) return
         setSaving(true)
@@ -205,6 +273,37 @@ export default function Settings() {
         }
     }
 
+    const syncQmtImport = async () => {
+        if (!qmtPath.trim() || !qmtAccountId.trim()) {
+            alert('请填写 QMT userdata 路径和资金账号')
+            return
+        }
+        setQmtSyncing(true)
+        try {
+            const result = await api.syncQmtImport({
+                qmt_path: qmtPath.trim(),
+                account_id: qmtAccountId.trim(),
+                account_type: qmtAccountType,
+                auto_apply_scheduled: qmtAutoApply,
+            })
+            setQmtImportState(result)
+        } catch (err) {
+            alert(err instanceof Error ? err.message : 'QMT 同步失败')
+        } finally {
+            setQmtSyncing(false)
+        }
+    }
+
+    const clearQmtImport = async () => {
+        if (!confirm('确定清空已同步的 QMT 持仓上下文吗？')) return
+        try {
+            await api.clearQmtImport()
+            await fetchQmtImportState()
+        } catch (err) {
+            alert(err instanceof Error ? err.message : '清空 QMT 持仓失败')
+        }
+    }
+
     const toggleAnalyst = (analyst: string) => {
         setDefaultAnalysts(prev =>
             prev.includes(analyst) ? prev.filter(a => a !== analyst) : [...prev, analyst]
@@ -215,7 +314,7 @@ export default function Settings() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">系统设置</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数与私有模型</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数、模型与 QMT 持仓同步</p>
             </div>
 
             <div className="card space-y-3">
@@ -227,6 +326,117 @@ export default function Settings() {
                     <div>当前登录：{user?.email || '-'}</div>
                     <div className="mt-1 text-slate-500 dark:text-slate-400">报告历史、分析任务和模型配置仅当前账户可见。</div>
                 </div>
+            </div>
+
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <Database className="w-5 h-5 text-emerald-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">QMT / xtquant 持仓同步</h2>
+                    <div className="group relative">
+                        <button
+                            type="button"
+                            aria-label="QMT Mini 获取说明"
+                            className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300"
+                        >
+                            <Info className="h-3 w-3" />
+                        </button>
+                        <div className="pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <div className="font-medium text-slate-900 dark:text-slate-100">如何获取 QMT Mini</div>
+                            <div className="mt-2">
+                                一般来说，如果你开通了量化交易，你应该会知道 QMT 是什么。
+                            </div>
+                            <div className="mt-2">
+                                如果你正在使用大 QMT，请在登录页勾选“独立交易”，进入的就是 QMT Mini。
+                            </div>
+                            <div className="mt-2">
+                                如果你不知道这是什么，可以咨询你的券商客户经理开通量化交易。
+                            </div>
+                            <div className="mt-2 text-amber-600 dark:text-amber-300">
+                                部分券商使用 PTrade，本项目暂时还不支持。
+                            </div>
+                        </div>
+                    </div>
+                    {(qmtLoading || qmtSyncing) && <Loader2 className="w-4 h-4 animate-spin text-slate-400 ml-auto" />}
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                    在这里连接 QMT 的 `xtquant` 账户。同步成功后，主页面跟踪看板和定时分析会自动使用这里的最新持仓信息。
+                </p>
+
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4">
+                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{qmtSummary.title}</div>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{qmtSummary.detail}</div>
+                    {qmtImportState?.last_error && (
+                        <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                            最近一次同步错误：{qmtImportState.last_error}
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">QMT userdata 路径</label>
+                        <input value={qmtPath} onChange={e => setQmtPath(e.target.value)} className="input w-full" placeholder="例如 D:\\QMT\\userdata_mini" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">资金账号</label>
+                        <input value={qmtAccountId} onChange={e => setQmtAccountId(e.target.value)} className="input w-full" placeholder="请输入 QMT 资金账号" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">账户类型</label>
+                        <select value={qmtAccountType} onChange={e => setQmtAccountType(e.target.value)} className="input w-full">
+                            <option value="STOCK">STOCK</option>
+                            <option value="CREDIT">CREDIT</option>
+                        </select>
+                    </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" checked={qmtAutoApply} onChange={e => setQmtAutoApply(e.target.checked)} />
+                    自动加入定时任务，并优先使用 QMT 持仓上下文
+                </label>
+
+                <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={syncQmtImport} disabled={qmtSyncing} className="btn-primary inline-flex items-center gap-2">
+                        {qmtSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        连接并同步
+                    </button>
+                    <button type="button" onClick={clearQmtImport} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                        <Trash2 className="w-4 h-4" />
+                        清空同步
+                    </button>
+                </div>
+
+                {qmtImportState && (
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
+                        <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
+                            <span>持仓 {qmtImportState.summary.positions} 只</span>
+                            <span>{qmtImportState.last_synced_at ? `最近同步 ${qmtImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
+                        </div>
+                        {!!qmtImportState.scheduled_sync && (
+                            <div className="flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300">
+                                <span>新增定时任务 {qmtImportState.scheduled_sync.created.length} 只</span>
+                                <span>已存在 {qmtImportState.scheduled_sync.existing.length} 只</span>
+                                {qmtImportState.scheduled_sync.skipped_limit.length > 0 && (
+                                    <span>超出上限未加入 {qmtImportState.scheduled_sync.skipped_limit.length} 只</span>
+                                )}
+                            </div>
+                        )}
+                        <div className="max-h-64 overflow-y-auto pr-1 space-y-2">
+                            {qmtImportState.positions.map(item => (
+                                <div
+                                    key={item.symbol}
+                                    className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+                                >
+                                    <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
+                                    <span>{item.symbol}</span>
+                                    <span>持仓 {item.current_position ?? '-'}</span>
+                                    <span>成本 {item.average_cost ?? '-'}</span>
+                                    <span>可用 {item.available_position ?? '-'}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="card space-y-4">
@@ -351,6 +561,9 @@ export default function Settings() {
                                 </button>
                             )}
                         </div>
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                            保存模型配置后，系统会在后台自动 warmup 当前模型；也可以直接在这里点击 warmup，默认发送“你好”并查看模型原始回复。
+                        </p>
                     </div>
 
                     <div>
@@ -381,6 +594,51 @@ export default function Settings() {
                             className="input w-full"
                             disabled={configLoading}
                         />
+                    </div>
+
+                    <div className="md:col-span-2 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Warmup 测试</div>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    使用当前表单配置向模型发送“你好”，不会自动保存设置。
+                                </p>
+                            </div>
+                            <button onClick={handleWarmup} disabled={saving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
+                                {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
+                                {warmingUp ? '测试中...' : '立即 Warmup'}
+                            </button>
+                        </div>
+
+                        {warmupError && (
+                            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                                {warmupError}
+                            </div>
+                        )}
+
+                        {warmupResults.length > 0 && (
+                            <div className="space-y-3">
+                                {warmupResults.map((item, index) => (
+                                    <div
+                                        key={`${item.model}-${index}`}
+                                        className="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-950/40 px-4 py-3"
+                                    >
+                                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            <span className="font-medium text-slate-700 dark:text-slate-200">{item.targets.join(' / ')}</span>
+                                            <span>{item.model}</span>
+                                        </div>
+                                        {item.content && (
+                                            <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm text-slate-700 dark:text-slate-200">
+                                                {item.content}
+                                            </pre>
+                                        )}
+                                        {item.error && (
+                                            <p className="mt-2 text-sm text-rose-500 dark:text-rose-300">{item.error}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -562,7 +820,7 @@ export default function Settings() {
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     保存设置
                 </button>
-                {saved && <span className="text-sm text-green-600 dark:text-green-400">✓ 设置已保存</span>}
+                {saved && <span className="text-sm text-green-600 dark:text-green-400">✓ {saveMessage}</span>}
             </div>
         </div>
     )

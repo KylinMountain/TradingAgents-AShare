@@ -379,3 +379,64 @@ class ScheduledAnalysisDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_scheduled_user_symbol'),)
+
+
+class ThsImportConfigDB(Base):
+    """Latest TongHuaShun local import state for each user."""
+
+    __tablename__ = "ths_import_configs"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False, unique=True)
+    holdings_filename = Column(String(255), nullable=True)
+    trades_filename = Column(String(255), nullable=True)
+    auto_apply_scheduled = Column(Boolean, default=True, nullable=False)
+    last_imported_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ImportedPortfolioPositionDB(Base):
+    """Imported current holdings snapshot plus recent trade points for a symbol."""
+
+    __tablename__ = "imported_portfolio_positions"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    source = Column(String(32), default="ths_local", nullable=False)
+    symbol = Column(String(20), nullable=False)
+    security_name = Column(String(80), nullable=True)
+    current_position = Column(Float, nullable=True)
+    available_position = Column(Float, nullable=True)
+    average_cost = Column(Float, nullable=True)
+    market_value = Column(Float, nullable=True)
+    current_position_pct = Column(Float, nullable=True)
+    trade_points_json = Column(JSON, nullable=True)
+    trade_points_count = Column(Integer, default=0, nullable=False)
+    latest_trade_at = Column(String(32), nullable=True)
+    latest_trade_action = Column(String(16), nullable=True)
+    last_imported_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'source', 'symbol', name='uq_imported_portfolio_user_source_symbol'),
+    )
+
+
+class QmtImportConfigDB(Base):
+    """Latest QMT / xtquant sync configuration for each user."""
+
+    __tablename__ = "qmt_import_configs"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False, unique=True)
+    qmt_path = Column(String(500), nullable=False)
+    account_id = Column(String(64), nullable=False)
+    account_type = Column(String(32), default="STOCK", nullable=False)
+    auto_apply_scheduled = Column(Boolean, default=True, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

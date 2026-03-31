@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, WatchlistItem, ScheduledAnalysis, StockSearchResult, UserToken, UserTokenCreateRequest } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -103,6 +103,13 @@ class ApiService {
         return this.request<ReportListResponse>(`/v1/reports?${params}`)
     }
 
+    async getLatestReportsBySymbols(symbols: string[]): Promise<{ reports: Report[] }> {
+        return this.request<{ reports: Report[] }>('/v1/reports/latest-by-symbols', {
+            method: 'POST',
+            body: JSON.stringify({ symbols }),
+        })
+    }
+
     async getReport(reportId: string): Promise<ReportDetail> {
         return this.request<ReportDetail>(`/v1/reports/${reportId}`)
     }
@@ -134,10 +141,10 @@ class ApiService {
     async getWatchlist(): Promise<{ items: WatchlistItem[] }> {
         return this.request<{ items: WatchlistItem[] }>('/v1/watchlist')
     }
-    async addToWatchlist(symbol: string): Promise<WatchlistItem> {
-        return this.request<WatchlistItem>('/v1/watchlist', {
+    async addToWatchlist(input: string): Promise<WatchlistBatchResponse> {
+        return this.request<WatchlistBatchResponse>('/v1/watchlist', {
             method: 'POST',
-            body: JSON.stringify({ symbol }),
+            body: JSON.stringify({ text: input }),
         })
     }
     async removeFromWatchlist(id: string): Promise<void> {
@@ -160,8 +167,58 @@ class ApiService {
             body: JSON.stringify(data),
         })
     }
+    async updateScheduledBatch(
+        item_ids: string[],
+        data: { is_active?: boolean; horizon?: string; trigger_time?: string }
+    ): Promise<{ items: ScheduledAnalysis[] }> {
+        return this.request<{ items: ScheduledAnalysis[] }>('/v1/scheduled/batch', {
+            method: 'PATCH',
+            body: JSON.stringify({ item_ids, ...data }),
+        })
+    }
     async deleteScheduled(id: string): Promise<void> {
         await this.request('/v1/scheduled/' + id, { method: 'DELETE' })
+    }
+    async deleteScheduledBatch(item_ids: string[]): Promise<{ deleted_ids: string[]; missing_ids: string[] }> {
+        return this.request<{ deleted_ids: string[]; missing_ids: string[] }>('/v1/scheduled/batch/delete', {
+            method: 'POST',
+            body: JSON.stringify({ item_ids }),
+        })
+    }
+    async triggerScheduledTest(id: string): Promise<AnalysisResponse> {
+        return this.request<AnalysisResponse>(`/v1/scheduled/${id}/trigger`, {
+            method: 'POST',
+        })
+    }
+    async triggerScheduledBatch(item_ids: string[]): Promise<ScheduledBatchTriggerResponse> {
+        return this.request<ScheduledBatchTriggerResponse>('/v1/scheduled/batch/trigger', {
+            method: 'POST',
+            body: JSON.stringify({ item_ids }),
+        })
+    }
+
+    async getQmtImportState(): Promise<QmtImportState> {
+        return this.request<QmtImportState>('/v1/portfolio/imports/qmt')
+    }
+
+    async syncQmtImport(data: {
+        qmt_path: string
+        account_id: string
+        account_type?: string
+        auto_apply_scheduled: boolean
+    }): Promise<QmtImportState> {
+        return this.request<QmtImportState>('/v1/portfolio/imports/qmt', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        })
+    }
+
+    async clearQmtImport(): Promise<void> {
+        await this.request('/v1/portfolio/imports/qmt', { method: 'DELETE' })
+    }
+
+    async getDashboardTrackingBoard(): Promise<TrackingBoardResponse> {
+        return this.request<TrackingBoardResponse>('/v1/dashboard/tracking-board')
     }
 
     // Stock Search
@@ -177,6 +234,13 @@ class ApiService {
         return this.request<RuntimeConfigUpdateResponse>('/v1/config', {
             method: 'PATCH',
             body: JSON.stringify(updates),
+        })
+    }
+
+    async warmupConfig(request: RuntimeWarmupRequest): Promise<RuntimeWarmupResponse> {
+        return this.request<RuntimeWarmupResponse>('/v1/config/warmup', {
+            method: 'POST',
+            body: JSON.stringify(request),
         })
     }
 
