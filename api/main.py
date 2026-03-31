@@ -13,7 +13,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from fastapi import Body
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
 
 import logging
@@ -39,8 +39,8 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, QmtImportConfigDB, init_db, get_db, get_db_ctx
+from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, dashboard_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -163,6 +163,112 @@ async def _scheduler_loop():
             logger.error(f"[Scheduler] Error: {e}")
 
 
+def _resolve_scheduled_trade_date(trade_date: str) -> str:
+    """Use the requested trading day, or fall back to the latest CN trading day."""
+    from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
+
+    return trade_date if is_cn_trading_day(trade_date) else previous_cn_trading_day(trade_date)
+
+
+def _build_scheduled_analyze_request(
+    db: Session,
+    user_id: str,
+    symbol: str,
+    horizon: str,
+    trade_date: str,
+    scheduled_user_context: Optional[Dict[str, Any]] = None,
+) -> "AnalyzeRequest":
+    scheduled_user_context = scheduled_user_context or _build_imported_user_context(db, user_id, symbol)
+    return AnalyzeRequest(
+        symbol=symbol,
+        trade_date=trade_date,
+        horizons=[horizon],
+        query=f"定时分析 {symbol}",
+        user_intent={
+            "ticker": symbol,
+            "horizons": [horizon],
+            "focus_areas": [],
+            "specific_questions": [],
+            "user_context": scheduled_user_context,
+        },
+        objective=scheduled_user_context.get("objective"),
+        current_position=scheduled_user_context.get("current_position"),
+        current_position_pct=scheduled_user_context.get("current_position_pct"),
+        average_cost=scheduled_user_context.get("average_cost"),
+        user_notes=scheduled_user_context.get("user_notes"),
+    )
+
+
+async def _send_scheduled_report_email_if_enabled(user_id: str, report_id: str, symbol: str) -> None:
+    """Send the generated report email when the user has email delivery enabled."""
+    try:
+        from api.services.email_report_service import send_report_email_with_retry
+
+        email_user = None
+        email_report = None
+        with get_db_ctx() as db:
+            user = db.query(UserDB).filter(UserDB.id == user_id).first()
+            report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
+            if user and report and getattr(user, "email_report_enabled", True):
+                db.expunge(user)
+                db.expunge(report)
+                email_user = user
+                email_report = report
+        if email_user and email_report:
+            _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
+            asyncio.create_task(send_report_email_with_retry(email_user, email_report))
+    except Exception as e:
+        logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
+
+
+async def _run_scheduled_analysis_once(
+    task: dict,
+    requested_trade_date: str,
+    job_id: str,
+    *,
+    mark_schedule_run: bool,
+) -> None:
+    """Execute one scheduled analysis, optionally recording it as the daily scheduled run."""
+    task_id = task["id"]
+    user_id = task["user_id"]
+    symbol = task["symbol"]
+    horizon = task.get("horizon") or "short"
+
+    _ensure_job_event_queue(job_id)
+    actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
+    _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
+
+    try:
+        with get_db_ctx() as db:
+            scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(db, user_id, symbol)
+            req = _build_scheduled_analyze_request(
+                db=db,
+                user_id=user_id,
+                symbol=symbol,
+                horizon=horizon,
+                trade_date=actual_trade_date,
+                scheduled_user_context=scheduled_user_context,
+            )
+
+        await _run_job(job_id, req, False, True, user_id, "scheduled" if mark_schedule_run else "scheduled_manual")
+
+        with get_db_ctx() as db:
+            if mark_schedule_run:
+                scheduled_service.mark_run_success(db, task_id, requested_trade_date, job_id)
+            else:
+                scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
+        _log(f"[Scheduler] Completed {symbol}")
+
+        await _send_scheduled_report_email_if_enabled(user_id, job_id, symbol)
+    except Exception as e:
+        logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
+        with get_db_ctx() as db:
+            if mark_schedule_run:
+                scheduled_service.mark_run_failed(db, task_id, requested_trade_date)
+            else:
+                scheduled_service.record_manual_test_result(db, task_id, "failed")
+
+
 async def _run_scheduled_job(task: dict, trade_date: str):
     """Execute a single scheduled analysis job.
 
@@ -171,67 +277,18 @@ async def _run_scheduled_job(task: dict, trade_date: str):
               not an ORM instance, to avoid DetachedInstanceError).
         trade_date: YYYY-MM-DD string.
     """
-    task_id = task["id"]
     user_id = task["user_id"]
     symbol = task["symbol"]
-    horizon = task.get("horizon") or "short"
 
     _log(f"[Scheduler] Running {symbol} for user={user_id}")
     job_id = uuid4().hex
     try:
-        _ensure_job_event_queue(job_id)
-
-        # 使用最近交易日（非交易日时回退到上一个交易日）
-        from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
-        actual_trade_date = trade_date if is_cn_trading_day(trade_date) else previous_cn_trading_day(trade_date)
-        _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={trade_date})")
-
-        req = AnalyzeRequest(
-            symbol=symbol,
-            trade_date=actual_trade_date,
-            horizons=[horizon],
-            query=f"定时分析 {symbol}",
-            user_intent={
-                "ticker": symbol,
-                "horizons": [horizon],
-                "focus_areas": [],
-                "specific_questions": [],
-                "user_context": {},
-            },
+        await _run_scheduled_analysis_once(
+            task,
+            trade_date,
+            job_id,
+            mark_schedule_run=True,
         )
-
-        await _run_job(job_id, req, user_id=user_id)
-
-        # Mark success
-        with get_db_ctx() as db:
-            scheduled_service.mark_run_success(db, task_id, trade_date, job_id)
-        _log(f"[Scheduler] Completed {symbol}")
-
-        # Send email report (fire-and-forget so it doesn't block the scheduler)
-        try:
-            from api.services.email_report_service import send_report_email_with_retry
-            _email_user = None
-            _email_report = None
-            with get_db_ctx() as db:
-                user = db.query(UserDB).filter(UserDB.id == user_id).first()
-                report = db.query(ReportDB).filter(ReportDB.id == job_id).first()
-                if user and report and getattr(user, 'email_report_enabled', True):
-                    db.expunge(user)
-                    db.expunge(report)
-                    _email_user = user
-                    _email_report = report
-            if _email_user and _email_report:
-                _stock_name = _get_reverse_stock_map().get(symbol, "")
-                _log(f"[Scheduler] Sending email report for {symbol} to {_email_user.email}")
-                asyncio.create_task(send_report_email_with_retry(_email_user, _email_report, _stock_name))
-        except Exception as e:
-            logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
-
-    except Exception as e:
-        import traceback
-        logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
-        with get_db_ctx() as db:
-            scheduled_service.mark_run_failed(db, task_id, trade_date)
     finally:
         _job_events.pop(job_id, None)
 
@@ -437,6 +494,27 @@ def _search_cn_stock_by_name(query: str) -> Optional[str]:
         candidates.sort(key=lambda x: len(x[0]))
         return candidates[0][1]
     return None
+
+
+def _split_watchlist_batch_text(text: str) -> List[str]:
+    return [token.strip() for token in re.split(r"[\s,，、；;]+", text.strip()) if token.strip()]
+
+
+def _resolve_watchlist_identifier(
+    raw: str,
+    name_to_code: Dict[str, str],
+    code_to_name: Dict[str, str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    token = raw.strip()
+    if not token:
+        return None, None, "输入为空"
+    if token in name_to_code:
+        symbol = name_to_code[token]
+        return symbol, code_to_name.get(symbol, token), None
+    symbol = _normalize_symbol(token)
+    if symbol in code_to_name:
+        return symbol, code_to_name.get(symbol, symbol), None
+    return None, None, f"未识别的股票代码或名称: {token}"
 _auth_scheme = HTTPBearer(auto_error=False)
 
 FIXED_TEAMS = {
@@ -551,6 +629,22 @@ class AnalyzeResponse(BaseModel):
     created_at: str
 
 
+class BatchScheduledTriggerJob(BaseModel):
+    item_id: str
+    job_id: str
+    symbol: str
+    name: str
+    status: Literal["pending", "running", "completed", "failed"]
+    created_at: str
+    current_position: Optional[float] = None
+    average_cost: Optional[float] = None
+
+
+class BatchScheduledTriggerResponse(BaseModel):
+    summary: Dict[str, int]
+    jobs: List[BatchScheduledTriggerJob]
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["pending", "running", "completed", "failed"]
@@ -638,6 +732,14 @@ class ReportListResponse(BaseModel):
     reports: List[ReportResponse]
 
 
+class LatestReportsBySymbolsRequest(BaseModel):
+    symbols: List[str] = Field(default_factory=list)
+
+
+class LatestReportsBySymbolsResponse(BaseModel):
+    reports: List[ReportResponse]
+
+
 class AnnouncementItemResponse(BaseModel):
     title: str
     detail: str
@@ -709,6 +811,29 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     email_report_enabled: Optional[bool] = None
     api_key: Optional[str] = None
     clear_api_key: bool = False
+
+
+class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
+    prompt: str = "你好"
+
+
+class RuntimeWarmupResult(BaseModel):
+    model: str
+    targets: List[str] = Field(default_factory=list)
+    content: Optional[str] = None
+    error: Optional[str] = None
+
+
+class UserRuntimeWarmupResponse(BaseModel):
+    prompt: str
+    results: List[RuntimeWarmupResult]
+
+
+class QmtImportSyncRequest(BaseModel):
+    qmt_path: str = Field(..., description="QMT userdata 路径")
+    account_id: str = Field(..., description="QMT 资金账号")
+    account_type: str = Field("STOCK", description="账户类型，默认 STOCK")
+    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务，并优先使用 QMT 持仓上下文")
 
 
 class UserTokenResponse(BaseModel):
@@ -2437,6 +2562,10 @@ async def analyze(
         "job.created",
         {"job_id": job_id, "symbol": request.symbol, "trade_date": request.trade_date},
     )
+    if request.dry_run:
+        await _run_job(job_id, request, True, True, current_user.id, "api")
+        final_status = _jobs.get(job_id, {}).get("status", "completed")
+        return AnalyzeResponse(job_id=job_id, status=final_status, created_at=now)
     _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
@@ -2842,6 +2971,30 @@ async def chat_completions(
         "job.created",
         {"job_id": job_id, "symbol": analyze_req.symbol, "trade_date": analyze_req.trade_date},
     )
+    if request.dry_run:
+        await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
+        status_text = _jobs.get(job_id, {}).get("status", "completed")
+        decision_text = _jobs.get(job_id, {}).get("decision", "DRY_RUN")
+        return {
+            "id": f"chatcmpl-{job_id}",
+            "object": "chat.completion",
+            "created": int(datetime.now().timestamp()),
+            "model": request.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            f"已完成分析任务：{job_id}\n"
+                            f"symbol={analyze_req.symbol}, trade_date={analyze_req.trade_date}\n"
+                            f"status={status_text}, decision={decision_text}"
+                        ),
+                    },
+                }
+            ],
+        }
     _create_tracked_task(_run_job(job_id, analyze_req, True, True, current_user.id, "chat"))
     return {
         "id": f"chatcmpl-{job_id}",
@@ -2910,6 +3063,20 @@ def list_reports(
     for r in reports:
         r.name = code_to_name.get(r.symbol, r.symbol)
     return {"total": total, "reports": reports}
+
+
+@app.post("/v1/reports/latest-by-symbols", response_model=LatestReportsBySymbolsResponse)
+def list_latest_reports_by_symbols(
+    body: LatestReportsBySymbolsRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    reports = report_service.get_latest_reports_by_symbols(
+        db=db,
+        user_id=current_user.id,
+        symbols=body.symbols,
+    )
+    return {"reports": reports}
 
 
 @app.get("/v1/reports/{report_id}", response_model=ReportDetailResponse)
@@ -3042,6 +3209,212 @@ _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
     "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
 }
+_CONFIG_MODEL_KEYS = ("llm_provider", "backend_url", "quick_think_llm", "deep_think_llm")
+_CONFIG_MODEL_LABELS = {
+    "quick_think_llm": "常规模型",
+    "deep_think_llm": "推理模型",
+}
+_CONFIG_PROBE_TIMEOUT_SECONDS = 12.0
+_CONFIG_PROBE_PROMPT = "Reply with the single word OK."
+_CONFIG_WARMUP_TIMEOUT_SECONDS = 20.0
+_CONFIG_WARMUP_PROMPT = "Reply with the single word OK."
+
+
+def _warmup_model_names(config: Dict[str, Any]) -> List[str]:
+    seen: set[str] = set()
+    models: List[str] = []
+    for key in ("quick_think_llm", "deep_think_llm"):
+        value = str(config.get(key) or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        models.append(value)
+    return models
+
+
+def _warmup_model_targets(config: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
+    targets: Dict[str, List[str]] = {}
+    for key in ("quick_think_llm", "deep_think_llm"):
+        model = str(config.get(key) or "").strip()
+        if not model:
+            continue
+        labels = targets.setdefault(model, [])
+        label = _CONFIG_MODEL_LABELS.get(key, key)
+        if label not in labels:
+            labels.append(label)
+    return [(model, labels) for model, labels in targets.items()]
+
+
+def _should_trigger_config_warmup(
+    before_cfg: UserRuntimeConfigResponse,
+    after_cfg: UserRuntimeConfigResponse,
+    updates: UserRuntimeConfigUpdateRequest,
+) -> bool:
+    if not updates.warmup:
+        return False
+    if updates.force_warmup:
+        return True
+    if updates.api_key:
+        return True
+    before = before_cfg.model_dump()
+    after = after_cfg.model_dump()
+    return any(before.get(key) != after.get(key) for key in _CONFIG_MODEL_KEYS)
+
+
+def _build_pending_runtime_config(
+    updates: UserRuntimeConfigUpdateRequest,
+    user_id: str,
+    db: Session,
+) -> Dict[str, Any]:
+    config = _build_runtime_config({}, user_id=user_id, db=db)
+    for key in _CONFIG_ALLOWED_KEYS:
+        value = getattr(updates, key, None)
+        if value is not None:
+            config[key] = value
+
+    if updates.clear_api_key:
+        config["api_key"] = ""
+    elif updates.api_key:
+        config["api_key"] = updates.api_key
+
+    quick = config.get("quick_think_llm")
+    deep = config.get("deep_think_llm")
+    if not deep and quick:
+        config["deep_think_llm"] = quick
+    if not quick and deep:
+        config["quick_think_llm"] = deep
+    return config
+
+
+def _should_probe_runtime_config(
+    before_cfg: UserRuntimeConfigResponse,
+    pending_cfg: Dict[str, Any],
+    updates: UserRuntimeConfigUpdateRequest,
+) -> bool:
+    del before_cfg, pending_cfg
+    if updates.clear_api_key:
+        return False
+    return bool(updates.api_key)
+
+
+def _probe_runtime_config(config: Dict[str, Any]) -> Dict[str, str]:
+    from tradingagents.llm_clients.factory import create_llm_client
+
+    provider = str(config.get("llm_provider") or "openai")
+    base_url = config.get("backend_url")
+    api_key = str(config.get("api_key") or "").strip()
+    model = str(config.get("quick_think_llm") or config.get("deep_think_llm") or "").strip()
+
+    if not model or not api_key:
+        return {"status": "skipped", "reason": "missing_model_or_key"}
+
+    try:
+        client = create_llm_client(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            timeout=_CONFIG_PROBE_TIMEOUT_SECONDS,
+            max_retries=0,
+        )
+        llm = client.get_llm()
+        response = llm.invoke(_CONFIG_PROBE_PROMPT)
+        raw = response if isinstance(response, str) else getattr(response, "content", str(response))
+        preview = str(raw).strip().replace("\n", " ")[:80] or "<empty>"
+        return {"status": "ok", "model": model, "preview": preview}
+    except Exception as exc:
+        detail = str(exc).strip()
+        lowered = detail.lower()
+        if "401" in lowered or "invalid authentication" in lowered or "authenticationerror" in lowered:
+            raise HTTPException(
+                status_code=400,
+                detail="模型 Key 验证失败：上游返回 401 Invalid Authentication，请检查 API Key 是否正确。",
+            ) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=f"模型连接验证失败：{detail[:200] or 'unknown error'}",
+        ) from exc
+
+
+def _invoke_runtime_warmup(
+    config: Dict[str, Any],
+    prompt: str,
+    user_id: str,
+    timeout: float = _CONFIG_WARMUP_TIMEOUT_SECONDS,
+) -> List[Dict[str, Any]]:
+    from tradingagents.llm_clients.factory import create_llm_client
+
+    provider = str(config.get("llm_provider") or "openai")
+    base_url = config.get("backend_url")
+    api_key = config.get("api_key")
+    targets = _warmup_model_targets(config)
+
+    if not targets:
+        raise HTTPException(status_code=400, detail="请先配置至少一个可用模型。")
+
+    _log(
+        f"[LLM Warmup] user={user_id} invoking provider={provider} "
+        f"models={[model for model, _ in targets]} base_url={base_url or 'default'}"
+    )
+
+    results: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    for model, labels in targets:
+        try:
+            client = create_llm_client(
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                timeout=timeout,
+                max_retries=0,
+            )
+            llm = client.get_llm()
+            response = llm.invoke(prompt)
+            raw = response if isinstance(response, str) else getattr(response, "content", str(response))
+            content = str(raw).strip() or "<empty>"
+            preview = content.replace("\n", " ")[:80]
+            _log(f"[LLM Warmup] user={user_id} model={model} success response={preview}")
+            results.append({
+                "model": model,
+                "targets": labels,
+                "content": content,
+                "error": None,
+            })
+        except Exception as exc:
+            detail = str(exc).strip() or "unknown error"
+            errors.append(f"{model}: {detail}")
+            logger.warning(
+                "[LLM Warmup] user=%s model=%s failed: %s",
+                user_id,
+                model,
+                exc,
+            )
+            results.append({
+                "model": model,
+                "targets": labels,
+                "content": None,
+                "error": detail[:200],
+            })
+
+    if not any(item.get("content") for item in results):
+        raise HTTPException(
+            status_code=400,
+            detail=f"模型 warmup 失败：{'; '.join(errors)[:300]}",
+        )
+
+    return results
+
+
+def _run_config_warmup(config: Dict[str, Any], user_id: str) -> None:
+    models = _warmup_model_names(config)
+    if not models:
+        _log(f"[LLM Warmup] user={user_id} skipped: no models configured")
+        return
+    try:
+        _invoke_runtime_warmup(config, _CONFIG_WARMUP_PROMPT, user_id, timeout=_CONFIG_WARMUP_TIMEOUT_SECONDS)
+    except HTTPException as exc:
+        logger.warning("[LLM Warmup] user=%s failed: %s", user_id, exc.detail)
 
 
 def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntimeConfigResponse:
@@ -3135,6 +3508,21 @@ def update_runtime_config(
     }
 
 
+@app.post("/v1/config/warmup", response_model=UserRuntimeWarmupResponse)
+def warmup_runtime_config(
+    request: UserRuntimeWarmupRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    pending_cfg = _build_pending_runtime_config(request, current_user.id, db)
+    prompt = (request.prompt or "").strip() or "你好"
+    results = _invoke_runtime_warmup(pending_cfg, prompt, current_user.id)
+    return {
+        "prompt": prompt,
+        "results": results,
+    }
+
+
 # ── Stock Search ──────────────────────────────────────────────────────────────
 
 @app.get("/v1/market/stock-search")
@@ -3168,6 +3556,124 @@ def search_stocks(
     return {"results": results}
 
 
+def _annotate_scheduled_with_imported_context(items: List[dict], db: Session, user_id: str) -> List[dict]:
+    imported_map: Dict[str, Dict[str, Any]] = {}
+    for item in qmt_import_service.list_imported_positions(db, user_id):
+        imported_map[item["symbol"]] = item
+    for item in items:
+        imported = imported_map.get(item["symbol"])
+        item["has_imported_context"] = imported is not None
+        item["imported_current_position"] = imported.get("current_position") if imported else None
+        item["imported_average_cost"] = imported.get("average_cost") if imported else None
+        item["imported_trade_points_count"] = imported.get("trade_points_count") if imported else 0
+    return items
+
+
+def _merge_imported_user_context(*contexts: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    note_parts: List[str] = []
+    for ctx in contexts:
+        if not ctx:
+            continue
+        for key, value in ctx.items():
+            if key == "user_notes":
+                if value:
+                    note_parts.append(str(value).strip())
+                continue
+            if value is not None:
+                merged[key] = value
+    if note_parts:
+        merged["user_notes"] = "\n\n".join(part for part in note_parts if part)
+    return normalize_user_context(merged)
+
+
+def _build_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
+    qmt_context = qmt_import_service.build_scheduled_user_context(db, user_id, symbol)
+    return _merge_imported_user_context(qmt_context)
+
+
+def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
+    normalized_symbol = (symbol or "").strip().upper()
+    if not normalized_symbol:
+        return {}
+
+    # Prefer the normal scheduled-context behavior first. If auto_apply_scheduled is
+    # disabled, manual test runs should still carry imported holdings context.
+    scheduled_context = _build_imported_user_context(db, user_id, normalized_symbol)
+    if scheduled_context:
+        return scheduled_context
+
+    contexts: List[Dict[str, Any]] = []
+
+    qmt_row = (
+        db.query(ImportedPortfolioPositionDB)
+        .filter(
+            ImportedPortfolioPositionDB.user_id == user_id,
+            ImportedPortfolioPositionDB.source == "qmt_xtquant",
+            ImportedPortfolioPositionDB.symbol == normalized_symbol,
+        )
+        .first()
+    )
+    if qmt_row:
+        qmt_config = db.query(QmtImportConfigDB).filter(QmtImportConfigDB.user_id == user_id).first()
+        contexts.append({
+            "objective": "持有处理" if (qmt_row.current_position or 0) > 0 else "观察",
+            "current_position": qmt_row.current_position,
+            "current_position_pct": qmt_row.current_position_pct,
+            "average_cost": qmt_row.average_cost,
+            "user_notes": (
+                "来源：QMT / xtquant 持仓同步（手动测试）\n"
+                f"账户：{qmt_config.account_id if qmt_config else '-'}\n"
+                f"QMT 路径：{qmt_config.qmt_path if qmt_config else '-'}"
+            ),
+        })
+
+    return _merge_imported_user_context(*contexts)
+
+
+@app.get("/v1/portfolio/imports/qmt")
+def get_qmt_import_state(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    return qmt_import_service.get_import_state(db, current_user.id)
+
+
+@app.post("/v1/portfolio/imports/qmt")
+def sync_qmt_import_state(
+    body: QmtImportSyncRequest,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return qmt_import_service.sync_qmt_portfolio(
+            db=db,
+            user_id=current_user.id,
+            qmt_path=body.qmt_path,
+            account_id=body.account_id,
+            account_type=body.account_type,
+            auto_apply_scheduled=body.auto_apply_scheduled,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.delete("/v1/portfolio/imports/qmt", status_code=204)
+def clear_qmt_import_state(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    qmt_import_service.clear_imported_portfolio(db, current_user.id)
+
+
+@app.get("/v1/dashboard/tracking-board")
+def get_dashboard_tracking_board(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    return dashboard_service.get_tracking_board(db, current_user.id)
+
+
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 
 @app.get("/v1/watchlist")
@@ -3182,24 +3688,83 @@ def list_watchlist(
     return {"items": items}
 
 
-@app.post("/v1/watchlist", status_code=201)
+@app.post("/v1/watchlist")
 def add_to_watchlist(
     body: dict,
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    symbol = body.get("symbol", "").strip().upper()
-    if not symbol:
-        raise HTTPException(400, "symbol is required")
+    text = str(body.get("text") or body.get("symbol") or "").strip()
+    if not text:
+        raise HTTPException(400, "text or symbol is required")
+
+    tokens = _split_watchlist_batch_text(text)
+    if not tokens:
+        raise HTTPException(400, "至少提供一个股票代码或名称")
+
+    name_to_code = _load_cn_stock_map()
     code_to_name = _get_reverse_stock_map()
-    if symbol not in code_to_name:
-        raise HTTPException(400, f"未知的股票代码: {symbol}")
-    try:
-        item = watchlist_service.add_watchlist_item(db, current_user.id, symbol)
-        item["name"] = code_to_name.get(symbol, symbol)
-        return item
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+
+    resolved_entries: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
+    for idx, token in enumerate(tokens):
+        symbol, name, error = _resolve_watchlist_identifier(token, name_to_code, code_to_name)
+        if error:
+            results.append({
+                "_order": idx,
+                "input": token,
+                "status": "invalid",
+                "message": error,
+            })
+            continue
+        resolved_entries.append({
+            "_order": idx,
+            "input": token,
+            "symbol": symbol,
+            "name": name,
+        })
+
+    add_results = watchlist_service.add_watchlist_items(
+        db,
+        current_user.id,
+        [entry["symbol"] for entry in resolved_entries],
+    )
+    for entry, result in zip(resolved_entries, add_results):
+        item = result.get("item")
+        if item:
+            item["name"] = entry["name"]
+            item["has_scheduled"] = False
+        results.append({
+            "_order": entry["_order"],
+            "input": entry["input"],
+            "symbol": entry["symbol"],
+            "name": entry["name"],
+            "status": result["status"],
+            "message": result["message"],
+            "item": item,
+        })
+
+    results.sort(key=lambda row: row["_order"])
+    for row in results:
+        row.pop("_order", None)
+    summary = {
+        "total": len(tokens),
+        "added": sum(1 for row in results if row["status"] == "added"),
+        "duplicate": sum(1 for row in results if row["status"] == "duplicate"),
+        "failed": sum(1 for row in results if row["status"] in {"invalid", "failed"}),
+    }
+    message_parts = [f"共处理 {summary['total']} 项"]
+    if summary["added"]:
+        message_parts.append(f"新增 {summary['added']} 项")
+    if summary["duplicate"]:
+        message_parts.append(f"重复 {summary['duplicate']} 项")
+    if summary["failed"]:
+        message_parts.append(f"失败 {summary['failed']} 项")
+    return {
+        "message": "，".join(message_parts),
+        "summary": summary,
+        "results": results,
+    }
 
 
 @app.delete("/v1/watchlist/{item_id}", status_code=204)
@@ -3223,7 +3788,7 @@ def list_scheduled_analyses(
     code_to_name = _get_reverse_stock_map()
     for item in items:
         item["name"] = code_to_name.get(item["symbol"], item["symbol"])
-    return {"items": items}
+    return {"items": _annotate_scheduled_with_imported_context(items, db, current_user.id)}
 
 
 @app.post("/v1/scheduled", status_code=201)
@@ -3243,9 +3808,207 @@ def create_scheduled_analysis(
     try:
         item = scheduled_service.create_scheduled(db, current_user.id, symbol, horizon, trigger_time)
         item["name"] = code_to_name.get(symbol, symbol)
+        _annotate_scheduled_with_imported_context([item], db, current_user.id)
         return item
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+def _extract_scheduled_update_kwargs(body: dict) -> dict:
+    kwargs = {}
+    if "is_active" in body:
+        kwargs["is_active"] = bool(body["is_active"])
+    if "horizon" in body:
+        kwargs["horizon"] = body["horizon"]
+    if "trigger_time" in body:
+        kwargs["trigger_time"] = body["trigger_time"]
+    return kwargs
+
+
+@app.patch("/v1/scheduled/batch")
+def batch_update_scheduled_analyses(
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    item_ids = body.get("item_ids") or []
+    if not isinstance(item_ids, list):
+        raise HTTPException(400, "item_ids 必须为数组")
+    kwargs = _extract_scheduled_update_kwargs(body)
+    if not kwargs:
+        raise HTTPException(400, "至少提供一个更新字段")
+    try:
+        items = scheduled_service.batch_update_scheduled(
+            db,
+            current_user.id,
+            item_ids,
+            **kwargs,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    code_to_name = _get_reverse_stock_map()
+    for item in items:
+        item["name"] = code_to_name.get(item["symbol"], item["symbol"])
+    return {"items": _annotate_scheduled_with_imported_context(items, db, current_user.id)}
+
+
+@app.post("/v1/scheduled/batch/delete")
+def batch_delete_scheduled_analyses(
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    item_ids = body.get("item_ids") or []
+    if not isinstance(item_ids, list):
+        raise HTTPException(400, "item_ids 必须为数组")
+    try:
+        return scheduled_service.batch_delete_scheduled(db, current_user.id, item_ids)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/v1/scheduled/batch/trigger", response_model=BatchScheduledTriggerResponse)
+async def trigger_scheduled_analyses_batch(
+    body: dict,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    item_ids = body.get("item_ids") or []
+    if not isinstance(item_ids, list):
+        raise HTTPException(400, "item_ids 必须为数组")
+    if not item_ids:
+        raise HTTPException(400, "请至少选择 1 个定时任务")
+
+    requested_trade_date = cn_today_str()
+    actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
+    code_to_name = _get_reverse_stock_map()
+    jobs: List[Dict[str, Any]] = []
+    with_position_context = 0
+    available_tasks = {
+        task["id"]: task
+        for task in scheduled_service.list_scheduled(db, current_user.id)
+    }
+    valid_item_ids = []
+    missing_item_ids = []
+    for raw_item_id in item_ids:
+        item_id = str(raw_item_id or "").strip()
+        if not item_id:
+            continue
+        if item_id in available_tasks:
+            valid_item_ids.append(item_id)
+        else:
+            missing_item_ids.append(item_id)
+
+    if not valid_item_ids:
+        raise HTTPException(400, "选中的定时任务已失效，请刷新页面后重试")
+
+    if missing_item_ids:
+        _log(
+            f"[Scheduled Batch Trigger] user={current_user.id} skipped missing item_ids={missing_item_ids}"
+        )
+
+    for item_id in valid_item_ids:
+        task = available_tasks[item_id]
+
+        task_snapshot = dict(task)
+        task_snapshot["user_id"] = current_user.id
+        task_snapshot["manual_user_context"] = _build_manual_imported_user_context(db, current_user.id, task["symbol"])
+
+        scheduled_user_context = task_snapshot["manual_user_context"]
+        if scheduled_user_context.get("current_position") is not None:
+            with_position_context += 1
+
+        now = _utcnow_iso()
+        job_id = uuid4().hex
+        _set_job(
+            job_id,
+            job_id=job_id,
+            status="pending",
+            created_at=now,
+            symbol=task["symbol"],
+            trade_date=actual_trade_date,
+            user_id=current_user.id,
+            request_source="scheduled_manual_batch",
+        )
+        _ensure_job_event_queue(job_id)
+        _emit_job_event(
+            job_id,
+            "job.queued",
+            {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
+        )
+        _create_tracked_task(
+            _run_scheduled_analysis_once(
+                task_snapshot,
+                requested_trade_date,
+                job_id,
+                mark_schedule_run=False,
+            )
+        )
+
+        jobs.append({
+            "item_id": task["id"],
+            "job_id": job_id,
+            "symbol": task["symbol"],
+            "name": code_to_name.get(task["symbol"], task["symbol"]),
+            "status": "pending",
+            "created_at": now,
+            "current_position": scheduled_user_context.get("current_position"),
+            "average_cost": scheduled_user_context.get("average_cost"),
+        })
+
+    return {
+        "summary": {
+            "total": len(jobs),
+            "with_position_context": with_position_context,
+        },
+        "jobs": jobs,
+    }
+
+
+@app.post("/v1/scheduled/{item_id}/trigger", response_model=AnalyzeResponse)
+async def trigger_scheduled_analysis_once(
+    item_id: str,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    task = scheduled_service.get_scheduled(db, current_user.id, item_id)
+    if task is None:
+        raise HTTPException(404, "未找到该定时任务")
+
+    requested_trade_date = cn_today_str()
+    actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
+    now = _utcnow_iso()
+    job_id = uuid4().hex
+
+    task_snapshot = dict(task)
+    task_snapshot["user_id"] = current_user.id
+    task_snapshot["manual_user_context"] = _build_manual_imported_user_context(db, current_user.id, task["symbol"])
+
+    _set_job(
+        job_id,
+        job_id=job_id,
+        status="pending",
+        created_at=now,
+        symbol=task["symbol"],
+        trade_date=actual_trade_date,
+        user_id=current_user.id,
+        request_source="scheduled_manual",
+    )
+    _ensure_job_event_queue(job_id)
+    _emit_job_event(
+        job_id,
+        "job.queued",
+        {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
+    )
+    _create_tracked_task(
+        _run_scheduled_analysis_once(
+            task_snapshot,
+            requested_trade_date,
+            job_id,
+            mark_schedule_run=False,
+        )
+    )
+    return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
 @app.patch("/v1/scheduled/{item_id}")
@@ -3255,13 +4018,7 @@ def update_scheduled_analysis(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    kwargs = {}
-    if "is_active" in body:
-        kwargs["is_active"] = bool(body["is_active"])
-    if "horizon" in body:
-        kwargs["horizon"] = body["horizon"]
-    if "trigger_time" in body:
-        kwargs["trigger_time"] = body["trigger_time"]
+    kwargs = _extract_scheduled_update_kwargs(body)
     try:
         result = scheduled_service.update_scheduled(db, current_user.id, item_id, **kwargs)
     except ValueError as e:
@@ -3270,6 +4027,7 @@ def update_scheduled_analysis(
         raise HTTPException(404, "未找到该定时任务")
     code_to_name = _get_reverse_stock_map()
     result["name"] = code_to_name.get(result["symbol"], result["symbol"])
+    _annotate_scheduled_with_imported_context([result], db, current_user.id)
     return result
 
 
