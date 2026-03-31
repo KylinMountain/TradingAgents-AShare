@@ -13,6 +13,7 @@ const REPORT_SECTIONS = [
     { key: 'fundamentals_report', title: '基本面分析报告', team: '分析团队' },
     { key: 'macro_report', title: '宏观板块报告', team: '分析团队' },
     { key: 'smart_money_report', title: '主力资金报告', team: '分析团队' },
+    { key: 'volume_price_report', title: '量价分析报告', team: '分析团队' },
     { key: 'investment_plan', title: '研究团队决策', team: '研究团队' },
     { key: 'trader_investment_plan', title: '交易团队计划', team: '交易团队' },
     { key: 'final_trade_decision', title: '最终交易决策', team: '组合管理' },
