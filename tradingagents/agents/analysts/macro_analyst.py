@@ -62,10 +62,11 @@ def create_macro_analyst(llm, data_collector=None):
 
         messages = [
             SystemMessage(content=(
-                horizon_ctx + system_message
+                system_message
                 + "\n\n请严格基于提供的数据输出报告，全程使用中文。"
             )),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"请分析 {ticker} 在 {current_date} 的宏观与板块环境。\n\n"
                 f"【今日行业板块资金流向】\n{board_flow}\n\n"
                 f"【近期相关新闻】\n{recent_news}"

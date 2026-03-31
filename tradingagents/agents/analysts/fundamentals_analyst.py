@@ -58,8 +58,9 @@ def create_fundamentals_analyst(llm, data_collector=None):
             outputs = dict(zip(keys, results))
 
         messages = [
-            SystemMessage(content=horizon_ctx + system_message + "\n\n请全程使用中文。"),
+            SystemMessage(content=system_message + "\n\n请全程使用中文。"),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的基本面资料。\n\n"
                 f"【get_fundamentals】\n{outputs['fundamentals']}\n\n"
                 f"【get_balance_sheet】\n{outputs['balance_sheet']}\n\n"

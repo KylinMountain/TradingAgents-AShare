@@ -65,10 +65,11 @@ def create_news_analyst(llm, data_collector=None):
 
         messages = [
             SystemMessage(content=(
-                horizon_ctx + system_message
+                system_message
                 + "\n\n请严格基于提供的新闻资料输出报告，全程使用中文。"
             )),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的新闻资料（{data_window}）。\n\n"
                 f"【get_news】\n{stock_news}\n\n"
                 f"【get_global_news】\n{global_news}\n"

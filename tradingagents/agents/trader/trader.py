@@ -36,30 +36,25 @@ def create_trader(llm, memory):
         config = get_config()
         context_view = build_agent_context_view(state, "trader")
         risk_feedback_summary = summarize_risk_feedback(risk_feedback_state)
-        context = {
-            "role": "user",
-            "content": get_prompt("trader_user_prompt", config=config).format(
-                company_name=company_name,
-                investment_plan=investment_plan,
-                previous_trader_plan=previous_trader_plan or "无",
-                instrument_context_summary=context_view["instrument_context_summary"],
-                market_context_summary=context_view["market_context_summary"],
-                user_context_summary=context_view["user_context_summary"],
-                risk_feedback_summary=risk_feedback_summary,
-            ),
-        }
 
         messages = [
             {
                 "role": "system",
-                "content": get_prompt("trader_system_prompt", config=config).format(
-                    past_memory_str=past_memory_str,
+                "content": get_prompt("trader_system_prompt", config=config),
+            },
+            {
+                "role": "user",
+                "content": get_prompt("trader_user_prompt", config=config).format(
+                    company_name=company_name,
+                    investment_plan=investment_plan,
+                    previous_trader_plan=previous_trader_plan or "无",
+                    instrument_context_summary=context_view["instrument_context_summary"],
                     market_context_summary=context_view["market_context_summary"],
                     user_context_summary=context_view["user_context_summary"],
                     risk_feedback_summary=risk_feedback_summary,
+                    past_memory_str=past_memory_str,
                 ),
             },
-            context,
         ]
 
         # ── 实现 Token 级流式输出 ──────────────────

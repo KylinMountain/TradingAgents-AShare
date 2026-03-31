@@ -66,8 +66,9 @@ def create_market_analyst(llm, data_collector=None):
         ]
 
         messages = [
-            SystemMessage(content=horizon_ctx + system_message + "\n\n请全程使用中文。"),
+            SystemMessage(content=system_message + "\n\n请全程使用中文。"),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的 K 线数据与指标（数据窗口：{data_window}）。\n\n"
                 f"【get_stock_data】\n{stock_data}\n\n"
                 + "\n\n".join(indicator_blocks)
