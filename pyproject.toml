@@ -30,6 +30,7 @@ dependencies = [
     "sqlalchemy>=2.0.48",
     "python-jose[cryptography]>=3.5.0",
     "json-repair>=0.44.0",
+    "markdown>=3.7",
 ]
 
 [project.scripts]

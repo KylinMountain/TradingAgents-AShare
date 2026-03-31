@@ -19,3 +19,4 @@ uvicorn
 sqlalchemy
 python-jose[cryptography]
 json-repair
+markdown
