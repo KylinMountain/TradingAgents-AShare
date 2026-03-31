@@ -1,3 +1,5 @@
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from tradingagents.agents.analysts.market_analyst import create_market_analyst
 from tradingagents.graph.data_collector import DataCollector
@@ -29,13 +31,17 @@ def _stub_pool(horizon="short"):
 
 def test_market_analyst_returns_trace():
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = MagicMock(
-        content='报告\n<!-- VERDICT: {"direction": "看多", "reason": "趋势向上"} -->'
-    )
+
+    async def _astream(_messages):
+        yield SimpleNamespace(
+            content='报告\n<!-- VERDICT: {"direction": "看多", "reason": "趋势向上"} -->'
+        )
+
+    mock_llm.astream = _astream
     collector = DataCollector()
     collector._cache["600519_2026-03-12"] = _stub_pool("short")
     node = create_market_analyst(mock_llm, collector)
-    result = node(_make_state("short"))
+    result = asyncio.run(node(_make_state("short")))
     assert "market_report" in result
     assert "analyst_traces" in result
     assert len(result["analyst_traces"]) == 1
@@ -46,9 +52,13 @@ def test_market_analyst_returns_trace():
 
 def test_market_analyst_medium_window():
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = MagicMock(content="report")
+
+    async def _astream(_messages):
+        yield SimpleNamespace(content="report")
+
+    mock_llm.astream = _astream
     collector = DataCollector()
     collector._cache["600519_2026-03-12"] = _stub_pool("medium")
     node = create_market_analyst(mock_llm, collector)
-    result = node(_make_state("medium"))
+    result = asyncio.run(node(_make_state("medium")))
     assert result["analyst_traces"][0]["data_window"] == "90天"

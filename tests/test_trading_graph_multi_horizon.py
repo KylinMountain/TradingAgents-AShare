@@ -7,6 +7,7 @@ import pytest
 
 from tradingagents.graph.propagation import Propagator
 from tradingagents.graph.data_collector import DataCollector
+from tradingagents.graph.setup import GraphSetup
 
 
 # ---------------------------------------------------------------------------
@@ -181,3 +182,81 @@ class TestPropagateAsync:
             )
 
         assert result["user_intent"]["focus_areas"] == ["技术面"]
+
+
+class _FakeWorkflow:
+    def __init__(self, *_args, **_kwargs):
+        self.nodes = {}
+        self.edges = []
+        self.conditional_edges = []
+
+    def add_node(self, name, node):
+        self.nodes[name] = node
+
+    def add_edge(self, source, target):
+        self.edges.append((source, target))
+
+    def add_conditional_edges(self, source, condition, mapping):
+        self.conditional_edges.append((source, condition, mapping))
+
+    def compile(self, checkpointer=None):
+        return {
+            "nodes": self.nodes,
+            "edges": self.edges,
+            "conditional_edges": self.conditional_edges,
+            "checkpointer": checkpointer,
+        }
+
+
+def test_graph_setup_wires_market_analyst_without_name_errors():
+    quick_llm = object()
+    deep_llm = object()
+    tool_nodes = {"market": object()}
+    conditional_logic = SimpleNamespace(
+        should_continue_market=lambda *_args, **_kwargs: "done",
+        should_continue_debate=lambda *_args, **_kwargs: "Research Manager",
+        should_continue_risk_analysis=lambda *_args, **_kwargs: "Risk Judge",
+        should_revise_after_risk_judge=lambda *_args, **_kwargs: "END",
+    )
+
+    create_market = MagicMock(return_value="market_node")
+    factories = {
+        "create_aggressive_debator": MagicMock(return_value="aggressive_node"),
+        "create_bear_researcher": MagicMock(return_value="bear_node"),
+        "create_bull_researcher": MagicMock(return_value="bull_node"),
+        "create_conservative_debator": MagicMock(return_value="conservative_node"),
+        "create_fundamentals_analyst": MagicMock(return_value="fundamentals_node"),
+        "create_game_theory_manager": MagicMock(return_value="game_node"),
+        "create_macro_analyst": MagicMock(return_value="macro_node"),
+        "create_market_analyst": create_market,
+        "create_neutral_debator": MagicMock(return_value="neutral_node"),
+        "create_news_analyst": MagicMock(return_value="news_node"),
+        "create_research_manager": MagicMock(return_value="research_node"),
+        "create_risk_manager": MagicMock(return_value="risk_node"),
+        "create_smart_money_analyst": MagicMock(return_value="smart_money_node"),
+        "create_social_media_analyst": MagicMock(return_value="social_node"),
+        "create_trader": MagicMock(return_value="trader_node"),
+    }
+
+    with patch("tradingagents.graph.setup._load_agent_factories", return_value=factories), \
+         patch("tradingagents.graph.setup.StateGraph", _FakeWorkflow):
+        graph_setup = GraphSetup(
+            quick_llm,
+            deep_llm,
+            tool_nodes,
+            bull_memory=object(),
+            bear_memory=object(),
+            trader_memory=object(),
+            invest_judge_memory=object(),
+            risk_manager_memory=object(),
+            conditional_logic=conditional_logic,
+            data_collector=object(),
+        )
+
+        compiled = graph_setup.setup_graph(["market"], checkpointer="cp")
+
+    create_market.assert_called_once_with(quick_llm, graph_setup.data_collector)
+    assert "Market Analyst" in compiled["nodes"]
+    assert "Market Analyst Done" in compiled["nodes"]
+    assert ("tools_market", "Market Analyst") in compiled["edges"]
+    assert compiled["checkpointer"] == "cp"
