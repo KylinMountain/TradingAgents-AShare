@@ -33,8 +33,34 @@ INDICATORS = [
 SHORT_DAYS = 14
 LONG_DAYS = 90
 
-# ── VPA (Volume Price Analysis) 预计算 ──────────────────────────
 import numpy as np
+
+_OHLCV_COLS = ["date", "open", "high", "low", "close", "volume"]
+
+
+def _parse_csv_to_dataframe(raw_csv: str) -> Optional[pd.DataFrame]:
+    """Parse raw CSV string into a normalized OHLCV DataFrame.
+
+    Returns None if parsing fails or the CSV is too short/empty.
+    """
+    if not isinstance(raw_csv, str) or len(raw_csv) <= 50:
+        return None
+    try:
+        df = pd.read_csv(io.StringIO(raw_csv), on_bad_lines='skip', comment='#')
+    except Exception:
+        return None
+    if df.empty:
+        return None
+    cols_map = {c.lower(): c for c in df.columns}
+    rename_dict = {}
+    for target in _OHLCV_COLS:
+        if target in cols_map:
+            rename_dict[cols_map[target]] = target
+    df = df.rename(columns=rename_dict)
+    return df
+
+
+# ── VPA (Volume Price Analysis) 预计算 ──────────────────────────
 
 
 def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
@@ -109,17 +135,12 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         ),
     )
 
-    # OBV (On Balance Volume) 简易趋势
-    obv = [0.0]
-    for i in range(1, len(df)):
-        if df["close"].iloc[i] > df["close"].iloc[i - 1]:
-            obv.append(obv[-1] + df["volume"].iloc[i])
-        elif df["close"].iloc[i] < df["close"].iloc[i - 1]:
-            obv.append(obv[-1] - df["volume"].iloc[i])
-        else:
-            obv.append(obv[-1])
-    df["obv"] = obv
-    obv_ma = pd.Series(obv).rolling(10).mean()
+    # OBV (On Balance Volume) 简易趋势 — vectorized
+    close_diff = df["close"].diff()
+    obv_sign = np.where(close_diff > 0, 1, np.where(close_diff < 0, -1, 0))
+    obv_sign[0] = 0
+    df["obv"] = (obv_sign * df["volume"].values).cumsum()
+    obv_ma = df["obv"].rolling(10).mean()
     obv_trend = "上升" if len(obv_ma.dropna()) >= 2 and obv_ma.iloc[-1] > obv_ma.iloc[-5] else "下降"
 
     # ── 格式化输出（取最近 N 天）──
@@ -141,7 +162,6 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     lines.append("| 日期 | 类型 | 涨跌幅 | 实体大小 | 收盘位置 | 上影线 | 下影线 | 量比 | 量价关系 |")
     lines.append("|------|------|--------|----------|----------|--------|--------|------|----------|")
 
-    date_col = "date" if "date" in recent.columns else recent.index.name
     for _, row in recent.iterrows():
         dt = row.get("date", "")
         if hasattr(dt, "strftime"):
@@ -274,81 +294,54 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         for future in future_to_key:
             results[future_to_key[future]] = future.result()
 
+    # ── Parse CSV once, reuse for indicators and VPA ──────────────────
+    raw_csv = results.get("stock_data", "")
+    df = _parse_csv_to_dataframe(raw_csv)
+
     # ── 核心加速：本地计算所有技术指标 ──────────────────
     indicators_res = {}
     try:
-        raw_csv = results.get("stock_data", "")
-        if isinstance(raw_csv, str) and len(raw_csv) > 50:
-            # 使用 on_bad_lines='skip' 容忍异常行，使用 comment='#' 跳过注释行
-            df = pd.read_csv(io.StringIO(raw_csv), on_bad_lines='skip', comment='#')
-            if not df.empty:
-                # 兼容不同数据源的列名（大小写）
-                cols_map = {c.lower(): c for c in df.columns}
-                rename_dict = {}
-                for target in ["date", "open", "high", "low", "close", "volume"]:
-                    if target in cols_map:
-                        rename_dict[cols_map[target]] = target
-                
-                df = df.rename(columns=rename_dict)
-                
-                # 再次检查关键列是否存在
-                if "close" in df.columns:
-                    ss = wrap(df)
-                    
-                    # 批量触发计算
-                    calc_map = {
-                        "close_50_sma": "close_50_sma",
-                        "close_200_sma": "close_200_sma",
-                        "close_10_ema": "close_10_ema",
-                        "rsi": "rsi_14",
-                        "macd": "macd",
-                        "boll": "close_20_sma",
-                        "boll_ub": "boll_ub",
-                        "boll_lb": "boll_lb",
-                        "atr": "atr",
-                        "vwma": "vwma"
-                    }
-                    
-                    for key, ss_key in calc_map.items():
-                        try:
-                            val = ss[ss_key].iloc[-1]
-                            indicators_res[key] = round(float(val), 2) if isinstance(val, (int, float)) else str(val)
-                        except Exception:
-                            indicators_res[key] = "N/A"
-                else:
-                    print(f"  [Warning] 'close' column not found in stock_data columns: {df.columns}")
+        if df is not None and "close" in df.columns:
+            ss = wrap(df.copy())
+
+            calc_map = {
+                "close_50_sma": "close_50_sma",
+                "close_200_sma": "close_200_sma",
+                "close_10_ema": "close_10_ema",
+                "rsi": "rsi_14",
+                "macd": "macd",
+                "boll": "close_20_sma",
+                "boll_ub": "boll_ub",
+                "boll_lb": "boll_lb",
+                "atr": "atr",
+                "vwma": "vwma"
+            }
+
+            for key, ss_key in calc_map.items():
+                try:
+                    val = ss[ss_key].iloc[-1]
+                    indicators_res[key] = round(float(val), 2) if isinstance(val, (int, float)) else str(val)
+                except Exception:
+                    indicators_res[key] = "N/A"
         else:
             print(f"  [Warning] No valid stock_data for indicator calculation.")
     except Exception as e:
         print(f"  [Error] Local indicator calculation failed: {e}")
-    
-    # 填充缺失值
+
     for ind in INDICATORS:
         if ind not in indicators_res:
             indicators_res[ind] = "无数据"
-            
+
     results["indicators"] = indicators_res
 
     # ── VPA 预计算指标 ──────────────────────────────
     try:
-        raw_csv = results.get("stock_data", "")
-        if isinstance(raw_csv, str) and len(raw_csv) > 50:
-            vpa_df = pd.read_csv(io.StringIO(raw_csv), on_bad_lines='skip', comment='#')
-            if not vpa_df.empty:
-                cols_map = {c.lower(): c for c in vpa_df.columns}
-                rename_dict = {}
-                for target in ["date", "open", "high", "low", "close", "volume"]:
-                    if target in cols_map:
-                        rename_dict[cols_map[target]] = target
-                vpa_df = vpa_df.rename(columns=rename_dict)
-                results["vpa_indicators"] = _compute_vpa_indicators(vpa_df)
-            else:
-                results["vpa_indicators"] = "VPA 数据不足"
+        if df is not None:
+            results["vpa_indicators"] = _compute_vpa_indicators(df.copy())
         else:
             results["vpa_indicators"] = "VPA 数据不足"
     except Exception as e:
         results["vpa_indicators"] = f"VPA 计算失败：{e}"
-    # ────────────────────────────────────────────────
 
     print(f"[Timer] Total Data Collection for {ticker} took {time.time() - fetch_start:.2f}s")
     return results

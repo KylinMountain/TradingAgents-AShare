@@ -1,6 +1,8 @@
 import contextvars
+import json
 import operator
-from typing import Annotated, Any, List
+import re
+from typing import Annotated, Any, List, Tuple
 
 from typing_extensions import Optional, TypedDict
 from langgraph.graph import MessagesState
@@ -11,6 +13,18 @@ from langgraph.graph import MessagesState
 current_tracker_var: contextvars.ContextVar = contextvars.ContextVar(
     "current_tracker", default=None
 )
+
+
+def extract_verdict(text: str) -> Tuple[str, str]:
+    """Extract VERDICT block from analyst output. Returns (direction, confidence)."""
+    m = re.search(r'<!--\s*VERDICT:\s*(\{.*?\})\s*-->', text or "", re.DOTALL)
+    if m:
+        try:
+            d = json.loads(m.group(1))
+            return d.get("direction", "中性"), "中"
+        except Exception:
+            pass
+    return "中性", "低"
 
 
 class UserIntent(TypedDict, total=False):
