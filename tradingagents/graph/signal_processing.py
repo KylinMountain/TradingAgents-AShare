@@ -61,9 +61,11 @@ def _extract_decision_keyword(text: str) -> str | None:
         direction = str(payload.get("direction", "")).strip().upper()
         direction_map = {
             "看多": "BUY",
+            "偏多": "BUY",
             "BULLISH": "BUY",
             "BUY": "BUY",
             "看空": "SELL",
+            "偏空": "SELL",
             "BEARISH": "SELL",
             "SELL": "SELL",
             "中性": "HOLD",
@@ -84,6 +86,7 @@ def _extract_decision_keyword(text: str) -> str | None:
             "空仓",
             "回避",
             "看空",
+            "偏空",
         ]
         buy_keywords = [
             "BUY",
@@ -91,6 +94,7 @@ def _extract_decision_keyword(text: str) -> str | None:
             "增持",
             "做多",
             "看多",
+            "偏多",
             "谨慎看多",
             "有条件建仓",
             "条件建仓",
