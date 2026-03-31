@@ -225,7 +225,7 @@ class ReportDB(Base):
     
     # Decision info
     decision = Column(String(50), nullable=True)  # BUY, SELL, HOLD, etc.
-    direction = Column(String(50), nullable=True)  # 看多、看空、中性、谨慎
+    direction = Column(String(50), nullable=True)  # 看多、偏多、中性、偏空、看空
     confidence = Column(Integer, nullable=True)  # 0-100
     target_price = Column(Float, nullable=True)
     stop_loss_price = Column(Float, nullable=True)

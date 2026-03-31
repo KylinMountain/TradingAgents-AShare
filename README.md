@@ -6,7 +6,7 @@
 
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
-  <p><em>15 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
+  <p><em>14 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
 </div>
 
 > TradingAgents-AShare 已正式上线 OpenClaw！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。
@@ -62,7 +62,7 @@ TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为
   <img src="assets/schema.png" style="width: 100%; height: auto;">
 </p>
 
-*图中仅展示核心节点，完整流程包含 15 名智能体。
+*图中仅展示核心节点，完整流程包含 14 名智能体。
 
 ### 分析师团队
 基本面、情绪、新闻、技术、宏观、主力资金 6 大维度同步作业，对市场数据进行深度提取与初步评估。

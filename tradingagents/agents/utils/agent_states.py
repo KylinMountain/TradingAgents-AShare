@@ -161,9 +161,6 @@ class AgentState(MessagesState):
 
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
-    game_theory_report: Annotated[str, "Game theory judgment from Game Theory Manager"]
-    game_theory_signals: Annotated[dict[str, Any], "Structured game theory signals"]
-
     user_intent: Annotated[Optional[UserIntent], "Parsed user intent from natural language"]
     horizon: Annotated[str, "Current analysis horizon: short or medium"]
     analyst_traces: Annotated[List[TraceItem], operator.add]

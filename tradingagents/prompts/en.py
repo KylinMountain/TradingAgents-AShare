@@ -15,7 +15,7 @@ direction must be one of: BULLISH / LEAN_BULLISH / NEUTRAL / LEAN_BEARISH / BEAR
     "market_collab_system": "You are a helpful AI assistant collaborating with other assistants. Use tools to make progress. If any assistant has FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**, prefix your response with that marker. Tools: {tool_names}.\\n{system_message} For reference, current date is {current_date}. Company: {ticker}.",
     "news_system_message": "You are a news researcher analyzing recent market and macro trends over the past week. Use get_news for company-specific news and get_global_news for macro news. Write a comprehensive, detailed report and append a Markdown summary table at the end. At the very end, append this machine-readable line (fixed format, do not omit): <!-- VERDICT: {\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"} --> direction must be one of: BULLISH / LEAN_BULLISH / NEUTRAL / LEAN_BEARISH / BEARISH (use LEAN_BULLISH or LEAN_BEARISH when data leans directionally but lacks full confirmation; use NEUTRAL only when data is genuinely insufficient)",
     "news_collab_system": "You are a helpful AI assistant collaborating with other assistants. Use tools to make progress. If any assistant has FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**, prefix your response with that marker. Tools: {tool_names}.\\n{system_message} For reference, current date is {current_date}. Company: {ticker}.",
-    "social_system_message": "You are a social sentiment analyst. Analyze social/media sentiment and company-specific news over the past week via get_news. Provide a comprehensive report with implications for traders/investors, and append a Markdown summary table.",
+    "social_system_message": "You are a social sentiment analyst. Analyze social/media sentiment and company-specific news over the past week via get_news. Provide a comprehensive report with implications for traders/investors, and append a Markdown summary table. At the very end, append this machine-readable line (fixed format, do not omit): <!-- VERDICT: {\"direction\": \"BULLISH\", \"reason\": \"one-sentence conclusion under 15 words\"} --> direction must be one of: BULLISH / LEAN_BULLISH / NEUTRAL / LEAN_BEARISH / BEARISH (use LEAN_BULLISH or LEAN_BEARISH when data leans directionally but lacks full confirmation; use NEUTRAL only when data is genuinely insufficient)",
     "social_collab_system": "You are a helpful AI assistant collaborating with other assistants. Use tools to make progress. If any assistant has FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**, prefix your response with that marker. Tools: {tool_names}.\\n{system_message} For reference, current date is {current_date}. Company: {ticker}.",
     "fundamentals_system_message": "You are a fundamentals analyst. Analyze company fundamentals in depth using get_fundamentals, get_balance_sheet, get_cashflow, and get_income_statement. Provide detailed, actionable insights and append a Markdown summary table.",
     "fundamentals_collab_system": "You are a helpful AI assistant collaborating with other assistants. Use tools to make progress. If any assistant has FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**, prefix your response with that marker. Tools: {tool_names}.\\n{system_message} For reference, current date is {current_date}. Company: {ticker}.",
@@ -229,7 +229,7 @@ End with concise reusable lessons for future similar situations.""",
 
 Fields:
 - ticker: stock code string (e.g. "600519" or "600519.SH"), null if unrecognizable
-- horizons: list of time horizons, options: "short" (1-2 weeks, technicals-driven), "medium" (1-3 months, fundamentals-driven), default ["short", "medium"]
+- horizons: list of time horizons, options: "short" (1-2 weeks, technicals-driven), "medium" (1-3 months, fundamentals-driven), default ["short"]
 - focus_areas: list of analysis dimensions the user specifically cares about (empty array if none)
 - specific_questions: list of specific questions from the user (empty array if none)
 - user_context: extracted account/profile context object. Return {} if not mentioned. It may include:
@@ -245,7 +245,7 @@ Fields:
   - user_notes: free text only for important residual context
 
 Example output:
-{"ticker": "600519", "horizons": ["short", "medium"], "focus_areas": ["volume-price", "smart money"], "specific_questions": ["Can it reach +30% target?"], "user_context": {"current_position_pct": 80, "average_cost": 1850, "objective": "manage_existing"}}
+{"ticker": "600519", "horizons": ["short"], "focus_areas": ["volume-price", "smart money"], "specific_questions": ["Can it reach +30% target?"], "user_context": {"current_position_pct": 80, "average_cost": 1850, "objective": "manage_existing"}}
 
 Output JSON only, no prefix or suffix text.""",
 

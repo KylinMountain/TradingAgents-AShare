@@ -408,8 +408,6 @@ class TradingAgentsGraph:
             "fundamentals_report": final_state["fundamentals_report"],
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
-            "game_theory_report": final_state.get("game_theory_report", ""),
-            "game_theory_signals": final_state.get("game_theory_signals", {}),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

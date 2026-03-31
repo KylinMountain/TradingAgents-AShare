@@ -96,7 +96,9 @@ def _infer_frontend_url() -> str:
 _VERDICT_RE = re.compile(r"<!--\s*VERDICT:\s*(\{[^>]+\})\s*-->")
 _DIRECTION_ALIAS = {
     "BULLISH": "看多",
+    "LEAN_BULLISH": "偏多",
     "BEARISH": "看空",
+    "LEAN_BEARISH": "偏空",
     "NEUTRAL": "中性",
     "CAUTIOUS": "谨慎",
 }
@@ -128,8 +130,10 @@ def _extract_verdict(text: str) -> Optional[dict]:
 
 _DIRECTION_COLOR = {
     "看多": "#16a34a",
+    "偏多": "#65a30d",
     "多": "#16a34a",
     "看空": "#dc2626",
+    "偏空": "#ea580c",
     "空": "#dc2626",
     "中性": "#9ca3af",
     "谨慎": "#f59e0b",
@@ -154,7 +158,6 @@ _AGENT_SECTIONS = [
     ("fundamentals_report", "基本面分析"),
     ("macro_report", "宏观分析"),
     ("smart_money_report", "主力资金分析"),
-    ("game_theory_report", "博弈分析"),
 ]
 
 
@@ -172,8 +175,8 @@ def render_report_html(report: "ReportDB", frontend_url: str = "", stock_name: s
     direction_color = _DIRECTION_COLOR.get(direction, "#6b7280")
     # Direction badge background (lighter tint)
     direction_bg = {
-        "看多": "#dcfce7", "多": "#dcfce7",
-        "看空": "#fee2e2", "空": "#fee2e2",
+        "看多": "#dcfce7", "偏多": "#ecfccb", "多": "#dcfce7",
+        "看空": "#fee2e2", "偏空": "#ffedd5", "空": "#fee2e2",
         "中性": "#f3f4f6", "谨慎": "#fef3c7",
     }.get(direction, "#f3f4f6")
     confidence = report.confidence if report.confidence is not None else None
@@ -279,8 +282,8 @@ def render_report_html(report: "ReportDB", frontend_url: str = "", stock_name: s
         for i, (title, v) in enumerate(verdicts):
             d_color = _DIRECTION_COLOR.get(v["direction"], "#6b7280")
             d_bg = {
-                "看多": "#dcfce7", "多": "#dcfce7",
-                "看空": "#fee2e2", "空": "#fee2e2",
+                "看多": "#dcfce7", "偏多": "#ecfccb", "多": "#dcfce7",
+                "看空": "#fee2e2", "偏空": "#ffedd5", "空": "#fee2e2",
                 "中性": "#f3f4f6", "谨慎": "#fef3c7",
             }.get(v["direction"], "#f3f4f6")
             border_bottom = "border-bottom:1px solid #f1f5f9;" if i < len(verdicts) - 1 else ""
@@ -382,7 +385,7 @@ def render_report_html(report: "ReportDB", frontend_url: str = "", stock_name: s
         '<p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">本报告由 TradingAgents 多智能体系统自动生成，仅供参考，不构成投资建议。</p>'
         f'<p style="margin:10px 0 0;font-size:12px;color:#94a3b8;">'
         f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;font-weight:600;">TradingAgents-AShare</a>'
-        f' &mdash; 15 名 AI Agent 协作分析的 A 股智能投研系统</p>'
+        f' &mdash; 14 名 AI Agent 协作分析的 A 股智能投研系统</p>'
         f'<p style="margin:8px 0 0;font-size:12px;color:#94a3b8;">'
         f'觉得有帮助？给项目点个 '
         f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">&#11088; Star</a>'

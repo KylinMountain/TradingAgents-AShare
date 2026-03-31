@@ -108,37 +108,6 @@ def format_claim_subset_for_prompt(
     return format_claims_for_prompt(subset, focus_claim_ids=claim_id_set, empty_message=empty_message)
 
 
-def summarize_game_theory_signals(signals: Mapping[str, Any] | None) -> str:
-    payload = signals or {}
-    if not payload:
-        return "暂无结构化博弈信号。"
-
-    players = payload.get("players") or []
-    likely_actions = payload.get("likely_actions") or {}
-    if isinstance(likely_actions, dict):
-        action_lines = []
-        for key, value in likely_actions.items():
-            if isinstance(value, list):
-                value_text = " / ".join(str(item) for item in value if str(item).strip())
-            else:
-                value_text = str(value)
-            action_lines.append(f"{key}: {value_text}")
-        actions_text = "; ".join(action_lines) if action_lines else "未提供"
-    else:
-        actions_text = str(likely_actions)
-
-    return "\n".join(
-        [
-            f"局面: {payload.get('board', '未提供')}",
-            f"参与者: {', '.join(str(item) for item in players) if players else '未提供'}",
-            f"主导策略: {payload.get('dominant_strategy', '未提供')}",
-            f"脆弱均衡: {payload.get('fragile_equilibrium', '未提供')}",
-            f"潜在动作: {actions_text}",
-            f"反共识信号: {payload.get('counter_consensus_signal', '未提供')}",
-            f"置信度: {payload.get('confidence', '未提供')}",
-        ]
-    )
-
 
 def summarize_risk_feedback(feedback: Mapping[str, Any] | None) -> str:
     payload = feedback or {}

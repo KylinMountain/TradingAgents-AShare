@@ -96,8 +96,6 @@ class Propagator:
             "news_report": "",
             "macro_report": "",
             "smart_money_report": "",
-            "game_theory_report": "",
-            "game_theory_signals": {},
             "investment_plan": "",
             "trader_investment_plan": "",
             "final_trade_decision": "",
