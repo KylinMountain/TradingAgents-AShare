@@ -1,5 +1,8 @@
 """Scheduled analysis service for database operations."""
 
+import hashlib
+import logging
+import os
 from typing import Iterable, List, Optional
 from uuid import uuid4
 
@@ -7,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from api.database import ScheduledAnalysisDB
 
+logger = logging.getLogger(__name__)
+
 MAX_SCHEDULED_ITEMS = 10
+
+# Maximum jitter (minutes) added to trigger_time to spread concurrent tasks.
+# Each task gets a deterministic offset (0 ~ JITTER_MAX) per day so the same
+# task always fires at the same jittered time on a given date.
+JITTER_MAX_MINUTES = int(os.getenv("TA_SCHEDULED_JITTER_MINUTES", "30"))
 
 # 非交易时间窗口：15:00~次日9:15 允许设置
 VALID_HORIZONS = {"short", "medium"}
@@ -312,8 +322,30 @@ def batch_delete_scheduled(db: Session, user_id: str, item_ids: Iterable[str]) -
     }
 
 
+def _compute_jitter_minutes(task_id: str, today: str) -> int:
+    """Return a deterministic jitter in [0, JITTER_MAX_MINUTES] for a task on a given date."""
+    if JITTER_MAX_MINUTES <= 0:
+        return 0
+    digest = hashlib.md5(f"{task_id}:{today}".encode()).hexdigest()
+    return int(digest, 16) % (JITTER_MAX_MINUTES + 1)
+
+
+def _add_minutes_to_hhmm(hhmm: str, minutes: int) -> str:
+    """Add *minutes* to an HH:MM string. Clamps at 23:59 (no day wrap)."""
+    parts = hhmm.split(":")
+    total = int(parts[0]) * 60 + int(parts[1]) + minutes
+    if total >= 24 * 60:
+        total = 23 * 60 + 59
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 def get_pending_tasks(db: Session, today: str, current_hhmm: str) -> List[ScheduledAnalysisDB]:
-    """Get all active tasks that haven't run today and whose trigger time has passed."""
+    """Get all active tasks that haven't run today and whose jittered trigger time has passed.
+
+    Each task's effective trigger time = trigger_time + deterministic jitter,
+    so tasks configured at the same time are automatically spread over a
+    window of ``JITTER_MAX_MINUTES`` (default 30 min, env ``TA_SCHEDULED_JITTER_MINUTES``).
+    """
     all_active = (
         db.query(ScheduledAnalysisDB)
         .filter(
@@ -322,8 +354,19 @@ def get_pending_tasks(db: Session, today: str, current_hhmm: str) -> List[Schedu
         )
         .all()
     )
-    # Filter by trigger_time <= current_hhmm
-    return [t for t in all_active if (t.trigger_time or "20:00") <= current_hhmm]
+    result = []
+    for t in all_active:
+        base_time = t.trigger_time or "20:00"
+        jitter = _compute_jitter_minutes(t.id, today)
+        effective_time = _add_minutes_to_hhmm(base_time, jitter)
+        if effective_time <= current_hhmm:
+            result.append(t)
+        else:
+            logger.debug(
+                "[Scheduler] %s deferred: base=%s jitter=+%dm effective=%s (now=%s)",
+                t.symbol, base_time, jitter, effective_time, current_hhmm,
+            )
+    return result
 
 
 def mark_run_success(db: Session, item_id: str, trade_date: str, report_id: str):

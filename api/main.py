@@ -197,8 +197,9 @@ async def _scheduler_loop():
 
     Each task has its own trigger_time (HH:MM). The scheduler runs on trading
     days only, outside of trading hours (before 9:15 or after 15:00). Tasks
-    are triggered when current time >= task.trigger_time and the task hasn't
-    run today yet.
+    are triggered when current time >= task.trigger_time + jitter and the task
+    hasn't run today yet.  Jitter is deterministic per task per day
+    (env TA_SCHEDULED_JITTER_MINUTES, default 30 min) to spread load.
     """
     from tradingagents.dataflows.trade_calendar import is_cn_trading_day
     from zoneinfo import ZoneInfo
