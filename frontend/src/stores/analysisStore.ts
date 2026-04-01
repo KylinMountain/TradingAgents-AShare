@@ -77,6 +77,8 @@ interface AnalysisState {
     // Loading States
     isAnalyzing: boolean
     isConnected: boolean
+    analysisRunState: 'idle' | 'running' | 'completed' | 'failed'
+    analysisRunError: string | null
 
     // Current analysis horizon (for badge display)
     currentHorizon: string | null
@@ -104,6 +106,7 @@ interface AnalysisState {
     }) => void
     setIsAnalyzing: (isAnalyzing: boolean) => void
     setIsConnected: (isConnected: boolean) => void
+    setAnalysisRunState: (state: 'idle' | 'running' | 'completed' | 'failed', error?: string | null) => void
     setCurrentHorizon: (horizon: string | null) => void
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
@@ -125,6 +128,7 @@ const initialAgents: Agent[] = [
     { id: 'macro', name: 'Macro Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'smart_money', name: 'Smart Money Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'market_impact', name: 'Market Impact Analyst', team: 'Analyst Team', status: 'pending' },
+    { id: 'volume_price', name: 'Volume Price Analyst', team: 'Analyst Team', status: 'pending' },
 
     // Research Team
     { id: 'bull', name: 'Bull Researcher', team: 'Research Team', status: 'pending' },
@@ -185,6 +189,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     logs: [],
     isAnalyzing: false,
     isConnected: false,
+    analysisRunState: 'idle',
+    analysisRunError: null,
     currentHorizon: null,
 
     setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
@@ -397,6 +403,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         logs: [],
         isAnalyzing: false,
         isConnected: false,
+        analysisRunState: 'idle',
+        analysisRunError: null,
         currentHorizon: null,
     }),
 
@@ -421,6 +429,11 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
 
     setIsConnected: (isConnected) => set({ isConnected }),
 
+    setAnalysisRunState: (analysisRunState, error = null) => set({
+        analysisRunState,
+        analysisRunError: analysisRunState === 'failed' ? error : null,
+    }),
+
     setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
 
     reset: () => set((state) => ({
@@ -442,6 +455,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         logs: [],
         isAnalyzing: false,
         isConnected: false,
+        analysisRunState: 'idle',
+        analysisRunError: null,
         currentHorizon: null,
     }))
 }), {
@@ -475,6 +490,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             logs: [],
             isAnalyzing: false,
             isConnected: false,
+            analysisRunState: 'idle',
+            analysisRunError: null,
             chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
         }
     },

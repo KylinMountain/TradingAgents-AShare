@@ -97,6 +97,7 @@ class Propagator:
             "macro_report": "",
             "smart_money_report": "",
             "market_impact_report": "",
+            "volume_price_report": "",
             "investment_plan": "",
             "trader_investment_plan": "",
             "final_trade_decision": "",

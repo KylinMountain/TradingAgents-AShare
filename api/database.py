@@ -1,5 +1,6 @@
 """Database configuration and session management."""
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Generator
@@ -53,6 +54,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base class for models
 Base = declarative_base()
+logger = logging.getLogger(__name__)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -114,8 +116,10 @@ def _ensure_report_schema() -> None:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN game_theory_report TEXT"))
             if "market_impact_report" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN market_impact_report TEXT"))
+            if "volume_price_report" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN volume_price_report TEXT"))
     except Exception as e:
-        print(f"Warning: Failed to ensure report schema: {e}")
+        logger.error("Failed to ensure report schema: %s", e)
 
 
 def _ensure_user_schema() -> None:
@@ -127,8 +131,13 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(45)"))
             if "email_report_enabled" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+            if "wecom_report_enabled" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN wecom_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+            llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
+            if "wecom_webhook_encrypted" not in llm_columns:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
     except Exception as e:
-        print(f"Warning: Failed to ensure user schema: {e}")
+        logger.error("Failed to ensure user schema: %s", e)
 
     _migrate_tokens_to_hashed()
     _migrate_api_keys_reencrypt()
@@ -157,15 +166,15 @@ def _migrate_tokens_to_hashed() -> None:
                     text("UPDATE user_tokens SET token = :hash, token_hint = :hint WHERE id = :id"),
                     {"hash": token_hash, "hint": hint, "id": row_id},
                 )
-            print(f"[security] Migrated {len(rows)} API tokens from plaintext to hashed storage.")
+            logger.info("[security] Migrated %s API tokens from plaintext to hashed storage.", len(rows))
     except Exception as e:
-        print(f"Warning: Token hash migration failed: {e}")
+        logger.error("Token hash migration failed: %s", e)
 
 
 def _migrate_api_keys_reencrypt() -> None:
-    """Re-encrypt user API keys when TA_APP_SECRET_KEY changes.
+    """Re-encrypt user secrets when TA_APP_SECRET_KEY changes.
 
-    On startup, if a custom secret is configured, tries to decrypt each key
+    On startup, if a custom secret is configured, tries to decrypt each secret
     with the current secret. If that fails, tries the default secret (old data).
     If the default key works, re-encrypts with the current key and writes back.
     """
@@ -178,36 +187,56 @@ def _migrate_api_keys_reencrypt() -> None:
     try:
         with engine.begin() as conn:
             rows = conn.execute(
-                text("SELECT user_id, api_key_encrypted FROM user_llm_configs WHERE api_key_encrypted IS NOT NULL")
+                text(
+                    """
+                    SELECT user_id, api_key_encrypted, wecom_webhook_encrypted
+                    FROM user_llm_configs
+                    WHERE api_key_encrypted IS NOT NULL OR wecom_webhook_encrypted IS NOT NULL
+                    """
+                )
             ).fetchall()
             if not rows:
                 return
             # Quick check: if the first row decrypts fine, likely all are OK already.
-            first_user_id, first_encrypted = rows[0]
-            if decrypt_secret(first_encrypted) is not None and len(rows) < 50:
+            _, first_api_key, first_wecom_webhook = rows[0]
+            first_secret = first_api_key or first_wecom_webhook
+            if first_secret and decrypt_secret(first_secret) is not None and len(rows) < 50:
                 # Small dataset, still verify all — but for large sets, skip if first is OK
                 pass
             migrated = 0
-            for user_id, encrypted in rows:
-                # Already decryptable with current key — skip
-                if decrypt_secret(encrypted) is not None:
-                    continue
-                # Try fallback (old key or default key)
-                plaintext = decrypt_secret_with_fallback(encrypted)
-                if plaintext is None:
-                    print(f"[security] WARNING: Cannot decrypt API key for user {user_id} with any known key. Skipping.")
-                    continue
-                # Re-encrypt with current key
-                new_encrypted = encrypt_secret(plaintext)
-                conn.execute(
-                    text("UPDATE user_llm_configs SET api_key_encrypted = :enc WHERE user_id = :uid"),
-                    {"enc": new_encrypted, "uid": user_id},
-                )
-                migrated += 1
+            for user_id, encrypted_api_key, encrypted_wecom_webhook in rows:
+                for column_name, encrypted_value in (
+                    ("api_key_encrypted", encrypted_api_key),
+                    ("wecom_webhook_encrypted", encrypted_wecom_webhook),
+                ):
+                    if not encrypted_value:
+                        continue
+                    if decrypt_secret(encrypted_value) is not None:
+                        continue
+                    plaintext = decrypt_secret_with_fallback(encrypted_value)
+                    if plaintext is None:
+                        logger.warning(
+                            "[security] Cannot decrypt %s for user %s with any known key. Skipping.",
+                            column_name,
+                            user_id,
+                        )
+                        continue
+                    new_encrypted = encrypt_secret(plaintext)
+                    if column_name == "api_key_encrypted":
+                        conn.execute(
+                            text("UPDATE user_llm_configs SET api_key_encrypted = :enc WHERE user_id = :uid"),
+                            {"enc": new_encrypted, "uid": user_id},
+                        )
+                    elif column_name == "wecom_webhook_encrypted":
+                        conn.execute(
+                            text("UPDATE user_llm_configs SET wecom_webhook_encrypted = :enc WHERE user_id = :uid"),
+                            {"enc": new_encrypted, "uid": user_id},
+                        )
+                    migrated += 1
             if migrated:
-                print(f"[security] Re-encrypted {migrated} API key(s) with new TA_APP_SECRET_KEY.")
+                logger.info("[security] Re-encrypted %s user secret(s) with new TA_APP_SECRET_KEY.", migrated)
     except Exception as e:
-        print(f"Warning: API key re-encryption migration failed: {e}")
+        logger.error("User secret re-encryption migration failed: %s", e)
 
 
 # Report Model
@@ -248,6 +277,7 @@ class ReportDB(Base):
     macro_report = Column(Text, nullable=True)
     smart_money_report = Column(Text, nullable=True)
     market_impact_report = Column(Text, nullable=True)
+    volume_price_report = Column(Text, nullable=True)
     game_theory_report = Column(Text, nullable=True)
     investment_plan = Column(Text, nullable=True)
     trader_investment_plan = Column(Text, nullable=True)
@@ -280,6 +310,7 @@ class ReportDB(Base):
             "macro_report": self.macro_report,
             "smart_money_report": self.smart_money_report,
             "market_impact_report": self.market_impact_report,
+            "volume_price_report": self.volume_price_report,
             "game_theory_report": self.game_theory_report,
             "investment_plan": self.investment_plan,
             "trader_investment_plan": self.trader_investment_plan,
@@ -300,6 +331,7 @@ class UserDB(Base):
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(String(45), nullable=True)
     email_report_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    wecom_report_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
 
 
 class EmailVerificationCodeDB(Base):
@@ -325,6 +357,7 @@ class UserLLMConfigDB(Base):
     max_debate_rounds = Column(Integer, nullable=True)
     max_risk_discuss_rounds = Column(Integer, nullable=True)
     api_key_encrypted = Column(Text, nullable=True)
+    wecom_webhook_encrypted = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -383,3 +416,64 @@ class ScheduledAnalysisDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_scheduled_user_symbol'),)
+
+
+class ThsImportConfigDB(Base):
+    """Latest TongHuaShun local import state for each user."""
+
+    __tablename__ = "ths_import_configs"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False, unique=True)
+    holdings_filename = Column(String(255), nullable=True)
+    trades_filename = Column(String(255), nullable=True)
+    auto_apply_scheduled = Column(Boolean, default=True, nullable=False)
+    last_imported_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ImportedPortfolioPositionDB(Base):
+    """Imported current holdings snapshot plus recent trade points for a symbol."""
+
+    __tablename__ = "imported_portfolio_positions"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    source = Column(String(32), default="ths_local", nullable=False)
+    symbol = Column(String(20), nullable=False)
+    security_name = Column(String(80), nullable=True)
+    current_position = Column(Float, nullable=True)
+    available_position = Column(Float, nullable=True)
+    average_cost = Column(Float, nullable=True)
+    market_value = Column(Float, nullable=True)
+    current_position_pct = Column(Float, nullable=True)
+    trade_points_json = Column(JSON, nullable=True)
+    trade_points_count = Column(Integer, default=0, nullable=False)
+    latest_trade_at = Column(String(32), nullable=True)
+    latest_trade_action = Column(String(16), nullable=True)
+    last_imported_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'source', 'symbol', name='uq_imported_portfolio_user_source_symbol'),
+    )
+
+
+class QmtImportConfigDB(Base):
+    """Latest QMT / xtquant sync configuration for each user."""
+
+    __tablename__ = "qmt_import_configs"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False, unique=True)
+    qmt_path = Column(String(500), nullable=False)
+    account_id = Column(String(64), nullable=False)
+    account_type = Column(String(32), default="STOCK", nullable=False)
+    auto_apply_scheduled = Column(Boolean, default=True, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

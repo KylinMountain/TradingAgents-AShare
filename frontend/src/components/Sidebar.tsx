@@ -1,21 +1,8 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import {
-    LayoutDashboard,
-    Activity,
-    FileText,
-    Settings,
-    TrendingUp,
-    Briefcase
-} from 'lucide-react'
+import { TrendingUp } from 'lucide-react'
 
-const navItems = [
-    { path: '/', icon: LayoutDashboard, label: '控制台' },
-    { path: '/analysis', icon: Activity, label: '智能分析' },
-    { path: '/reports', icon: FileText, label: '历史报告' },
-    { path: '/portfolio', icon: Briefcase, label: '自选 & 定时' },
-    { path: '/settings', icon: Settings, label: '设置' },
-]
+import { navItems } from '@/components/sidebarNav'
 
 const buildDate = __APP_BUILD_DATE__
 const buildCommit = __APP_BUILD_COMMIT__

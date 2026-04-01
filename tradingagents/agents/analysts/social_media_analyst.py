@@ -1,22 +1,8 @@
-import asyncio
-
 from langchain_core.messages import HumanMessage, SystemMessage
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.graph.intent_parser import build_horizon_context
-from tradingagents.agents.utils.agent_states import current_tracker_var
-
-
-def _extract_verdict(text):
-    import re, json
-    m = re.search(r'<!--\s*VERDICT:\s*(\{.*?\})\s*-->', text, re.DOTALL)
-    if m:
-        try:
-            d = json.loads(m.group(1))
-            return d.get("direction", "中性"), "中"
-        except Exception:
-            pass
-    return "中性", "低"
+from tradingagents.agents.utils.agent_states import current_tracker_var, extract_verdict
 
 
 def create_social_media_analyst(llm, data_collector=None):
@@ -84,7 +70,7 @@ def create_social_media_analyst(llm, data_collector=None):
             if tracker:
                 tracker._emit_token("Social Analyst", "sentiment_report", content)
 
-        verdict, confidence = _extract_verdict(full_content)
+        verdict, confidence = extract_verdict(full_content)
         return {
             "sentiment_report": full_content,
             "analyst_traces": [{

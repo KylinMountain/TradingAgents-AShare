@@ -2,6 +2,12 @@
 
 Pulls data from free RSS feeds and public APIs — **no RSSHub required**.
 Uses only ``requests`` (already a project dependency) + stdlib ``xml``.
+
+Covers:
+- Trump Truth Social posts (tariffs, sanctions)
+- Elon Musk social activity (Tesla, SpaceX, DOGE implications)
+- International geopolitical news (CNBC, Al Jazeera, AP, France24)
+- Chinese domestic policy (国务院、证监会、央行 via 华尔街见闻 & 财联社)
 """
 
 from __future__ import annotations
@@ -40,12 +46,14 @@ def _set_cached(key: str, data: Any) -> None:
 # ── RSS Sources ──────────────────────────────────────────────────────────────
 
 _RSS_SOURCES: List[Dict[str, str]] = [
+    # ── Key Influencers ──
     {
         "name": "Trump Truth Social",
         "url": "https://www.trumpstruth.org/feed",
         "type": "rss",
         "category": "trump",
     },
+    # ── International Geopolitics ──
     {
         "name": "CNBC World",
         "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362",
@@ -164,6 +172,71 @@ def _fetch_wallstreetcn(limit: int = 30) -> List[Dict[str, str]]:
     return items
 
 
+# ── Keyword-based extraction from bulk Chinese flash news ───────────────────
+
+_MUSK_KEYWORDS = ["马斯克", "Musk", "特斯拉", "Tesla", "SpaceX", "DOGE部门",
+                  "星链", "Starlink", "xAI", "Grok", "Neuralink"]
+
+_POLICY_KEYWORDS = ["国务院", "证监会", "央行", "发改委", "财政部", "工信部",
+                    "住建部", "政治局", "常务会议", "降准", "降息", "LPR",
+                    "MLF", "逆回购", "再贷款", "专项债", "产业政策",
+                    "银保监", "金融监管", "注册制"]
+
+
+def _filter_by_keywords(
+    items: List[Dict[str, str]],
+    keywords: List[str],
+    limit: int = 15,
+) -> List[Dict[str, str]]:
+    """Filter news items by keyword match on title field."""
+    matched = []
+    for item in items:
+        text = item.get("title", "")
+        if any(kw in text for kw in keywords):
+            matched.append(item)
+            if len(matched) >= limit:
+                break
+    return matched
+
+
+def _fetch_wallstreetcn_bulk(limit: int = 100) -> List[Dict[str, str]]:
+    """Fetch a large batch from 华尔街见闻 for keyword filtering."""
+    cache_key = "wscn_bulk"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    items: List[Dict[str, str]] = []
+    try:
+        resp = requests.get(
+            _WALLSTREETCN_API,
+            params={"channel": "global-channel", "limit": limit},
+            timeout=_TIMEOUT,
+            headers={"User-Agent": "TradingAgents-AShare/1.0"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        for item in (data.get("data", {}).get("items", []))[:limit]:
+            title = item.get("title", "") or item.get("content_text", "")
+            title = re.sub(r"<[^>]+>", "", title).strip()
+            if not title:
+                continue
+            pub_ts = item.get("display_time", 0)
+            pub_str = datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d %H:%M") if pub_ts else ""
+            items.append({
+                "title": title[:300],
+                "link": item.get("uri", ""),
+                "published": pub_str,
+                "summary": "",
+                "source": "华尔街见闻",
+            })
+    except Exception:
+        pass
+
+    _set_cached(cache_key, items)
+    return items
+
+
 # ── 财联社电报 (via akshare) ─────────────────────────────────────────────────
 
 def _fetch_cls_telegraph(limit: int = 30) -> List[Dict[str, str]]:
@@ -200,12 +273,14 @@ def fetch_geopolitical_news(
 
     Returns a dict with:
       - ``trump``: List of Trump Truth Social posts
+      - ``musk``: List of Elon Musk social posts
       - ``geopolitical``: List of international news items
+      - ``cn_policy``: List of Chinese government policy items
       - ``cn_flash``: List of Chinese financial flash news
       - ``formatted``: A single formatted string ready for LLM consumption
     """
     if categories is None:
-        categories = ["trump", "geopolitical", "cn_flash"]
+        categories = ["trump", "musk", "geopolitical", "cn_policy", "cn_flash"]
 
     # Return cached result if still fresh (avoids rate-limiting)
     cache_key = f"geo:{limit_per_source}:{','.join(sorted(categories))}"
@@ -215,7 +290,9 @@ def fetch_geopolitical_news(
 
     result: Dict[str, List[Dict[str, str]]] = {
         "trump": [],
+        "musk": [],
         "geopolitical": [],
+        "cn_policy": [],
         "cn_flash": [],
     }
 
@@ -233,14 +310,17 @@ def fetch_geopolitical_news(
 
     futures = []
     with ThreadPoolExecutor(max_workers=8) as executor:
-        # RSS feeds
-        if "trump" in categories or "geopolitical" in categories:
-            for src in _RSS_SOURCES:
-                if src["category"] not in categories:
-                    continue
-                futures.append(executor.submit(_fetch_rss_source, src))
+        # RSS feeds (trump, musk, geopolitical, cn_policy)
+        for src in _RSS_SOURCES:
+            if src["category"] not in categories:
+                continue
+            futures.append(executor.submit(_fetch_rss_source, src))
 
-        # Chinese flash news
+        # Chinese flash news (also feeds keyword filtering for musk/policy)
+        if any(c in categories for c in ("cn_flash", "musk", "cn_policy")):
+            futures.append(executor.submit(
+                lambda: ("_bulk", "华尔街见闻", _fetch_wallstreetcn_bulk(limit=100))
+            ))
         if "cn_flash" in categories:
             futures.append(executor.submit(
                 lambda: ("cn_flash", "华尔街见闻", _fetch_wallstreetcn(limit=limit_per_source))
@@ -249,14 +329,24 @@ def fetch_geopolitical_news(
                 lambda: ("cn_flash", "财联社电报", _fetch_cls_telegraph(limit=limit_per_source))
             ))
 
+        bulk_items: List[Dict[str, str]] = []
         for future in as_completed(futures):
             try:
                 cat, source_name, items = future.result()
                 for item in items:
                     item.setdefault("source", source_name)
-                result.setdefault(cat, []).extend(items)
+                if cat == "_bulk":
+                    bulk_items = items
+                else:
+                    result.setdefault(cat, []).extend(items)
             except Exception:
                 pass
+
+    # ── Keyword-based extraction from bulk Chinese news ──
+    if "musk" in categories and bulk_items:
+        result["musk"].extend(_filter_by_keywords(bulk_items, _MUSK_KEYWORDS, limit=limit_per_source))
+    if "cn_policy" in categories and bulk_items:
+        result["cn_policy"].extend(_filter_by_keywords(bulk_items, _POLICY_KEYWORDS, limit=limit_per_source))
 
     # ── Format for LLM ──
     result["formatted"] = _format_for_llm(result)
@@ -276,10 +366,26 @@ def _format_for_llm(data: Dict[str, List[Dict[str, str]]]) -> str:
                 lines.append(f"   > {item['summary']}")
         sections.append("\n".join(lines))
 
+    if data.get("musk"):
+        lines = ["## 马斯克最新动态"]
+        for i, item in enumerate(data["musk"][:10], 1):
+            lines.append(f"{i}. [{item['published']}] {item['title']}")
+            if item.get("summary"):
+                lines.append(f"   > {item['summary']}")
+        sections.append("\n".join(lines))
+
     if data.get("geopolitical"):
         lines = ["## 国际地缘政治新闻"]
         for i, item in enumerate(data["geopolitical"][:15], 1):
             lines.append(f"{i}. [{item.get('source', '')}] {item['title']}")
+            if item.get("summary"):
+                lines.append(f"   > {item['summary']}")
+        sections.append("\n".join(lines))
+
+    if data.get("cn_policy"):
+        lines = ["## 中国政府政策动态"]
+        for i, item in enumerate(data["cn_policy"][:10], 1):
+            lines.append(f"{i}. [{item['published']}] {item['title']}")
             if item.get("summary"):
                 lines.append(f"   > {item['summary']}")
         sections.append("\n".join(lines))

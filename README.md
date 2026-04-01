@@ -27,11 +27,15 @@
 
 ### 自选股与定时分析
 
-数据库持久化自选列表，支持每个交易日收盘后自动触发分析，连续失败自动停用，无需人工干预。
+数据库持久化自选列表，支持批量加入股票、自定义周期与触发时间，并可在前端批量更新、删除或手动测试定时任务。定时分析会自动复用持仓上下文，连续失败自动停用，无需人工干预。
 
 <div align="center">
   <img src="assets/web/timer_analysis.png" width="80%" alt="定时分析"/>
 </div>
+
+### QMT 持仓同步与跟踪看板
+
+支持接入 QMT / xtquant 持仓，自动同步账户持仓、成本价与仓位占比，并可一键将持仓标的补齐到定时分析列表。控制台会展示跟踪看板摘要，完整看板页支持查看实时价格、当日区间、持仓盈亏与上一交易日报告区间，方便盘中快速跟踪。
 
 ### 结构化研报管理
 
@@ -48,7 +52,7 @@
 
 ### 多模型厂商支持
 
-OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型。
+OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型；保存配置后会自动执行模型 warmup，也可以在设置页手动发送“你好”查看模型原始返回，便于排查接入问题。
 
 <div align="center">
   <img src="assets/web/settings.png" width="80%" alt="定时分析"/>
@@ -119,7 +123,10 @@ cd TradingAgents-AShare
 uv sync
 
 # 前端（Node.js 18+）
-cd frontend && npm run build
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 复制 `.env.example` 到 `.env` 并按需修改，然后：
@@ -141,6 +148,11 @@ uv run python -m uvicorn api.main:app --port 8000
 | 状态追踪 | `GET /v1/jobs/{job_id}` |
 | 获取结果 | `GET /v1/jobs/{job_id}/result` |
 | 历史检索 | `GET /v1/reports` |
+| 批量获取最新报告 | `POST /v1/reports/latest-by-symbols` |
+| QMT 持仓同步 | `GET/POST/DELETE /v1/portfolio/imports/qmt` |
+| 跟踪看板摘要/明细 | `GET /v1/dashboard/tracking-board` |
+| 批量定时任务操作 | `PATCH /v1/scheduled/batch`、`POST /v1/scheduled/batch/delete`、`POST /v1/scheduled/batch/trigger` |
+| 模型 warmup | `POST /v1/config/warmup` |
 
 认证：Web 端登录后在"设置 / API Token"生成密钥，通过 `Authorization: Bearer <TOKEN>` 传入。
 

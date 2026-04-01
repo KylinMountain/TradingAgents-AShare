@@ -62,6 +62,29 @@ def add_watchlist_item(db: Session, user_id: str, symbol: str) -> dict:
     }
 
 
+def add_watchlist_items(db: Session, user_id: str, symbols: List[str]) -> List[dict]:
+    """Add multiple stocks to user's watchlist and return per-item results."""
+    results: List[dict] = []
+    for symbol in symbols:
+        try:
+            item = add_watchlist_item(db, user_id, symbol)
+            results.append({
+                "symbol": symbol,
+                "status": "added",
+                "item": item,
+                "message": "已添加到自选列表",
+            })
+        except ValueError as exc:
+            message = str(exc)
+            status = "duplicate" if "已在自选列表" in message else "failed"
+            results.append({
+                "symbol": symbol,
+                "status": status,
+                "message": message,
+            })
+    return results
+
+
 def delete_watchlist_item(db: Session, user_id: str, item_id: str) -> bool:
     """Delete a watchlist item. Returns True if found and deleted."""
     item = (

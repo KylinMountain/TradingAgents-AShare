@@ -250,7 +250,9 @@ def upsert_user_llm_config(
     max_debate_rounds: Optional[int] = None,
     max_risk_discuss_rounds: Optional[int] = None,
     api_key: Optional[str] = None,
+    wecom_webhook_url: Optional[str] = None,
     clear_api_key: bool = False,
+    clear_wecom_webhook: bool = False,
 ) -> UserLLMConfigDB:
     row = get_user_llm_config(db, user_id)
     now = _utcnow()
@@ -275,6 +277,11 @@ def upsert_user_llm_config(
         row.api_key_encrypted = None
     elif api_key:
         row.api_key_encrypted = encrypt_secret(api_key)
+
+    if clear_wecom_webhook:
+        row.wecom_webhook_encrypted = None
+    elif wecom_webhook_url:
+        row.wecom_webhook_encrypted = encrypt_secret(wecom_webhook_url)
 
     row.updated_at = now
     db.commit()

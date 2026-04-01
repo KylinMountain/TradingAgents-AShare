@@ -14,7 +14,6 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from tradingagents.llm_clients import create_llm_client
 
-from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.utils.memory import FinancialSituationMemory
 from tradingagents.agents.utils.agent_states import (
@@ -57,7 +56,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact"],
+        selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact", "volume_price"],
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
@@ -240,6 +239,12 @@ class TradingAgentsGraph:
                     get_news,
                 ]
             ),
+            "volume_price": ToolNode(
+                [
+                    # Volume price analyst tools (fallback, normally uses data_collector)
+                    get_stock_data,
+                ]
+            ),
         }
 
     def propagate(
@@ -368,6 +373,7 @@ class TradingAgentsGraph:
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
             "market_impact_report": final_state.get("market_impact_report", ""),
+            "volume_price_report": final_state.get("volume_price_report", ""),
         }
 
     @staticmethod
@@ -417,6 +423,7 @@ class TradingAgentsGraph:
             "macro_report": final_state.get("macro_report", ""),
             "smart_money_report": final_state.get("smart_money_report", ""),
             "market_impact_report": final_state.get("market_impact_report", ""),
+            "volume_price_report": final_state.get("volume_price_report", ""),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

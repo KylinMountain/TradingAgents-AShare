@@ -3,6 +3,7 @@ import {
     Bot, Loader2, Send, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight, Trash2,
     TrendingUp, MessageCircle, Newspaper, Calculator, BarChart2, DollarSign, Globe,
     ArrowBigUp, ArrowBigDown, Brain, Briefcase, Flame, Scale, Shield, CheckCircle2,
+    Activity,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -31,6 +32,7 @@ const ANALYST_OPTIONS = [
     { id: 'macro', label: '宏观板块', description: '宏观经济' },
     { id: 'smart_money', label: '主力资金', description: '机构动向' },
     { id: 'market_impact', label: '地缘冲击', description: '战争关税' },
+    { id: 'volume_price', label: '量价分析', description: '成交量价格' },
 ]
 
 interface StreamEvent {
@@ -52,6 +54,7 @@ const REPORT_SECTION_TITLES: Record<string, string> = {
     macro_report: '宏观分析报告',
     smart_money_report: '主力资金分析报告',
     market_impact_report: '地缘冲击分析报告',
+    volume_price_report: '量价分析报告',
     investment_plan: '研究团队投资计划',
     trader_investment_plan: '交易员计划',
     final_trade_decision: '最终交易决策',
@@ -66,6 +69,7 @@ const SECTION_META: Record<string, { Icon: React.FC<{ className?: string }>; ico
     macro_report:           { Icon: BarChart2,     iconCls: 'text-violet-500',  bgCls: 'bg-violet-100 dark:bg-violet-500/20' },
     smart_money_report:     { Icon: DollarSign,    iconCls: 'text-amber-500',   bgCls: 'bg-amber-100 dark:bg-amber-500/20' },
     market_impact_report:   { Icon: Globe,         iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20' },
+    volume_price_report:    { Icon: Activity,      iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20' },
     investment_plan:        { Icon: Brain,         iconCls: 'text-indigo-500',  bgCls: 'bg-indigo-100 dark:bg-indigo-500/20' },
     trader_investment_plan: { Icon: Briefcase,     iconCls: 'text-orange-500',  bgCls: 'bg-orange-100 dark:bg-orange-500/20' },
     final_trade_decision:   { Icon: CheckCircle2,  iconCls: 'text-teal-500',    bgCls: 'bg-teal-100 dark:bg-teal-500/20' },
@@ -80,6 +84,7 @@ const AGENT_META_MAP: Record<string, { Icon: React.FC<{ className?: string }>; i
     'Macro Analyst':        { Icon: BarChart2,     iconCls: 'text-violet-500',  bgCls: 'bg-violet-100 dark:bg-violet-500/20', label: '宏观' },
     'Smart Money Analyst':  { Icon: DollarSign,    iconCls: 'text-amber-500',   bgCls: 'bg-amber-100 dark:bg-amber-500/20',  label: '主力资金' },
     'Market Impact Analyst': { Icon: Globe,        iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20',    label: '地缘冲击' },
+    'Volume Price Analyst': { Icon: Activity,      iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20',    label: '量价' },
     'Bull Researcher':      { Icon: ArrowBigUp,    iconCls: 'text-emerald-500', bgCls: 'bg-emerald-100 dark:bg-emerald-500/20', label: '多头' },
     'Bear Researcher':      { Icon: ArrowBigDown,  iconCls: 'text-rose-500',    bgCls: 'bg-rose-100 dark:bg-rose-500/20',    label: '空头' },
     'Research Manager':     { Icon: Brain,         iconCls: 'text-indigo-500',  bgCls: 'bg-indigo-100 dark:bg-indigo-500/20', label: '研究总监' },
@@ -151,13 +156,13 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
         try {
             const stored = localStorage.getItem('tradingagents-settings')
-            if (!stored) return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact']
+            if (!stored) return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact', 'volume_price']
             const parsed = JSON.parse(stored) as { defaultAnalysts?: string[] }
             if (Array.isArray(parsed.defaultAnalysts) && parsed.defaultAnalysts.length > 0) {
                 return parsed.defaultAnalysts
             }
         } catch {}
-        return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact']
+        return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact', 'volume_price']
     })
     // track which section IDs have been added to chatMessages and whether they're done
     const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
@@ -175,6 +180,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setCurrentSymbol,
         setIsAnalyzing,
         setIsConnected,
+        setAnalysisRunState,
         setCurrentHorizon,
         updateAgentStatus,
         updateAgentSnapshot,
@@ -233,11 +239,13 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 pushAssistant(
                     `**分析完成（已从中断连接恢复）**\n\n方向倾向：**${String(result.result.direction || '未知')}**\n\n执行动作：**${String(result.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
                 )
+                setAnalysisRunState('completed')
                 return true
             }
 
             if (status.status === 'failed') {
                 pushAssistant(`分析失败：${status.error || 'unknown error'}`)
+                setAnalysisRunState('failed', status.error || 'unknown error')
                 return true
             }
 
@@ -311,6 +319,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             }
             case 'job.running':
                 setIsAnalyzing(true)
+                setAnalysisRunState('running')
                 // 切换 indicator 到"分析启动"阶段
                 if (typingIndicatorIdRef.current) {
                     setMessageContent(typingIndicatorIdRef.current, '__status:analyzing__')
@@ -327,6 +336,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed': {
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
+                setAnalysisRunState('completed')
                 // 任务结束：所有 agent 消息标记为已完成（持久化到 store）
                 pendingAgentMsgIdsRef.current = new Set()
                 forceUpdate(n => n + 1)
@@ -360,6 +370,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.failed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
+                setAnalysisRunState('failed', String(data.error || 'unknown error'))
                 pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
                 break
             case 'agent.status': {
@@ -646,6 +657,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setStreaming(true)
         setIsAnalyzing(true)
         setIsConnected(false)
+        setAnalysisRunState('running')
 
         try {
             await streamChat(fullPrompt)
@@ -662,9 +674,11 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             if (shouldRecover) {
                 const recovered = await recoverInterruptedJob()
                 if (!recovered) {
+                    setAnalysisRunState('failed', errorMessage)
                     pushAssistant(`请求中断：${errorMessage}\n\n后端任务可能仍在执行，请稍后到历史报告中查看结果。`)
                 }
             } else {
+                setAnalysisRunState('failed', errorMessage)
                 pushAssistant(`请求失败：${errorMessage}`)
             }
             setIsAnalyzing(false)

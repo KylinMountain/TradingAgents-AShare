@@ -7,6 +7,7 @@ import {
     type Node,
     type Edge,
     type NodeProps,
+    type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useAnalysisStore } from '@/stores/analysisStore'
@@ -15,6 +16,7 @@ import {
     TrendingUp, MessageCircle, Newspaper, Calculator,
     BarChart2, DollarSign, Globe, ArrowBigUp, ArrowBigDown,
     Brain, Briefcase, Flame, Scale, Shield, CheckCircle2, Loader2,
+    Activity,
 } from 'lucide-react'
 import { extractVerdict, type Verdict } from '@/utils/reportText'
 
@@ -39,6 +41,7 @@ const META: AgentMeta[] = [
     { name: 'Macro Analyst', label: '宏观', goal: '板块轮动与政策驱动分析', section: 'macro_report', Icon: BarChart2, badgeBg: 'bg-violet-100 dark:bg-violet-500/20', badgeText: 'text-violet-600 dark:text-violet-400' },
     { name: 'Smart Money Analyst', label: '主力资金', goal: '机构资金行为与龙虎榜', section: 'smart_money_report', Icon: DollarSign, badgeBg: 'bg-amber-100 dark:bg-amber-500/20', badgeText: 'text-amber-600 dark:text-amber-400' },
     { name: 'Market Impact Analyst', label: '地缘冲击', goal: '战争关税制裁等外部冲击分析', section: 'market_impact_report', Icon: Globe, badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400' },
+    { name: 'Volume Price Analyst', label: '量价', goal: '成交量与价格形态分析', section: 'volume_price_report', Icon: Activity, badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400' },
     { name: 'Bull Researcher', label: '多头', goal: '评估投资价值与上行潜力', section: 'investment_plan', debate: 'research', Icon: ArrowBigUp, badgeBg: 'bg-emerald-100 dark:bg-emerald-500/20', badgeText: 'text-emerald-600 dark:text-emerald-400' },
     { name: 'Bear Researcher', label: '空头', goal: '评估下行风险与潜在危机', section: 'investment_plan', debate: 'research', Icon: ArrowBigDown, badgeBg: 'bg-rose-100 dark:bg-rose-500/20', badgeText: 'text-rose-600 dark:text-rose-400' },
     { name: 'Research Manager', label: '研究总监', goal: '综合多空论据形成投资计划', section: 'investment_plan', debate: 'research', Icon: Brain, badgeBg: 'bg-indigo-100 dark:bg-indigo-500/20', badgeText: 'text-indigo-600 dark:text-indigo-400' },
@@ -73,6 +76,8 @@ const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
     'Fundamentals Analyst': { x: 0, y: 315 },
     'Macro Analyst':        { x: 0, y: 420 },
     'Smart Money Analyst':  { x: 0, y: 525 },
+    'Market Impact Analyst': { x: 0, y: 630 },
+    'Volume Price Analyst': { x: 0, y: 735 },
     // 研究团队
     'Bull Researcher':      { x: 600, y: 80 },
     'Research Manager':     { x: 600, y: 240 },
@@ -104,9 +109,9 @@ interface EdgeDef {
 
 const EDGE_DEFS: EdgeDef[] = [
     // 数据源 → 多空研究员
-    ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst']
+    ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst', 'Market Impact Analyst', 'Volume Price Analyst']
         .map(s => ({ source: s, target: 'Bull Researcher', thin: true } as EdgeDef)),
-    ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst']
+    ...['Market Analyst', 'Social Analyst', 'News Analyst', 'Fundamentals Analyst', 'Macro Analyst', 'Smart Money Analyst', 'Market Impact Analyst', 'Volume Price Analyst']
         .map(s => ({ source: s, target: 'Bear Researcher', thin: true } as EdgeDef)),
     // 多空辩论（双向）
     { source: 'Bull Researcher', target: 'Bear Researcher', sourceHandle: 'bottom', targetHandle: 'top', label: '辩论', bidirectional: true },
@@ -136,7 +141,7 @@ interface GroupLabelDef {
 }
 
 const GROUP_LABELS: GroupLabelDef[] = [
-    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 640 },
+    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 850 },
     { id: 'group-research', label: '研究团队', position: { x: 584, y: 44 }, width: 248, height: 450 },
     { id: 'group-risk', label: '风控团队', position: { x: 1164, y: 44 }, width: 248, height: 450 },
 ]
@@ -152,7 +157,16 @@ interface AgentNodeData {
     [key: string]: unknown
 }
 
-function AgentNodeComponent({ data }: NodeProps<Node<AgentNodeData>>) {
+type AgentFlowNode = Node<AgentNodeData, 'agent'>
+type GroupLabelNodeData = {
+    label: string
+    width: number
+    height: number
+    [key: string]: unknown
+}
+type GroupLabelFlowNode = Node<GroupLabelNodeData, 'groupLabel'>
+
+function AgentNodeComponent({ data }: NodeProps<AgentFlowNode>) {
     const { meta, status, verdict, isParticipating, selected } = data
     const active = status === 'in_progress'
     const done = status === 'completed'
@@ -245,7 +259,7 @@ function AgentNodeComponent({ data }: NodeProps<Node<AgentNodeData>>) {
 }
 
 // 分组背景标签节点
-function GroupLabelNode({ data }: NodeProps<Node<{ label: string; width: number; height: number; [key: string]: unknown }>>) {
+function GroupLabelNode({ data }: NodeProps<GroupLabelFlowNode>) {
     return (
         <div
             className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700/60 pointer-events-none"
@@ -260,7 +274,7 @@ function GroupLabelNode({ data }: NodeProps<Node<{ label: string; width: number;
     )
 }
 
-const nodeTypes = {
+const nodeTypes: NodeTypes = {
     agent: memo(AgentNodeComponent),
     groupLabel: memo(GroupLabelNode),
 }
@@ -297,8 +311,8 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
     const participatingCount = cards.filter(c => c.status !== 'skipped').length
 
     // 构建 React Flow 节点
-    const nodes: Node[] = useMemo(() => {
-        const agentNodes: Node[] = cards.map(card => ({
+    const nodes: (AgentFlowNode | GroupLabelFlowNode)[] = useMemo(() => {
+        const agentNodes: AgentFlowNode[] = cards.map(card => ({
             id: card.meta.name,
             type: 'agent',
             position: NODE_POSITIONS[card.meta.name] ?? { x: 0, y: 0 },
@@ -311,7 +325,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
             } satisfies AgentNodeData,
         }))
 
-        const labelNodes: Node[] = GROUP_LABELS.map(g => ({
+        const labelNodes: GroupLabelFlowNode[] = GROUP_LABELS.map(g => ({
             id: g.id,
             type: 'groupLabel',
             position: g.position,

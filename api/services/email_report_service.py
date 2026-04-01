@@ -159,6 +159,7 @@ _AGENT_SECTIONS = [
     ("macro_report", "宏观分析"),
     ("smart_money_report", "主力资金分析"),
     ("market_impact_report", "地缘冲击分析"),
+    ("volume_price_report", "量价分析"),
 ]
 
 
