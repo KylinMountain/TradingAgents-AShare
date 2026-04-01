@@ -199,26 +199,34 @@ def _build_scheduled_analyze_request(
     )
 
 
-async def _send_scheduled_report_email_if_enabled(user_id: str, report_id: str, symbol: str) -> None:
-    """Send the generated report email when the user has email delivery enabled."""
+async def _send_scheduled_report_notifications(user_id: str, report_id: str, symbol: str) -> None:
+    """Send configured scheduled report notifications."""
     try:
         from api.services.email_report_service import send_report_email_with_retry
+        from api.services.wecom_notification_service import send_report_message_with_retry
 
         email_user = None
-        email_report = None
+        report_to_send = None
+        webhook_url = None
         with get_db_ctx() as db:
             user = db.query(UserDB).filter(UserDB.id == user_id).first()
             report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
-            if user and report and getattr(user, "email_report_enabled", True):
-                db.expunge(user)
+            user_cfg = auth_service.get_user_llm_config(db, user_id)
+            webhook_url = auth_service.decrypt_secret(getattr(user_cfg, "wecom_webhook_encrypted", None))
+            if report:
                 db.expunge(report)
+                report_to_send = report
+            if user and getattr(user, "email_report_enabled", True):
+                db.expunge(user)
                 email_user = user
-                email_report = report
-        if email_user and email_report:
+        if email_user and report_to_send:
             _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
-            asyncio.create_task(send_report_email_with_retry(email_user, email_report))
+            asyncio.create_task(send_report_email_with_retry(email_user, report_to_send))
+        if report_to_send and webhook_url:
+            _log(f"[Scheduler] Sending WeCom report for {symbol}")
+            asyncio.create_task(send_report_message_with_retry(report_to_send, webhook_url))
     except Exception as e:
-        logger.warning(f"[Scheduler] Email send failed for {symbol}: {e}")
+        logger.warning(f"[Scheduler] Notification send failed for {symbol}: {e}")
 
 
 async def _run_scheduled_analysis_once(
@@ -261,7 +269,7 @@ async def _run_scheduled_analysis_once(
                 scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
         _log(f"[Scheduler] Completed {symbol}")
 
-        await _send_scheduled_report_email_if_enabled(user_id, job_id, symbol)
+        await _send_scheduled_report_notifications(user_id, job_id, symbol)
     except Exception as e:
         logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
         with get_db_ctx() as db:
@@ -475,6 +483,18 @@ def _get_reverse_stock_map() -> Dict[str, str]:
     """Return code→name mapping."""
     name_to_code = _load_cn_stock_map()
     return {v: k for k, v in name_to_code.items()}
+
+
+def _get_reverse_stock_map_cached_only() -> Dict[str, str]:
+    """Return code→name mapping only from already-warmed cache.
+
+    For list pages we prefer a fast response over blocking on a cold AkShare lookup.
+    When the cache is cold we simply return an empty mapping and let the UI fall back
+    to stock codes. Search endpoints can still call _load_cn_stock_map() explicitly.
+    """
+    if _cn_stock_map is None:
+        return {}
+    return {v: k for k, v in _cn_stock_map.items()}
 
 
 def _search_cn_stock_by_name(query: str) -> Optional[str]:
@@ -806,6 +826,7 @@ class UserRuntimeConfigResponse(BaseModel):
     max_debate_rounds: int
     max_risk_discuss_rounds: int
     has_api_key: bool = False
+    has_wecom_webhook: bool = False
     server_fallback_enabled: bool = True
     email_report_enabled: bool = True
 
@@ -819,7 +840,9 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     max_risk_discuss_rounds: Optional[int] = None
     email_report_enabled: Optional[bool] = None
     api_key: Optional[str] = None
+    wecom_webhook_url: Optional[str] = None
     clear_api_key: bool = False
+    clear_wecom_webhook: bool = False
     warmup: bool = True
     force_warmup: bool = False
 
@@ -3075,7 +3098,7 @@ def list_reports(
         skip=skip,
         limit=limit,
     )
-    code_to_name = _get_reverse_stock_map()
+    code_to_name = _get_reverse_stock_map_cached_only()
     for r in reports:
         r.name = code_to_name.get(r.symbol, r.symbol)
     return {"total": total, "reports": reports}
@@ -3444,6 +3467,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         max_debate_rounds=cfg["max_debate_rounds"],
         max_risk_discuss_rounds=cfg["max_risk_discuss_rounds"],
         has_api_key=bool(user_cfg and user_cfg.api_key_encrypted),
+        has_wecom_webhook=bool(user_cfg and user_cfg.wecom_webhook_encrypted),
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
         email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
     )
@@ -3513,7 +3537,9 @@ def update_runtime_config(
         max_debate_rounds=updates.max_debate_rounds,
         max_risk_discuss_rounds=updates.max_risk_discuss_rounds,
         api_key=updates.api_key,
+        wecom_webhook_url=updates.wecom_webhook_url,
         clear_api_key=updates.clear_api_key,
+        clear_wecom_webhook=updates.clear_wecom_webhook,
     )
     if updates.email_report_enabled is not None:
         current_user.email_report_enabled = updates.email_report_enabled
@@ -3555,8 +3581,8 @@ def update_runtime_config(
         k: v
         for k, v in updates.model_dump().items()
         if v is not None
-        and k not in {"api_key", "warmup", "force_warmup"}
-        and (k in _CONFIG_ALLOWED_KEYS or (k == "clear_api_key" and bool(v)))
+        and k not in {"api_key", "wecom_webhook_url", "warmup", "force_warmup"}
+        and (k in _CONFIG_ALLOWED_KEYS or (k in {"clear_api_key", "clear_wecom_webhook"} and bool(v)))
     }
     return {
         "message": "用户配置已更新",
@@ -3849,7 +3875,7 @@ def list_scheduled_analyses(
     db: Session = Depends(get_db),
 ):
     items = scheduled_service.list_scheduled(db, current_user.id)
-    _attach_stock_names(items, _get_reverse_stock_map())
+    _attach_stock_names(items, _get_reverse_stock_map_cached_only())
     return {"items": _annotate_scheduled_with_imported_context(items, db, current_user.id)}
 
 
@@ -3858,7 +3884,7 @@ def get_portfolio_overview(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    code_to_name = _get_reverse_stock_map()
+    code_to_name = _get_reverse_stock_map_cached_only()
 
     watchlist_items = watchlist_service.list_watchlist(db, current_user.id)
     _attach_stock_names(watchlist_items, code_to_name)

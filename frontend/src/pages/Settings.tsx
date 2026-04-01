@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
@@ -45,6 +45,8 @@ export default function Settings() {
     const [customPrompt, setCustomPrompt] = useState('')
     const [llmApiKey, setLlmApiKey] = useState('')
     const [hasStoredApiKey, setHasStoredApiKey] = useState(false)
+    const [wecomWebhook, setWecomWebhook] = useState('')
+    const [hasStoredWebhook, setHasStoredWebhook] = useState(false)
 
     const [providerPreset, setProviderPreset] = useState('openai')
     const [customBaseUrl, setCustomBaseUrl] = useState('')
@@ -124,6 +126,7 @@ export default function Settings() {
                 setMaxDebateRounds(cfg.max_debate_rounds)
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
                 setHasStoredApiKey(!!cfg.has_api_key)
+                setHasStoredWebhook(!!cfg.has_wecom_webhook)
                 setServerFallbackEnabled(!!cfg.server_fallback_enabled)
                 setEmailReportEnabled(cfg.email_report_enabled !== false)
             })
@@ -205,7 +208,7 @@ export default function Settings() {
         localStorage.setItem('ta-custom-prompt', customPrompt)
     }
 
-    const buildRuntimeConfigPayload = (options?: { includeEmail?: boolean }) => ({
+    const buildRuntimeConfigPayload = (options?: { includeEmail?: boolean; includeWecom?: boolean }) => ({
         llm_provider: effectiveProvider,
         backend_url: effectiveBaseUrl || undefined,
         deep_think_llm: deepThinkLlm,
@@ -213,6 +216,7 @@ export default function Settings() {
         max_debate_rounds: maxDebateRounds,
         max_risk_discuss_rounds: maxRiskRounds,
         api_key: llmApiKey || undefined,
+        ...(options?.includeWecom ? { wecom_webhook_url: wecomWebhook.trim() || undefined } : {}),
         ...(options?.includeEmail ? { email_report_enabled: emailReportEnabled } : {}),
     })
 
@@ -245,16 +249,18 @@ export default function Settings() {
         }
     }
 
-    const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string; includeEmail?: boolean }) => {
+    const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string; includeEmail?: boolean; includeWecom?: boolean }) => {
         persistLocalSettings()
-        const { forceWarmup = false, successMessage = '设置已保存', includeEmail = true } = options || {}
+        const { forceWarmup = false, successMessage = '设置已保存', includeEmail = true, includeWecom = false } = options || {}
         const response = await api.updateConfig({
-            ...buildRuntimeConfigPayload({ includeEmail }),
+            ...buildRuntimeConfigPayload({ includeEmail, includeWecom }),
             warmup: true,
             force_warmup: forceWarmup,
         })
         setHasStoredApiKey(!!response.has_api_key)
+        setHasStoredWebhook(!!response.current.has_wecom_webhook)
         setLlmApiKey('')
+        setWecomWebhook('')
         showSavedMessage(response.warmup?.message || successMessage)
         return response
     }
@@ -262,7 +268,7 @@ export default function Settings() {
     const handleSaveModel = async () => {
         setModelSaving(true)
         try {
-            await submitConfig({ includeEmail: false, successMessage: '模型配置已保存' })
+            await submitConfig({ includeEmail: false, includeWecom: false, successMessage: '模型配置已保存' })
         } catch (err) {
             alert(err instanceof Error ? err.message : '保存模型配置失败')
         } finally {
@@ -276,7 +282,7 @@ export default function Settings() {
             if (hasAnyQmtInput() && !shouldSyncQmt()) {
                 throw new Error('如需一并保存 QMT，请同时填写 QMT userdata 路径和资金账号')
             }
-            await submitConfig({ includeEmail: true, successMessage: '全部设置已保存' })
+            await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
             if (shouldSyncQmt()) {
                 await syncQmtImport({ successMessage: '全部设置已保存' })
             } else {
@@ -316,6 +322,21 @@ export default function Settings() {
             setTimeout(() => setSaved(false), 2000)
         } catch (err) {
             alert(err instanceof Error ? err.message : '清除密钥失败')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleClearWebhook = async () => {
+        if (!hasStoredWebhook) return
+        setSaving(true)
+        try {
+            const response = await api.updateConfig({ clear_wecom_webhook: true })
+            setHasStoredWebhook(!!response.current.has_wecom_webhook)
+            setWecomWebhook('')
+            showSavedMessage('企业微信机器人已清除')
+        } catch (err) {
+            alert(err instanceof Error ? err.message : '清除企业微信机器人失败')
         } finally {
             setSaving(false)
         }
@@ -851,6 +872,42 @@ export default function Settings() {
                             }`}
                         />
                     </button>
+                </div>
+                <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                        企业微信机器人 Webhook 地址
+                    </label>
+                    <div className="relative">
+                        <Webhook className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                            type="text"
+                            value={wecomWebhook}
+                            onChange={e => setWecomWebhook(e.target.value)}
+                            className="input w-full pl-10"
+                            placeholder={
+                                hasStoredWebhook
+                                    ? '已保存，留空则保持不变'
+                                    : '可选：粘贴完整 webhook 地址，例如 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
+                            }
+                            disabled={configLoading}
+                        />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                            定时分析完成后，除邮件外也会向企业微信机器人发送摘要通知。建议直接填写完整 webhook 地址。
+                        </div>
+                        {hasStoredWebhook && (
+                            <button
+                                type="button"
+                                onClick={handleClearWebhook}
+                                disabled={saving || modelSaving || saveAllSaving}
+                                className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                清除机器人
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 

@@ -125,6 +125,9 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(45)"))
             if "email_report_enabled" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+            llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
+            if "wecom_webhook_encrypted" not in llm_columns:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
     except Exception as e:
         print(f"Warning: Failed to ensure user schema: {e}")
 
@@ -161,9 +164,9 @@ def _migrate_tokens_to_hashed() -> None:
 
 
 def _migrate_api_keys_reencrypt() -> None:
-    """Re-encrypt user API keys when TA_APP_SECRET_KEY changes.
+    """Re-encrypt user secrets when TA_APP_SECRET_KEY changes.
 
-    On startup, if a custom secret is configured, tries to decrypt each key
+    On startup, if a custom secret is configured, tries to decrypt each secret
     with the current secret. If that fails, tries the default secret (old data).
     If the default key works, re-encrypts with the current key and writes back.
     """
@@ -176,36 +179,49 @@ def _migrate_api_keys_reencrypt() -> None:
     try:
         with engine.begin() as conn:
             rows = conn.execute(
-                text("SELECT user_id, api_key_encrypted FROM user_llm_configs WHERE api_key_encrypted IS NOT NULL")
+                text(
+                    """
+                    SELECT user_id, api_key_encrypted, wecom_webhook_encrypted
+                    FROM user_llm_configs
+                    WHERE api_key_encrypted IS NOT NULL OR wecom_webhook_encrypted IS NOT NULL
+                    """
+                )
             ).fetchall()
             if not rows:
                 return
             # Quick check: if the first row decrypts fine, likely all are OK already.
-            first_user_id, first_encrypted = rows[0]
-            if decrypt_secret(first_encrypted) is not None and len(rows) < 50:
+            _, first_api_key, first_wecom_webhook = rows[0]
+            first_secret = first_api_key or first_wecom_webhook
+            if first_secret and decrypt_secret(first_secret) is not None and len(rows) < 50:
                 # Small dataset, still verify all — but for large sets, skip if first is OK
                 pass
             migrated = 0
-            for user_id, encrypted in rows:
-                # Already decryptable with current key — skip
-                if decrypt_secret(encrypted) is not None:
-                    continue
-                # Try fallback (old key or default key)
-                plaintext = decrypt_secret_with_fallback(encrypted)
-                if plaintext is None:
-                    print(f"[security] WARNING: Cannot decrypt API key for user {user_id} with any known key. Skipping.")
-                    continue
-                # Re-encrypt with current key
-                new_encrypted = encrypt_secret(plaintext)
-                conn.execute(
-                    text("UPDATE user_llm_configs SET api_key_encrypted = :enc WHERE user_id = :uid"),
-                    {"enc": new_encrypted, "uid": user_id},
-                )
-                migrated += 1
+            for user_id, encrypted_api_key, encrypted_wecom_webhook in rows:
+                for column_name, encrypted_value in (
+                    ("api_key_encrypted", encrypted_api_key),
+                    ("wecom_webhook_encrypted", encrypted_wecom_webhook),
+                ):
+                    if not encrypted_value:
+                        continue
+                    if decrypt_secret(encrypted_value) is not None:
+                        continue
+                    plaintext = decrypt_secret_with_fallback(encrypted_value)
+                    if plaintext is None:
+                        print(
+                            f"[security] WARNING: Cannot decrypt {column_name} for user {user_id} "
+                            "with any known key. Skipping."
+                        )
+                        continue
+                    new_encrypted = encrypt_secret(plaintext)
+                    conn.execute(
+                        text(f"UPDATE user_llm_configs SET {column_name} = :enc WHERE user_id = :uid"),
+                        {"enc": new_encrypted, "uid": user_id},
+                    )
+                    migrated += 1
             if migrated:
-                print(f"[security] Re-encrypted {migrated} API key(s) with new TA_APP_SECRET_KEY.")
+                print(f"[security] Re-encrypted {migrated} user secret(s) with new TA_APP_SECRET_KEY.")
     except Exception as e:
-        print(f"Warning: API key re-encryption migration failed: {e}")
+        print(f"Warning: user secret re-encryption migration failed: {e}")
 
 
 # Report Model
@@ -321,6 +337,7 @@ class UserLLMConfigDB(Base):
     max_debate_rounds = Column(Integer, nullable=True)
     max_risk_discuss_rounds = Column(Integer, nullable=True)
     api_key_encrypted = Column(Text, nullable=True)
+    wecom_webhook_encrypted = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -553,6 +553,7 @@ export interface RuntimeConfig {
     max_debate_rounds: number
     max_risk_discuss_rounds: number
     has_api_key?: boolean
+    has_wecom_webhook?: boolean
     server_fallback_enabled?: boolean
     email_report_enabled?: boolean
 }
@@ -573,7 +574,9 @@ export interface RuntimeConfigUpdate {
     max_debate_rounds?: number
     max_risk_discuss_rounds?: number
     api_key?: string
+    wecom_webhook_url?: string
     clear_api_key?: boolean
+    clear_wecom_webhook?: boolean
     email_report_enabled?: boolean
     warmup?: boolean
     force_warmup?: boolean
