@@ -49,10 +49,11 @@ def create_social_media_analyst(llm, data_collector=None):
 
         messages = [
             SystemMessage(content=(
-                horizon_ctx + system_message
+                system_message
                 + "\n\n请严格基于提供的舆情数据输出报告，全程使用中文。"
             )),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的舆情近似资料。\n\n"
                 f"【get_news】\n{news_text}\n\n"
                 f"【涨停池数据】\n{zt_data}\n\n"

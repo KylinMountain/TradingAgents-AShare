@@ -158,6 +158,9 @@ curl -X POST 'https://app.510168.xyz/v1/analyze' \
 
 示例任务："分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。"
 
+## Project Status
+![Alt](https://repobeats.axiom.co/api/embed/85d68d13f5eee2bf53404a2efa28f9ccef1c2c3f.svg "Repobeats analytics image")
+
 ## 特别鸣谢
 
 本项目核心架构灵感与部分基础逻辑源自 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。

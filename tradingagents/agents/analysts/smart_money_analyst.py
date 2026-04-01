@@ -49,10 +49,11 @@ def create_smart_money_analyst(llm, data_collector=None):
 
         messages = [
             SystemMessage(content=(
-                horizon_ctx + system_message
+                system_message
                 + "\n\n请严格基于提供的量化数据输出分析，全程使用中文。"
             )),
             HumanMessage(content=(
+                horizon_ctx + "\n"
                 f"请分析 {ticker} 在 {current_date} 的主力资金行为。\n\n"
                 f"【近5日主力资金净流向】\n{fund_flow}\n\n"
                 f"【龙虎榜数据】\n{lhb}\n\n"

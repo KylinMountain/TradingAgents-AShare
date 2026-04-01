@@ -155,8 +155,10 @@ async def _scheduler_loop():
                     for task in tasks
                 ]
 
-                _log(f"[Scheduler] Launching {len(task_snapshots)} tasks")
-                for snap in task_snapshots:
+                _log(f"[Scheduler] Launching {len(task_snapshots)} tasks (staggered)")
+                for i, snap in enumerate(task_snapshots):
+                    if i > 0:
+                        await asyncio.sleep(1)
                     _create_tracked_task(_run_scheduled_job(snap, today))
 
         except Exception as e:
@@ -344,6 +346,9 @@ _cn_stock_map_lock = Lock()
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "600"))  # seconds
 
 
 def _create_tracked_task(coro) -> asyncio.Task:
@@ -1358,11 +1363,38 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
+    try:
+        await asyncio.wait_for(
+            _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source),
+            timeout=_JOB_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
+        _log(f"[Job {job_id}] {err_msg}")
+        _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
+        try:
+            def _record_timeout():
+                with get_db_ctx() as db:
+                    report_service.mark_report_failed(db, job_id, err_msg)
+            await asyncio.to_thread(_record_timeout)
+        except Exception:
+            pass
+        _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+
+
+async def _run_job_inner(
+    job_id: str,
+    request: AnalyzeRequest,
+    stream_events: bool = False,
+    save_report: bool = True,
+    user_id: Optional[str] = None,
+    request_source: str = "api",
+) -> None:
     job_start_t = time.time()
     # Normalize for logic but keep original for display
     display_name = request.symbol
     normalized_symbol = _normalize_symbol(request.symbol)
-    
+
     # ── Step 0: Initialize report in DB (short-lived session) ──
     def _init_and_configure():
         with get_db_ctx() as db:
@@ -1600,6 +1632,7 @@ async def _run_job(
                             await asyncio.to_thread(_horizon_partial_update, db_updates)
                 except Exception as e:
                     _log(f"Error during horizon streaming ({horizon}): {e}")
+                    raise
                 finally:
                     current_tracker_var.reset(_tracker_token)
 
@@ -1614,9 +1647,13 @@ async def _run_job(
                 *[_process_horizon(h) for h in request.horizons],
                 return_exceptions=True,
             )
+            horizon_errors = []
             for i, r in enumerate(results):
                 if isinstance(r, Exception):
                     _log(f"Horizon '{request.horizons[i]}' failed: {r}")
+                    horizon_errors.append(f"{request.horizons[i]}: {r}")
+            if horizon_errors:
+                raise RuntimeError(f"Horizon analysis failed: {'; '.join(horizon_errors)}")
 
             graph.data_collector.evict(ticker, request.trade_date)
 
@@ -2217,7 +2254,7 @@ async def _stream_job_events(job_id: str):
     yield _sse_pack("job.ready", {"job_id": job_id})
     while True:
         try:
-            event = await asyncio.wait_for(q.get(), timeout=30)
+            event = await asyncio.wait_for(q.get(), timeout=15)
             yield _sse_pack(event["event"], event["data"])
             if event["event"] in ("job.completed", "job.failed"):
                 yield "event: done\ndata: [DONE]\n\n"
