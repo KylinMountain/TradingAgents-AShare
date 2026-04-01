@@ -36,6 +36,9 @@ REPORT_SUMMARY_COLUMNS = (
     ReportDB.updated_at,
 )
 
+ACTIVE_REPORT_STATUSES = ("pending", "running")
+STALE_REPORT_ERROR_MESSAGE = "分析任务已中断，请重新发起分析"
+
 
 # ─── Structured extraction schemas ───────────────────────────────────────────
 
@@ -298,6 +301,62 @@ def update_report_partial(
     db.commit()
     db.refresh(db_report)
     return db_report
+
+
+def finalize_orphan_report(
+    db: Session,
+    report: ReportDB,
+    *,
+    error_message: str = STALE_REPORT_ERROR_MESSAGE,
+) -> ReportDB:
+    """Mark an orphaned pending/running report as failed."""
+    if str(report.status or "") not in ACTIVE_REPORT_STATUSES:
+        return report
+
+    report.status = "failed"
+    report.error = error_message
+    report.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def recover_stale_active_reports(
+    db: Session,
+    *,
+    active_job_ids: Optional[Iterable[str]] = None,
+    error_message: str = STALE_REPORT_ERROR_MESSAGE,
+) -> Dict[str, int]:
+    """Recover stale pending/running reports left behind by interrupted jobs."""
+    active_job_id_set = {str(job_id) for job_id in (active_job_ids or []) if str(job_id).strip()}
+    rows = (
+        db.query(ReportDB)
+        .filter(ReportDB.status.in_(ACTIVE_REPORT_STATUSES))
+        .all()
+    )
+    if not rows:
+        return {"total": 0, "completed": 0, "failed": 0}
+
+    failed = 0
+    changed = False
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if str(row.id) in active_job_id_set:
+            continue
+        row.status = "failed"
+        row.error = error_message
+        row.updated_at = now
+        changed = True
+        failed += 1
+
+    if changed:
+        db.commit()
+
+    return {
+        "total": failed,
+        "completed": 0,
+        "failed": failed,
+    }
 
 
 def mark_report_failed(

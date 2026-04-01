@@ -404,6 +404,10 @@ async def lifespan(app: FastAPI):
     global _scheduler_task, _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
     init_db()
     _log("Database initialized.")
+    with _jobs_lock:
+        _jobs.clear()
+        _job_events.clear()
+    _background_tasks.clear()
     _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
     _scheduled_analysis_queue_lock = asyncio.Lock()
     _scheduled_analysis_waiting_job_ids.clear()
@@ -439,6 +443,13 @@ async def lifespan(app: FastAPI):
                     item.last_run_date = None  # 真正未完成，允许重新触发
             db.commit()
             _log(f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup.")
+        report_reset = report_service.recover_stale_active_reports(db)
+        if report_reset["total"]:
+            _log(
+                "[Reports] Recovered %s stale active reports on startup "
+                "(completed=%s, failed=%s)."
+                % (report_reset["total"], report_reset["completed"], report_reset["failed"])
+            )
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
@@ -1259,6 +1270,33 @@ def _merge_user_context_payload(
     merged = normalize_user_context(inferred_context or {})
     merged.update(normalize_user_context(explicit_context or {}))
     return merged
+
+
+def _compose_analysis_user_context(
+    db: Session,
+    user_id: str,
+    symbol: str,
+    *,
+    explicit_context: Optional[Dict[str, Any]] = None,
+    inferred_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    imported_context = _build_manual_imported_user_context(db, user_id, symbol)
+    merged_with_imported = _merge_user_context_payload(inferred_context or {}, imported_context)
+    return _merge_user_context_payload(explicit_context or {}, merged_with_imported)
+
+
+def _apply_user_context_to_request(request: "AnalyzeRequest", user_context: Dict[str, Any]) -> "AnalyzeRequest":
+    request.objective = user_context.get("objective")
+    request.risk_profile = user_context.get("risk_profile")
+    request.investment_horizon = user_context.get("investment_horizon")
+    request.cash_available = user_context.get("cash_available")
+    request.current_position = user_context.get("current_position")
+    request.current_position_pct = user_context.get("current_position_pct")
+    request.average_cost = user_context.get("average_cost")
+    request.max_loss_pct = user_context.get("max_loss_pct")
+    request.constraints = user_context.get("constraints", [])
+    request.user_notes = user_context.get("user_notes")
+    return request
 
 
 def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -2725,6 +2763,15 @@ async def analyze(
     request: AnalyzeRequest,
     current_user: UserDB = Depends(_require_api_user),
 ) -> AnalyzeResponse:
+    with get_db_ctx() as db:
+        merged_user_context = _compose_analysis_user_context(
+            db,
+            current_user.id,
+            request.symbol,
+            explicit_context=_extract_request_user_context(request),
+        )
+    _apply_user_context_to_request(request, merged_user_context)
+
     job_id = uuid4().hex
     now = _utcnow_iso()
     _set_job(
@@ -3040,12 +3087,16 @@ async def chat_completions(
                     "horizons": horizons,
                     "focus_areas": focus_areas,
                     "specific_questions": specific_questions,
-                    "user_context": inferred_user_context,
                 }
-                merged_user_context = _merge_user_context_payload(
-                    _extract_request_user_context(request),
-                    inferred_user_context,
-                )
+                with get_db_ctx() as db:
+                    merged_user_context = _compose_analysis_user_context(
+                        db,
+                        current_user.id,
+                        symbol,
+                        explicit_context=_extract_request_user_context(request),
+                        inferred_context=inferred_user_context,
+                    )
+                pre_intent["user_context"] = merged_user_context
                 analyze_req = AnalyzeRequest(
                     symbol=symbol,
                     trade_date=trade_date or cn_today_str(),
@@ -3111,12 +3162,16 @@ async def chat_completions(
         "horizons": horizons,
         "focus_areas": focus_areas,
         "specific_questions": specific_questions,
-        "user_context": inferred_user_context,
     }
-    merged_user_context = _merge_user_context_payload(
-        _extract_request_user_context(request),
-        inferred_user_context,
-    )
+    with get_db_ctx() as db:
+        merged_user_context = _compose_analysis_user_context(
+            db,
+            current_user.id,
+            symbol,
+            explicit_context=_extract_request_user_context(request),
+            inferred_context=inferred_user_context,
+        )
+    pre_intent["user_context"] = merged_user_context
     analyze_req = AnalyzeRequest(
         symbol=symbol,
         trade_date=trade_date or cn_today_str(),
@@ -3278,6 +3333,8 @@ def get_report_endpoint(
     report = report_service.get_report(db, report_id, user_id=current_user.id)
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
+    if str(report.status or "") in report_service.ACTIVE_REPORT_STATUSES and not _get_job(report_id):
+        report = report_service.finalize_orphan_report(db, report)
     code_to_name = _get_reverse_stock_map()
     report.name = code_to_name.get(report.symbol, report.symbol)
     _attach_job_runtime_state(report, report_id)

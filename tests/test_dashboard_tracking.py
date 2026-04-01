@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
+import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pandas as pd
+import requests
 
 from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, ReportDB, UserDB, get_db_ctx, init_db
 from api.services import auth_service, report_service
@@ -113,7 +116,7 @@ class TestDashboardTrackingApi:
         monkeypatch.setattr("api.services.dashboard_service.previous_cn_trading_day", lambda _: "2026-03-30")
         monkeypatch.setattr(
             "api.services.dashboard_service._fetch_live_quotes",
-            lambda symbols: {
+            lambda symbols, **kwargs: {
                 "600519.SH": {
                     "price": 1723.5,
                     "open": 1708.0,
@@ -216,7 +219,7 @@ class TestDashboardTrackingApi:
 
         monkeypatch.setattr("api.services.dashboard_service.cn_today_str", lambda: "2026-03-31")
         monkeypatch.setattr("api.services.dashboard_service.previous_cn_trading_day", lambda _: "2026-03-30")
-        monkeypatch.setattr("api.services.dashboard_service._fetch_live_quotes", lambda symbols: {})
+        monkeypatch.setattr("api.services.dashboard_service._fetch_live_quotes", lambda symbols, **kwargs: {})
 
         response = client.get("/v1/dashboard/tracking-board", headers=headers)
 
@@ -231,3 +234,75 @@ class TestDashboardTrackingApi:
         assert item["amount"] is None
         assert item["quote_source"] is None
         assert item["analysis"] is None
+
+
+def test_fetch_live_quotes_returns_empty_when_batch_request_times_out(monkeypatch):
+    from api.services import dashboard_service
+
+    monkeypatch.setattr(dashboard_service, "ENABLE_XQ_QUOTE_FALLBACK", False)
+    monkeypatch.setattr(dashboard_service, "_fetch_qmt_quotes", lambda symbols: {})
+
+    def _timeout(*args, **kwargs):
+        raise requests.ReadTimeout("timed out")
+
+    monkeypatch.setattr("api.services.dashboard_service.requests.get", _timeout)
+
+    quotes = dashboard_service._fetch_live_quotes(["600519.SH"])
+    assert quotes == {}
+
+
+def test_build_qmt_quote_from_frame_uses_latest_tick_row():
+    from api.services import dashboard_service
+
+    frame = pd.DataFrame(
+        [
+            {
+                "time": 1775026803000,
+                "lastPrice": 1459.44,
+                "open": 1462.0,
+                "high": 1470.0,
+                "low": 1451.2,
+                "lastClose": 1450.0,
+                "amount": 4256185000,
+                "volume": 29125,
+            }
+        ],
+        index=["20260401150003"],
+    )
+
+    quote = dashboard_service._build_qmt_quote_from_frame(frame)
+
+    assert quote is not None
+    assert quote["price"] == 1459.44
+    assert quote["open"] == 1462.0
+    assert quote["high"] == 1470.0
+    assert quote["low"] == 1451.2
+    assert quote["previous_close"] == 1450.0
+    assert quote["change"] == 9.44
+    assert quote["change_pct"] == round((9.44 / 1450.0) * 100, 4)
+    assert quote["amount"] == 4256185000.0
+    assert quote["volume"] == 29125.0
+    assert quote["source"] == "qmt_xtdata"
+    assert quote["quote_time"] is not None
+
+
+def test_parse_sina_quote_line_extracts_expected_fields():
+    from api.services import dashboard_service
+
+    line = (
+        'var hq_str_sh600519="贵州茅台,1464.490,1450.000,1459.440,1469.990,1452.880,1459.440,1459.800,2912514,'
+        '4256185472.000,124,1459.440,200,1459.380,600,1459.370,400,1459.360,100,1459.290,300,1459.800,'
+        '400,1459.820,100,1459.980,300,1459.990,200,1460.000,2026-04-01,15:00:03,00,";'
+    )
+
+    symbol, quote = dashboard_service._parse_sina_quote_line(line)
+
+    assert symbol == "sh600519"
+    assert quote is not None
+    assert quote["price"] == 1459.44
+    assert quote["open"] == 1464.49
+    assert quote["high"] == 1469.99
+    assert quote["low"] == 1452.88
+    assert quote["previous_close"] == 1450.0
+    assert quote["change"] == 9.44
+    assert quote["source"] == "sina_hq"

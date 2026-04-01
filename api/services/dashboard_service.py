@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+import requests
 from sqlalchemy.orm import Session
 
 from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, ReportDB
@@ -13,6 +16,8 @@ from tradingagents.dataflows.trade_calendar import cn_today_str, previous_cn_tra
 
 
 REFRESH_INTERVAL_SECONDS = 20
+QUOTE_REQUEST_TIMEOUT_SECONDS = max(0.5, float(os.getenv("TA_TRACKING_QUOTE_TIMEOUT_SECONDS", "2.5")))
+ENABLE_XQ_QUOTE_FALLBACK = os.getenv("TA_TRACKING_ENABLE_XQ_FALLBACK", "").strip().lower() in ("1", "true", "yes", "on")
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +26,7 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
     previous_trade_date = previous_cn_trading_day(cn_today_str())
     rows = _list_qmt_position_rows(db, user_id)
     symbols = [row.symbol for row in rows]
-    quotes = _fetch_live_quotes(symbols)
+    quotes = _fetch_live_quotes(symbols, prefer_qmt_only=bool(config and config.qmt_path))
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
 
     items: list[dict[str, Any]] = []
@@ -208,22 +213,27 @@ def _clip_summary(text: str | None) -> str | None:
     return compact[:96]
 
 
-def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
+def _fetch_live_quotes(
+    symbols: list[str],
+    *,
+    prefer_qmt_only: bool = False,
+) -> dict[str, dict[str, Any]]:
     if not symbols:
         return {}
 
     quotes = _fetch_qmt_quotes(symbols)
     missing = [symbol for symbol in symbols if symbol not in quotes]
-    if not missing:
+    if not missing or prefer_qmt_only:
         return quotes
 
     fallback_quotes = _fetch_em_batch_quotes(missing)
     quotes.update(fallback_quotes)
     missing = [symbol for symbol in symbols if symbol not in quotes]
-    for symbol in missing:
-        quote = _fetch_xq_quote(symbol)
-        if quote:
-            quotes[symbol] = quote
+    if ENABLE_XQ_QUOTE_FALLBACK:
+        for symbol in missing:
+            quote = _fetch_xq_quote(symbol)
+            if quote:
+                quotes[symbol] = quote
     return quotes
 
 
@@ -242,127 +252,239 @@ def _fetch_qmt_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
         raw = xtdata.get_full_tick(normalized_symbols)
     except Exception as exc:
         logger.warning("[tracking-board] xtdata quote fetch failed for %s: %s", normalized_symbols, exc)
-        return {}
-
-    if not isinstance(raw, dict):
-        return {}
+        raw = {}
 
     quotes: dict[str, dict[str, Any]] = {}
-    for symbol in normalized_symbols:
-        tick = raw.get(symbol)
-        if not isinstance(tick, dict):
-            continue
+    if isinstance(raw, dict):
+        for symbol in normalized_symbols:
+            tick = raw.get(symbol)
+            if not isinstance(tick, dict):
+                continue
+            quote = _build_qmt_quote_from_mapping(tick)
+            if quote:
+                quotes[symbol] = quote
 
-        last_price = _to_float(tick.get("lastPrice"))
-        previous_close = _to_float(tick.get("lastClose") or tick.get("lastSettlementPrice"))
-        change = _to_float(tick.get("change"))
-        if change is None and last_price is not None and previous_close is not None:
-            change = round(last_price - previous_close, 4)
+    if quotes:
+        return quotes
 
-        change_pct = _to_float(tick.get("changePercent") or tick.get("changePct"))
-        if change_pct is None and change is not None and previous_close not in (None, 0):
-            change_pct = round((change / previous_close) * 100, 4)
-
-        quote_time = tick.get("timetag")
-        if not quote_time and tick.get("time") is not None:
+    subscription_ids: list[int] = []
+    try:
+        for symbol in normalized_symbols:
             try:
-                quote_time = datetime.fromtimestamp(float(tick["time"]) / 1000, tz=timezone.utc).isoformat()
-            except Exception:
-                quote_time = None
+                subscription_id = xtdata.subscribe_quote(symbol, period="tick", count=1)
+                if subscription_id is not None:
+                    subscription_ids.append(int(subscription_id))
+            except Exception as exc:
+                logger.warning("[tracking-board] xtdata subscribe_quote failed for %s: %s", symbol, exc)
+        if subscription_ids:
+            time.sleep(0.35)
 
-        quotes[symbol] = {
-            "price": last_price,
-            "open": _to_float(tick.get("open")),
-            "change": change,
-            "change_pct": change_pct,
-            "high": _to_float(tick.get("high")),
-            "low": _to_float(tick.get("low")),
-            "previous_close": previous_close,
-            "volume": _to_float(tick.get("volume") or tick.get("pvolume")),
-            "amount": _to_float(tick.get("amount")),
-            "quote_time": str(quote_time) if quote_time else None,
-            "source": "qmt_xtdata",
-        }
+        try:
+            raw_frames = xtdata.get_market_data_ex(
+                field_list=["time", "lastPrice", "open", "high", "low", "lastClose", "amount", "volume"],
+                stock_list=normalized_symbols,
+                period="tick",
+                count=1,
+            )
+        except Exception as exc:
+            logger.warning("[tracking-board] xtdata tick frame fetch failed for %s: %s", normalized_symbols, exc)
+            return quotes
+
+        if not isinstance(raw_frames, dict):
+            return quotes
+
+        for symbol in normalized_symbols:
+            frame = raw_frames.get(symbol)
+            quote = _build_qmt_quote_from_frame(frame)
+            if quote:
+                quotes[symbol] = quote
+    finally:
+        unsubscribe = getattr(xtdata, "unsubscribe_quote", None)
+        if callable(unsubscribe):
+            for subscription_id in subscription_ids:
+                try:
+                    unsubscribe(subscription_id)
+                except Exception:
+                    pass
 
     return quotes
 
 
-def _fetch_em_batch_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
+def _build_qmt_quote_from_mapping(tick: dict[str, Any]) -> dict[str, Any] | None:
+    last_price = _to_float(tick.get("lastPrice"))
+    previous_close = _to_float(tick.get("lastClose") or tick.get("lastSettlementPrice"))
+    change = _to_float(tick.get("change"))
+    if change is None and last_price is not None and previous_close is not None:
+        change = round(last_price - previous_close, 4)
+
+    change_pct = _to_float(tick.get("changePercent") or tick.get("changePct"))
+    if change_pct is None and change is not None and previous_close not in (None, 0):
+        change_pct = round((change / previous_close) * 100, 4)
+
+    quote_time = tick.get("timetag")
+    if not quote_time and tick.get("time") is not None:
+        quote_time = _to_iso_datetime(tick.get("time"))
+
+    if all(
+        value is None for value in (
+            last_price,
+            _to_float(tick.get("open")),
+            _to_float(tick.get("high")),
+            _to_float(tick.get("low")),
+        )
+    ):
+        return None
+
+    return {
+        "price": last_price,
+        "open": _to_float(tick.get("open")),
+        "change": change,
+        "change_pct": change_pct,
+        "high": _to_float(tick.get("high")),
+        "low": _to_float(tick.get("low")),
+        "previous_close": previous_close,
+        "volume": _to_float(tick.get("volume") or tick.get("pvolume")),
+        "amount": _to_float(tick.get("amount")),
+        "quote_time": str(quote_time) if quote_time else None,
+        "source": "qmt_xtdata",
+    }
+
+
+def _build_qmt_quote_from_frame(frame: Any) -> dict[str, Any] | None:
+    if frame is None or getattr(frame, "empty", True):
+        return None
     try:
-        import akshare as ak  # type: ignore
+        row = frame.iloc[-1]
+    except Exception:
+        return None
 
-        df = ak.stock_zh_a_spot_em()
+    tick = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+    return _build_qmt_quote_from_mapping(tick)
+
+
+def _to_iso_datetime(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        timestamp = float(value)
+        if timestamp > 1e12:
+            timestamp /= 1000
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+def _fetch_em_batch_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
+    sina_symbols = [_to_sina_symbol(symbol) for symbol in symbols if _to_sina_symbol(symbol)]
+    if not sina_symbols:
+        return {}
+    try:
+        response = requests.get(
+            "https://hq.sinajs.cn/list=" + ",".join(sina_symbols),
+            timeout=QUOTE_REQUEST_TIMEOUT_SECONDS,
+            headers={
+                "Referer": "https://finance.sina.com.cn/",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        response.raise_for_status()
+        response.encoding = "gbk"
     except Exception as exc:
-        logger.warning("[tracking-board] Eastmoney batch quote fetch failed for %s: %s", symbols, exc)
+        logger.warning("[tracking-board] Batch quote fetch failed for %s: %s", symbols, exc)
         return {}
 
-    if df is None or df.empty:
-        return {}
-
-    symbol_by_code = {_extract_code(symbol): symbol for symbol in symbols}
-    if "代码" not in df.columns:
-        return {}
-
-    df = df.copy()
-    df["代码"] = df["代码"].astype(str).str.zfill(6)
-    filtered = df[df["代码"].isin(symbol_by_code.keys())]
-    if filtered.empty:
-        return {}
-
-    now_iso = datetime.now(timezone.utc).isoformat()
+    symbol_by_sina = {
+        _to_sina_symbol(symbol): str(symbol or "").strip().upper()
+        for symbol in symbols
+        if _to_sina_symbol(symbol)
+    }
     quotes: dict[str, dict[str, Any]] = {}
-    for _, row in filtered.iterrows():
-        symbol = symbol_by_code.get(str(row.get("代码", "")).zfill(6))
-        if not symbol:
+    for line in response.text.splitlines():
+        symbol, quote = _parse_sina_quote_line(line)
+        if not symbol or not quote:
             continue
-        quotes[symbol] = {
-            "price": _to_float(row.get("最新价")),
-            "open": _to_float(row.get("今开")),
-            "change": _to_float(row.get("涨跌额")),
-            "change_pct": _to_float(row.get("涨跌幅")),
-            "high": _to_float(row.get("最高")),
-            "low": _to_float(row.get("最低")),
-            "previous_close": _to_float(row.get("昨收")),
-            "quote_time": now_iso,
-            "source": "akshare_em_spot",
-        }
+        target_symbol = symbol_by_sina.get(symbol)
+        if not target_symbol:
+            continue
+        quotes[target_symbol] = quote
     return quotes
 
 
 def _fetch_xq_quote(symbol: str) -> dict[str, Any] | None:
-    try:
-        import akshare as ak  # type: ignore
+    return _fetch_em_batch_quotes([symbol]).get(str(symbol or "").strip().upper())
 
-        spot = ak.stock_individual_spot_xq(symbol=_to_xq_symbol(symbol))
-    except Exception as exc:
-        logger.warning("[tracking-board] Xueqiu quote fetch failed for %s: %s", symbol, exc)
-        return None
 
-    if spot is None or getattr(spot, "empty", True):
-        return None
-    if not {"item", "value"}.issubset(set(spot.columns)):
-        return None
+def _parse_sina_quote_line(line: str) -> tuple[str | None, dict[str, Any] | None]:
+    match = re.match(r'^var hq_str_(?P<symbol>[^=]+)="(?P<body>.*)";$', str(line or "").strip())
+    if not match:
+        return None, None
 
-    kv = dict(zip(spot["item"].astype(str), spot["value"]))
-    quote_time = kv.get("时间")
-    if quote_time:
-        quote_time = str(quote_time)
+    raw_symbol = match.group("symbol").strip().lower()
+    fields = match.group("body").split(",")
+    if len(fields) < 10 or not any(field.strip() for field in fields):
+        return raw_symbol, None
 
-    return {
-        "price": _to_float(kv.get("现价")),
-        "open": _to_float(kv.get("今开")),
-        "change": _to_float(kv.get("涨跌")),
-        "change_pct": _to_float(kv.get("涨幅")),
-        "high": _to_float(kv.get("最高")),
-        "low": _to_float(kv.get("最低")),
-        "previous_close": _to_float(kv.get("昨收")),
+    date_part = fields[30].strip() if len(fields) > 30 else ""
+    time_part = fields[31].strip() if len(fields) > 31 else ""
+    quote_time = None
+    if date_part and time_part:
+        try:
+            quote_time = datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc
+            ).isoformat()
+        except Exception:
+            quote_time = None
+
+    price = _to_float(fields[3] if len(fields) > 3 else None)
+    open_price = _to_float(fields[1] if len(fields) > 1 else None)
+    previous_close = _to_float(fields[2] if len(fields) > 2 else None)
+    high = _to_float(fields[4] if len(fields) > 4 else None)
+    low = _to_float(fields[5] if len(fields) > 5 else None)
+    volume = _to_float(fields[8] if len(fields) > 8 else None)
+    amount = _to_float(fields[9] if len(fields) > 9 else None)
+    if all(value is None for value in (price, open_price, previous_close, high, low)):
+        return raw_symbol, None
+
+    change = (
+        round(price - previous_close, 4)
+        if price is not None and previous_close is not None
+        else None
+    )
+    change_pct = (
+        round((change / previous_close) * 100, 4)
+        if change is not None and previous_close not in (None, 0)
+        else None
+    )
+
+    return raw_symbol, {
+        "price": price,
+        "open": open_price,
+        "change": change,
+        "change_pct": change_pct,
+        "high": high,
+        "low": low,
+        "previous_close": previous_close,
+        "volume": volume,
+        "amount": amount,
         "quote_time": quote_time,
-        "source": "akshare_xq_spot",
+        "source": "sina_hq",
     }
 
 
 def _extract_code(symbol: str) -> str:
     return str(symbol or "").split(".", 1)[0].strip().zfill(6)
+
+
+def _to_sina_symbol(symbol: str) -> str | None:
+    code = _extract_code(symbol)
+    upper_symbol = str(symbol or "").upper()
+    if not code:
+        return None
+    if upper_symbol.endswith(".BJ"):
+        return f"bj{code}"
+    if code.startswith(("5", "6", "9")):
+        return f"sh{code}"
+    return f"sz{code}"
 
 
 def _to_xq_symbol(symbol: str) -> str:

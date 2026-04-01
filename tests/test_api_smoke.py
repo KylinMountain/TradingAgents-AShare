@@ -17,6 +17,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, get_db_ctx
+
 
 # ---------------------------------------------------------------------------
 # Schema-only test (no server needed)
@@ -166,6 +168,55 @@ class TestAnalyzeEndpoint:
         job_id = r.json()["job_id"]
         result = _wait_job(self.client, self.token, job_id)
         assert result["result"]["selected_analysts"] == ["market", "news"]
+
+    def test_dry_run_merges_imported_qmt_context_for_manual_analysis(self):
+        current_user = self.client.get("/v1/auth/me", headers=self.headers).json()
+        now = datetime.now(timezone.utc)
+
+        with get_db_ctx() as db:
+            db.add(
+                QmtImportConfigDB(
+                    id=uuid4().hex,
+                    user_id=current_user["id"],
+                    qmt_path="D:/QMT/userdata_mini",
+                    account_id="demo-account",
+                    account_type="STOCK",
+                    auto_apply_scheduled=False,
+                    last_synced_at=now,
+                )
+            )
+            db.add(
+                ImportedPortfolioPositionDB(
+                    id=uuid4().hex,
+                    user_id=current_user["id"],
+                    source="qmt_xtquant",
+                    symbol="600519.SH",
+                    security_name="贵州茅台",
+                    current_position=300.0,
+                    average_cost=1680.5,
+                    market_value=504150.0,
+                    current_position_pct=42.5,
+                    trade_points_json=[],
+                    trade_points_count=0,
+                    last_imported_at=now,
+                )
+            )
+            db.commit()
+
+        r = self.client.post("/v1/analyze", headers=self.headers, json={
+            "symbol": "600519.SH",
+            "trade_date": "2024-01-15",
+            "dry_run": True,
+        })
+        assert r.status_code == 200
+        job_id = r.json()["job_id"]
+        result = _wait_job(self.client, self.token, job_id)
+
+        user_context = result["result"]["user_context"]
+        assert user_context["current_position"] == pytest.approx(300.0)
+        assert user_context["average_cost"] == pytest.approx(1680.5)
+        assert user_context["current_position_pct"] == pytest.approx(42.5)
+        assert "QMT / xtquant 持仓同步" in (user_context.get("user_notes") or "")
 
 
 class TestChatCompletionsEndpoint:
