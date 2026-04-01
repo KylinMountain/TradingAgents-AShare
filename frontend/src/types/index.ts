@@ -500,11 +500,34 @@ export interface QmtImportState {
     positions: ImportedPortfolioPosition[]
 }
 
+export interface ManualImportState {
+    broker: string
+    auto_apply_scheduled: boolean
+    last_synced_at?: string | null
+    last_error?: string | null
+    summary: {
+        positions: number
+    }
+    scheduled_sync?: ImportedScheduledSyncSummary
+    positions: ImportedPortfolioPosition[]
+}
+
+export interface ManualPositionInput {
+    symbol: string
+    name?: string
+    current_position?: number | null
+    available_position?: number | null
+    average_cost?: number | null
+    market_value?: number | null
+    current_position_pct?: number | null
+}
+
 export interface PortfolioOverviewResponse {
     watchlist: WatchlistItem[]
     scheduled: ScheduledAnalysis[]
     latest_reports: Report[]
     qmt_import: QmtImportState | null
+    manual_import: ManualImportState | null
 }
 
 export interface TrackingBoardAnalysis {

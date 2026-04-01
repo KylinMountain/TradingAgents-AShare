@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
+import type { ManualImportState, ManualPositionInput, QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
 import { buildQmtSyncSummary } from '@/utils/qmtSync'
 
 type ProviderPreset = {
@@ -65,6 +65,12 @@ export default function Settings() {
     const [qmtAccountId, setQmtAccountId] = useState('')
     const [qmtAccountType, setQmtAccountType] = useState('STOCK')
     const [qmtAutoApply, setQmtAutoApply] = useState(true)
+
+    // Manual import state
+    const [manualImportState, setManualImportState] = useState<ManualImportState | null>(null)
+    const [manualSyncing, setManualSyncing] = useState(false)
+    const [manualAutoApply, setManualAutoApply] = useState(true)
+    const [manualPositionsText, setManualPositionsText] = useState('')
 
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -150,6 +156,7 @@ export default function Settings() {
         // Fetch tokens
         fetchTokens()
         void fetchQmtImportState()
+        void fetchManualImportState()
     }, [])
 
     const fetchTokens = async () => {
@@ -177,6 +184,80 @@ export default function Settings() {
             console.error('Failed to fetch QMT import state:', err)
         } finally {
             setQmtLoading(false)
+        }
+    }
+
+    const fetchManualImportState = async () => {
+        try {
+            const state = await api.getManualImportState()
+            setManualImportState(state)
+        } catch (err) {
+            console.error('Failed to fetch manual import state:', err)
+        }
+    }
+
+    const parseManualPositions = (text: string): ManualPositionInput[] => {
+        // Accept lines like:
+        //   600519.SH 贵州茅台 100 50.5 230000
+        //   600519,贵州茅台,100,50.5,230000
+        //   600519
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+        const positions: ManualPositionInput[] = []
+        for (const line of lines) {
+            const parts = line.split(/[,\t，\s]+/).filter(Boolean)
+            if (!parts[0]) continue
+            const symbol = parts[0]
+            // Detect if second part is a name (contains non-digit chars)
+            let nameIdx = -1
+            let numStart = 1
+            if (parts[1] && !/^[\d.]+$/.test(parts[1])) {
+                nameIdx = 1
+                numStart = 2
+            }
+            const nums = parts.slice(numStart).map(v => {
+                const n = parseFloat(v)
+                return isNaN(n) ? null : n
+            })
+            positions.push({
+                symbol,
+                name: nameIdx >= 0 ? parts[nameIdx] : undefined,
+                current_position: nums[0] ?? null,
+                average_cost: nums[1] ?? null,
+                market_value: nums[2] ?? null,
+            })
+        }
+        return positions
+    }
+
+    const handleSyncManual = async () => {
+        const positions = parseManualPositions(manualPositionsText)
+        if (positions.length === 0) {
+            alert('请输入至少一条持仓记录')
+            return
+        }
+        setManualSyncing(true)
+        try {
+            const result = await api.syncManualImport({
+                positions,
+                auto_apply_scheduled: manualAutoApply,
+            })
+            setManualImportState(result)
+            showSavedMessage('手动持仓已保存')
+        } catch (err) {
+            alert(err instanceof Error ? err.message : '手动持仓同步失败')
+        } finally {
+            setManualSyncing(false)
+        }
+    }
+
+    const clearManualImport = async () => {
+        if (!confirm('确定清空手动导入的持仓上下文吗？')) return
+        try {
+            await api.clearManualImport()
+            await fetchManualImportState()
+            setManualPositionsText('')
+        } catch (err) {
+            alert(err instanceof Error ? err.message : '清空手动持仓失败')
         }
     }
 
@@ -422,6 +503,102 @@ export default function Settings() {
                     <div>当前登录：{user?.email || '-'}</div>
                     <div className="mt-1 text-slate-500 dark:text-slate-400">报告历史、分析任务和模型配置仅当前账户可见。</div>
                 </div>
+            </div>
+
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <Database className="w-5 h-5 text-sky-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">手动持仓导入</h2>
+                    <div className="group relative">
+                        <button
+                            type="button"
+                            aria-label="手动持仓说明"
+                            className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300"
+                        >
+                            <Info className="h-3 w-3" />
+                        </button>
+                        <div className="pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                            <div className="font-medium text-slate-900 dark:text-slate-100">手动输入持仓</div>
+                            <div className="mt-2">
+                                无需安装任何本地客户端，直接在网页上粘贴持仓信息即可。适合在 Web 端使用或没有 QMT 的用户。
+                            </div>
+                            <div className="mt-2">
+                                每行一只股票，格式：<code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">代码 名称 持仓 成本 市值</code>
+                            </div>
+                            <div className="mt-2">
+                                支持用逗号、Tab 或空格分隔。股票代码支持 600519.SH 或纯 6 位数字。
+                            </div>
+                        </div>
+                    </div>
+                    <div className="ml-auto flex items-center gap-3">
+                        {manualSyncing && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+                    </div>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                    直接粘贴或输入持仓信息，无需本地券商客户端。同步后跟踪看板和定时分析会自动使用持仓上下文。
+                </p>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">持仓列表（每行一只）</label>
+                    <textarea
+                        value={manualPositionsText}
+                        onChange={e => setManualPositionsText(e.target.value)}
+                        rows={6}
+                        className="input w-full font-mono text-xs"
+                        placeholder={"600519.SH 贵州茅台 100 1800.5 180050\n000858 五粮液 200 150.3 30060\n300750 宁德时代 50 210 10500"}
+                    />
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        格式：代码 [名称] [持仓数] [成本价] [市值]，用逗号/Tab/空格分隔
+                    </p>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" checked={manualAutoApply} onChange={e => setManualAutoApply(e.target.checked)} />
+                    自动加入定时任务
+                </label>
+
+                <div className="flex flex-wrap gap-3">
+                    <button type="button" onClick={() => { void handleSyncManual() }} disabled={manualSyncing} className="btn-primary inline-flex items-center gap-2">
+                        {manualSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        保存持仓
+                    </button>
+                    <button type="button" onClick={clearManualImport} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                        <Trash2 className="w-4 h-4" />
+                        清空持仓
+                    </button>
+                </div>
+
+                {manualImportState && manualImportState.summary.positions > 0 && (
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
+                        <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
+                            <span>持仓 {manualImportState.summary.positions} 只</span>
+                            <span>{manualImportState.last_synced_at ? `最近同步 ${manualImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
+                        </div>
+                        {!!manualImportState.scheduled_sync && (
+                            <div className="flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300">
+                                <span>新增定时任务 {manualImportState.scheduled_sync.created.length} 只</span>
+                                <span>已存在 {manualImportState.scheduled_sync.existing.length} 只</span>
+                                {manualImportState.scheduled_sync.skipped_limit.length > 0 && (
+                                    <span>超出上限未加入 {manualImportState.scheduled_sync.skipped_limit.length} 只</span>
+                                )}
+                            </div>
+                        )}
+                        <div className="max-h-64 overflow-y-auto pr-1 space-y-2">
+                            {manualImportState.positions.map(item => (
+                                <div
+                                    key={item.symbol}
+                                    className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+                                >
+                                    <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
+                                    <span>{item.symbol}</span>
+                                    <span>持仓 {item.current_position ?? '-'}</span>
+                                    <span>成本 {item.average_cost ?? '-'}</span>
+                                    <span>市值 {item.market_value ?? '-'}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="card space-y-4">
