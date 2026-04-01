@@ -331,6 +331,11 @@ export interface Report {
     stop_loss_price?: number
     risk_items?: RiskItem[]
     key_metrics?: KeyMetric[]
+    report_source?: 'manual' | 'scheduled'
+    scheduled_task_id?: string
+    scheduled_task_slot?: string
+    scheduled_frequency?: string
+    prompt_snapshot?: string
     created_at?: string
     updated_at?: string
     waiting_ahead_count?: number | null
@@ -391,6 +396,7 @@ export interface WatchlistItem {
     sort_order: number
     created_at: string
     has_scheduled: boolean
+    scheduled_count?: number
 }
 
 export interface WatchlistBatchResult {
@@ -417,9 +423,18 @@ export interface ScheduledAnalysis {
     id: string
     symbol: string
     name: string
+    task_type: 'market_window' | 'custom_recurring'
+    task_slot: string
+    task_label: string
+    frequency: 'trading_day' | 'daily' | 'weekly' | 'monthly'
     horizon: string
     trigger_time: string
+    day_of_week?: number | null
+    day_of_month?: number | null
+    prompt_mode: 'merge_global' | 'override_global'
+    custom_prompt?: string | null
     is_active: boolean
+    last_run_key?: string | null
     last_run_date: string | null
     last_run_status: string | null
     last_report_id: string | null
@@ -565,6 +580,7 @@ export interface RuntimeConfig {
     backend_url: string
     max_debate_rounds: number
     max_risk_discuss_rounds: number
+    analysis_prompt?: string
     has_api_key?: boolean
     has_wecom_webhook?: boolean
     wecom_webhook_display?: string | null
@@ -588,6 +604,7 @@ export interface RuntimeConfigUpdate {
     backend_url?: string
     max_debate_rounds?: number
     max_risk_discuss_rounds?: number
+    analysis_prompt?: string
     api_key?: string
     wecom_webhook_url?: string
     clear_api_key?: boolean

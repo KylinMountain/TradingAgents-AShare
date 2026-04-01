@@ -129,6 +129,14 @@ function ActiveDetailStatusCard({ report }: { report: ReportDetail }) {
     )
 }
 
+const formatScheduledFrequency = (frequency?: string) => {
+    if (frequency === 'trading_day') return '交易日'
+    if (frequency === 'daily') return '每天'
+    if (frequency === 'weekly') return '每周'
+    if (frequency === 'monthly') return '每月'
+    return frequency || '-'
+}
+
 const renderStatusBadge = (report: Report) => {
     switch (report.status) {
         case 'pending':
@@ -509,6 +517,11 @@ export default function Reports() {
                 <div className="flex items-center gap-4 text-sm text-slate-500">
                     <span>分析日期：{selectedReport.trade_date}</span>
                     <span>生成时间：{selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleString('zh-CN') : '-'}</span>
+                    {selectedReport.report_source === 'scheduled' && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                            定时报告 · {formatScheduledFrequency(selectedReport.scheduled_frequency)}
+                        </span>
+                    )}
                 </div>
 
                 {/* 历史决策时间线 */}
@@ -728,6 +741,11 @@ export default function Reports() {
                                                         <p className="font-medium text-slate-900 dark:text-slate-100">{report.name || report.symbol}</p>
                                                         {report.name && report.name !== report.symbol && (
                                                             <p className="text-xs text-slate-400 dark:text-slate-500">{report.symbol}</p>
+                                                        )}
+                                                        {report.report_source === 'scheduled' && (
+                                                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
+                                                                定时任务 · {formatScheduledFrequency(report.scheduled_frequency)}
+                                                            </p>
                                                         )}
                                                     </div>
                                                 </div>

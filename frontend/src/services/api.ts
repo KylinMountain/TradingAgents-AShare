@@ -6,11 +6,11 @@ export function getBaseUrl(): string {
     if (typeof window !== 'undefined' && window.location?.origin) {
         return window.location.origin.replace(/\/$/, '')
     }
-    return 'http://localhost:8000'
+    return 'http://localhost:22222'
 }
 
 // Kept for backward compatibility
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:22222'
 
 function getAuthToken(): string | null {
     try {
@@ -180,13 +180,31 @@ class ApiService {
     async getPortfolioOverview(): Promise<PortfolioOverviewResponse> {
         return this.request<PortfolioOverviewResponse>('/v1/portfolio/overview')
     }
-    async createScheduled(symbol: string, horizon?: string, trigger_time?: string): Promise<ScheduledAnalysis> {
+    async createScheduled(data: {
+        symbol: string
+        task_type: 'market_window' | 'custom_recurring'
+        task_slot: string
+        frequency?: 'trading_day' | 'daily' | 'weekly' | 'monthly'
+        trigger_time?: string
+        day_of_week?: number | null
+        day_of_month?: number | null
+        prompt_mode?: 'merge_global' | 'override_global'
+        custom_prompt?: string
+    }): Promise<ScheduledAnalysis> {
         return this.request<ScheduledAnalysis>('/v1/scheduled', {
             method: 'POST',
-            body: JSON.stringify({ symbol, horizon, trigger_time }),
+            body: JSON.stringify(data),
         })
     }
-    async updateScheduled(id: string, data: { is_active?: boolean; horizon?: string; trigger_time?: string }): Promise<ScheduledAnalysis> {
+    async updateScheduled(id: string, data: {
+        is_active?: boolean
+        frequency?: 'daily' | 'weekly' | 'monthly'
+        trigger_time?: string
+        day_of_week?: number | null
+        day_of_month?: number | null
+        prompt_mode?: 'merge_global' | 'override_global'
+        custom_prompt?: string
+    }): Promise<ScheduledAnalysis> {
         return this.request<ScheduledAnalysis>('/v1/scheduled/' + id, {
             method: 'PATCH',
             body: JSON.stringify(data),
@@ -194,7 +212,15 @@ class ApiService {
     }
     async updateScheduledBatch(
         item_ids: string[],
-        data: { is_active?: boolean; horizon?: string; trigger_time?: string }
+        data: {
+            is_active?: boolean
+            frequency?: 'daily' | 'weekly' | 'monthly'
+            trigger_time?: string
+            day_of_week?: number | null
+            day_of_month?: number | null
+            prompt_mode?: 'merge_global' | 'override_global'
+            custom_prompt?: string
+        }
     ): Promise<{ items: ScheduledAnalysis[] }> {
         return this.request<{ items: ScheduledAnalysis[] }>('/v1/scheduled/batch', {
             method: 'PATCH',

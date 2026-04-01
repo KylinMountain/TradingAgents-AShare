@@ -211,10 +211,8 @@ async def _scheduler_loop():
             today = now.strftime("%Y-%m-%d")
             current_hhmm = now.strftime("%H:%M")
 
-            if not is_cn_trading_day(today):
-                continue
             time_val = now.hour * 60 + now.minute
-            if 8 * 60 < time_val < 20 * 60:
+            if 8 * 60 < time_val < 20 * 60 and current_hhmm != "12:00":
                 continue
 
             with get_db_ctx() as db:
@@ -224,6 +222,7 @@ async def _scheduler_loop():
 
                 # 先标记为"已触发"防止下次循环重复启动
                 for task in tasks:
+                    task.last_run_key = scheduled_service.current_run_key(task, today)
                     task.last_run_date = today
                     task.last_run_status = "running"
                 db.commit()
@@ -235,7 +234,12 @@ async def _scheduler_loop():
                         "id": task.id,
                         "user_id": task.user_id,
                         "symbol": task.symbol,
+                        "task_slot": task.task_slot,
+                        "task_type": task.task_type,
+                        "frequency": task.frequency,
                         "horizon": task.horizon,
+                        "prompt_mode": task.prompt_mode,
+                        "custom_prompt": task.custom_prompt,
                     }
                     for task in tasks
                 ]
@@ -263,9 +267,26 @@ def _build_scheduled_analyze_request(
     symbol: str,
     horizon: str,
     trade_date: str,
+    task: Optional[Dict[str, Any]] = None,
     scheduled_user_context: Optional[Dict[str, Any]] = None,
 ) -> "AnalyzeRequest":
     scheduled_user_context = scheduled_user_context or _build_imported_user_context(db, user_id, symbol)
+    task = task or {}
+    runtime_cfg = _build_runtime_config({}, user_id=user_id, db=db)
+    global_prompt = str(runtime_cfg.get("analysis_prompt") or "").strip()
+    local_prompt = str(task.get("custom_prompt") or "").strip()
+    prompt_mode = task.get("prompt_mode") or "merge_global"
+    if prompt_mode == "override_global":
+        prompt_snapshot = local_prompt
+    elif global_prompt and local_prompt:
+        prompt_snapshot = f"{global_prompt}\n\n{local_prompt}"
+    else:
+        prompt_snapshot = global_prompt or local_prompt or None
+
+    user_notes = scheduled_user_context.get("user_notes")
+    if prompt_snapshot:
+        prompt_note = f"定时分析要求：{prompt_snapshot}"
+        user_notes = f"{user_notes}\n\n{prompt_note}" if user_notes else prompt_note
     return AnalyzeRequest(
         symbol=symbol,
         trade_date=trade_date,
@@ -282,7 +303,12 @@ def _build_scheduled_analyze_request(
         current_position=scheduled_user_context.get("current_position"),
         current_position_pct=scheduled_user_context.get("current_position_pct"),
         average_cost=scheduled_user_context.get("average_cost"),
-        user_notes=scheduled_user_context.get("user_notes"),
+        user_notes=user_notes,
+        report_source="scheduled",
+        scheduled_task_id=task.get("id"),
+        scheduled_task_slot=task.get("task_slot"),
+        scheduled_frequency=task.get("frequency"),
+        prompt_snapshot=prompt_snapshot,
     )
 
 
@@ -352,6 +378,7 @@ async def _run_scheduled_analysis_once(
                     symbol=symbol,
                     horizon=horizon,
                     trade_date=actual_trade_date,
+                    task=task,
                     scheduled_user_context=scheduled_user_context,
                 )
 
@@ -489,6 +516,7 @@ app = FastAPI(
     redoc_url=None if _is_prod else "/redoc",
     openapi_url=None if _is_prod else "/openapi.json",
 )
+init_db()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
@@ -763,6 +791,11 @@ class AnalyzeRequest(UserContextInput):
     horizons: List[str] = Field(default_factory=lambda: ["short"], description="分析周期列表，如 ['short'] 或 ['short','medium']")
     # Pre-parsed intent from _ai_extract_symbol_and_date (avoids second LLM call in _run_job)
     user_intent: Optional[Dict[str, Any]] = Field(default=None, description="预解析的用户意图，由 chat_completions 传入")
+    report_source: str = Field(default="manual", description="manual 或 scheduled")
+    scheduled_task_id: Optional[str] = None
+    scheduled_task_slot: Optional[str] = None
+    scheduled_frequency: Optional[str] = None
+    prompt_snapshot: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -851,6 +884,11 @@ class ReportResponse(BaseModel):
     risk_items: Optional[List[Dict[str, Any]]] = None
     key_metrics: Optional[List[Dict[str, Any]]] = None
     analyst_traces: Optional[List[Dict[str, Any]]] = None
+    report_source: Optional[str] = "manual"
+    scheduled_task_id: Optional[str] = None
+    scheduled_task_slot: Optional[str] = None
+    scheduled_frequency: Optional[str] = None
+    prompt_snapshot: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     waiting_ahead_count: Optional[int] = None
@@ -921,7 +959,12 @@ class ScheduledBatchUpdateRequest(BaseModel):
     item_ids: List[str] = Field(default_factory=list)
     is_active: Optional[bool] = None
     horizon: Optional[str] = None
+    frequency: Optional[str] = None
     trigger_time: Optional[str] = None
+    day_of_week: Optional[int] = None
+    day_of_month: Optional[int] = None
+    prompt_mode: Optional[str] = None
+    custom_prompt: Optional[str] = None
 
 
 class AnnouncementItemResponse(BaseModel):
@@ -980,6 +1023,7 @@ class UserRuntimeConfigResponse(BaseModel):
     backend_url: str
     max_debate_rounds: int
     max_risk_discuss_rounds: int
+    analysis_prompt: str = ""
     has_api_key: bool = False
     has_wecom_webhook: bool = False
     wecom_webhook_display: Optional[str] = None
@@ -995,6 +1039,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     backend_url: Optional[str] = None
     max_debate_rounds: Optional[int] = None
     max_risk_discuss_rounds: Optional[int] = None
+    analysis_prompt: Optional[str] = None
     email_report_enabled: Optional[bool] = None
     wecom_report_enabled: Optional[bool] = None
     api_key: Optional[str] = None
@@ -1098,6 +1143,7 @@ def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None)
             "deep_think_llm",
             "max_debate_rounds",
             "max_risk_discuss_rounds",
+            "analysis_prompt",
         ):
             value = getattr(user_cfg, key, None)
             if value is not None:
@@ -2078,6 +2124,11 @@ async def _run_job_inner(
                 "confidence": resolved["confidence"],
                 "target_price": resolved["target_price"],
                 "stop_loss_price": resolved["stop_loss_price"],
+                "report_source": request.report_source,
+                "scheduled_task_id": request.scheduled_task_id,
+                "scheduled_task_slot": request.scheduled_task_slot,
+                "scheduled_frequency": request.scheduled_frequency,
+                "prompt_snapshot": request.prompt_snapshot,
             })
 
             # 自动保存报告到数据库
@@ -2098,6 +2149,11 @@ async def _run_job_inner(
                             stop_loss_override=result["stop_loss_price"],
                             report_id=job_id,
                             analyst_traces=result.get("analyst_traces"),
+                            report_source=request.report_source,
+                            scheduled_task_id=request.scheduled_task_id,
+                            scheduled_task_slot=request.scheduled_task_slot,
+                            scheduled_frequency=request.scheduled_frequency,
+                            prompt_snapshot=request.prompt_snapshot,
                         )
                         save_db.commit()
 
@@ -2309,6 +2365,11 @@ async def _run_job_inner(
             "confidence": resolved["confidence"],
             "target_price": resolved["target_price"],
             "stop_loss_price": resolved["stop_loss_price"],
+            "report_source": request.report_source,
+            "scheduled_task_id": request.scheduled_task_id,
+            "scheduled_task_slot": request.scheduled_task_slot,
+            "scheduled_frequency": request.scheduled_frequency,
+            "prompt_snapshot": request.prompt_snapshot,
         })
 
         # 自动保存/收口报告到数据库
@@ -2329,6 +2390,11 @@ async def _run_job_inner(
                         stop_loss_override=result["stop_loss_price"],
                         report_id=job_id,
                         analyst_traces=result.get("analyst_traces"),
+                        report_source=request.report_source,
+                        scheduled_task_id=request.scheduled_task_id,
+                        scheduled_task_slot=request.scheduled_task_slot,
+                        scheduled_frequency=request.scheduled_frequency,
+                        prompt_snapshot=request.prompt_snapshot,
                     )
                     save_db.commit()
 
@@ -3528,7 +3594,7 @@ def delete_backtest(job_id: str) -> Dict:
 
 _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
-    "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
+    "backend_url", "max_debate_rounds", "max_risk_discuss_rounds", "analysis_prompt",
 }
 _CONFIG_PREFERENCE_KEYS = {"email_report_enabled", "wecom_report_enabled"}
 _CONFIG_MODEL_KEYS = ("llm_provider", "backend_url", "quick_think_llm", "deep_think_llm")
@@ -3775,6 +3841,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         backend_url=cfg["backend_url"],
         max_debate_rounds=cfg["max_debate_rounds"],
         max_risk_discuss_rounds=cfg["max_risk_discuss_rounds"],
+        analysis_prompt=str(cfg.get("analysis_prompt") or ""),
         has_api_key=bool(user_cfg and user_cfg.api_key_encrypted),
         has_wecom_webhook=bool(webhook_url),
         wecom_webhook_display=_mask_wecom_webhook(webhook_url),
@@ -3856,6 +3923,7 @@ def update_runtime_config(
         backend_url=updates.backend_url,
         max_debate_rounds=updates.max_debate_rounds,
         max_risk_discuss_rounds=updates.max_risk_discuss_rounds,
+        analysis_prompt=updates.analysis_prompt,
         api_key=updates.api_key,
         wecom_webhook_url=normalized_wecom_webhook,
         clear_api_key=updates.clear_api_key,
@@ -4281,15 +4349,33 @@ def create_scheduled_analysis(
     db: Session = Depends(get_db),
 ):
     symbol = body.get("symbol", "").strip().upper()
-    horizon = body.get("horizon", "short")
-    trigger_time = body.get("trigger_time", "20:00")
+    task_type = body.get("task_type")
+    task_slot = body.get("task_slot", "")
+    legacy_horizon = body.get("horizon") or "short"
+    legacy_trigger_time = body.get("trigger_time") or "20:00"
+    if not task_type or not task_slot:
+        task_type = "custom_recurring"
+        task_slot = "custom_long" if legacy_horizon == "medium" else "custom_short"
     if not symbol:
         raise HTTPException(400, "symbol is required")
     code_to_name = _get_reverse_stock_map()
     if symbol not in code_to_name:
         raise HTTPException(400, f"未知的股票代码: {symbol}")
     try:
-        item = scheduled_service.create_scheduled(db, current_user.id, symbol, horizon, trigger_time)
+        item = scheduled_service.create_scheduled(
+            db,
+            current_user.id,
+            symbol,
+            task_type=task_type,
+            task_slot=task_slot,
+            frequency=body.get("frequency") or ("daily" if task_type == "custom_recurring" else "trading_day"),
+            horizon=body.get("horizon"),
+            trigger_time=body.get("trigger_time") or legacy_trigger_time,
+            day_of_week=body.get("day_of_week"),
+            day_of_month=body.get("day_of_month"),
+            prompt_mode=body.get("prompt_mode", "merge_global"),
+            custom_prompt=body.get("custom_prompt"),
+        )
         item["name"] = code_to_name.get(symbol, symbol)
         _annotate_scheduled_with_imported_context([item], db, current_user.id)
         return item
@@ -4303,8 +4389,18 @@ def _extract_scheduled_update_kwargs(body: dict) -> dict:
         kwargs["is_active"] = bool(body["is_active"])
     if "horizon" in body:
         kwargs["horizon"] = body["horizon"]
+    if "frequency" in body:
+        kwargs["frequency"] = body["frequency"]
     if "trigger_time" in body:
         kwargs["trigger_time"] = body["trigger_time"]
+    if "day_of_week" in body:
+        kwargs["day_of_week"] = body["day_of_week"]
+    if "day_of_month" in body:
+        kwargs["day_of_month"] = body["day_of_month"]
+    if "prompt_mode" in body:
+        kwargs["prompt_mode"] = body["prompt_mode"]
+    if "custom_prompt" in body:
+        kwargs["custom_prompt"] = body["custom_prompt"]
     return kwargs
 
 

@@ -119,7 +119,6 @@ export default function Settings() {
                     localStorage.setItem('tradingagents-settings', JSON.stringify(s))
                 }
                 if (s.defaultAnalysts) setDefaultAnalysts(s.defaultAnalysts)
-                if (typeof s.customPrompt === 'string') setCustomPrompt(s.customPrompt)
             }
         } catch {}
     }, [])
@@ -135,6 +134,7 @@ export default function Settings() {
                 setQuickThinkLlm(cfg.quick_think_llm)
                 setMaxDebateRounds(cfg.max_debate_rounds)
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
+                setCustomPrompt(cfg.analysis_prompt || '')
                 setHasStoredApiKey(!!cfg.has_api_key)
                 setHasStoredWebhook(!!cfg.has_wecom_webhook)
                 setStoredWebhookDisplay(cfg.wecom_webhook_display || '')
@@ -215,9 +215,7 @@ export default function Settings() {
     const persistLocalSettings = () => {
         localStorage.setItem('tradingagents-settings', JSON.stringify({
             defaultAnalysts,
-            customPrompt,
         }))
-        localStorage.setItem('ta-custom-prompt', customPrompt)
     }
 
     const buildRuntimeConfigPayload = (options?: { includeEmail?: boolean; includeWecom?: boolean }) => ({
@@ -227,6 +225,7 @@ export default function Settings() {
         quick_think_llm: quickThinkLlm,
         max_debate_rounds: maxDebateRounds,
         max_risk_discuss_rounds: maxRiskRounds,
+        analysis_prompt: customPrompt,
         api_key: llmApiKey || undefined,
         ...(options?.includeWecom ? {
             wecom_webhook_url: wecomWebhook.trim() || undefined,

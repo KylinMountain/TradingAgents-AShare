@@ -18,19 +18,23 @@ def list_watchlist(db: Session, user_id: str) -> List[dict]:
         .order_by(WatchlistItemDB.sort_order, WatchlistItemDB.created_at)
         .all()
     )
-    scheduled_symbols = set(
-        row.symbol for row in
+    scheduled_rows = (
         db.query(ScheduledAnalysisDB.symbol)
         .filter(ScheduledAnalysisDB.user_id == user_id)
         .all()
     )
+    scheduled_counts: dict[str, int] = {}
+    for row in scheduled_rows:
+        symbol = row.symbol
+        scheduled_counts[symbol] = scheduled_counts.get(symbol, 0) + 1
     return [
         {
             "id": item.id,
             "symbol": item.symbol,
             "sort_order": item.sort_order,
             "created_at": item.created_at.isoformat() if item.created_at else None,
-            "has_scheduled": item.symbol in scheduled_symbols,
+            "has_scheduled": scheduled_counts.get(item.symbol, 0) > 0,
+            "scheduled_count": scheduled_counts.get(item.symbol, 0),
         }
         for item in items
     ]

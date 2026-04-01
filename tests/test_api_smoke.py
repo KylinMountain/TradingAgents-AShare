@@ -174,6 +174,14 @@ class TestAnalyzeEndpoint:
         now = datetime.now(timezone.utc)
 
         with get_db_ctx() as db:
+            db.query(ImportedPortfolioPositionDB).filter(
+                ImportedPortfolioPositionDB.user_id == current_user["id"],
+                ImportedPortfolioPositionDB.source == "qmt_xtquant",
+                ImportedPortfolioPositionDB.symbol == "600519.SH",
+            ).delete()
+            db.query(QmtImportConfigDB).filter(
+                QmtImportConfigDB.user_id == current_user["id"],
+            ).delete()
             db.add(
                 QmtImportConfigDB(
                     id=uuid4().hex,
@@ -217,6 +225,14 @@ class TestAnalyzeEndpoint:
         assert user_context["average_cost"] == pytest.approx(1680.5)
         assert user_context["current_position_pct"] == pytest.approx(42.5)
         assert "QMT / xtquant 持仓同步" in (user_context.get("user_notes") or "")
+
+    def test_runtime_config_supports_analysis_prompt(self):
+        r = self.client.patch("/v1/config", headers=self.headers, json={
+            "analysis_prompt": "更关注政策催化与机构资金变化",
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert body["current"]["analysis_prompt"] == "更关注政策催化与机构资金变化"
 
 
 class TestChatCompletionsEndpoint:

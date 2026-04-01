@@ -383,6 +383,11 @@ def create_report(
     target_price_override: Optional[float] = None,
     stop_loss_override: Optional[float] = None,
     report_id: Optional[str] = None,  # If provided, update existing
+    report_source: str = "manual",
+    scheduled_task_id: Optional[str] = None,
+    scheduled_task_slot: Optional[str] = None,
+    scheduled_frequency: Optional[str] = None,
+    prompt_snapshot: Optional[str] = None,
 ) -> ReportDB:
     """Create or finalize a report."""
     resolved = resolve_report_fields(
@@ -422,6 +427,11 @@ def create_report(
         db_report.investment_plan = resolved["investment_plan"]
         db_report.trader_investment_plan = resolved["trader_investment_plan"]
         db_report.final_trade_decision = resolved["final_trade_decision"]
+        db_report.report_source = report_source
+        db_report.scheduled_task_id = scheduled_task_id
+        db_report.scheduled_task_slot = scheduled_task_slot
+        db_report.scheduled_frequency = scheduled_frequency
+        db_report.prompt_snapshot = prompt_snapshot
         db_report.updated_at = now
     else:
         # Create new
@@ -451,6 +461,11 @@ def create_report(
             investment_plan=resolved["investment_plan"],
             trader_investment_plan=resolved["trader_investment_plan"],
             final_trade_decision=resolved["final_trade_decision"],
+            report_source=report_source,
+            scheduled_task_id=scheduled_task_id,
+            scheduled_task_slot=scheduled_task_slot,
+            scheduled_frequency=scheduled_frequency,
+            prompt_snapshot=prompt_snapshot,
             created_at=now,
             updated_at=now,
         )

@@ -93,6 +93,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_report_schema()
     _ensure_user_schema()
+    _ensure_scheduled_schema()
 
 
 def _ensure_report_schema() -> None:
@@ -116,6 +117,16 @@ def _ensure_report_schema() -> None:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN game_theory_report TEXT"))
             if "volume_price_report" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN volume_price_report TEXT"))
+            if "report_source" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN report_source VARCHAR(20) DEFAULT 'manual'"))
+            if "scheduled_task_id" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN scheduled_task_id VARCHAR(36)"))
+            if "scheduled_task_slot" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN scheduled_task_slot VARCHAR(40)"))
+            if "scheduled_frequency" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN scheduled_frequency VARCHAR(20)"))
+            if "prompt_snapshot" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN prompt_snapshot TEXT"))
     except Exception as e:
         logger.error("Failed to ensure report schema: %s", e)
 
@@ -131,7 +142,10 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
             if "wecom_report_enabled" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN wecom_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+
             llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
+            if "analysis_prompt" not in llm_columns:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN analysis_prompt TEXT"))
             if "wecom_webhook_encrypted" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
     except Exception as e:
@@ -139,6 +153,142 @@ def _ensure_user_schema() -> None:
 
     _migrate_tokens_to_hashed()
     _migrate_api_keys_reencrypt()
+
+
+def _ensure_scheduled_schema() -> None:
+    """Migrate scheduled tasks to the 5-slot model for existing SQLite deployments."""
+    try:
+        with engine.begin() as conn:
+            table_info = conn.execute(text("PRAGMA table_info(scheduled_analyses)")).fetchall()
+            if not table_info:
+                return
+
+            columns = {row[1] for row in table_info}
+            needs_rebuild = any(
+                col not in columns
+                for col in (
+                    "task_type",
+                    "task_slot",
+                    "frequency",
+                    "day_of_week",
+                    "day_of_month",
+                    "prompt_mode",
+                    "custom_prompt",
+                    "last_run_key",
+                )
+            )
+
+            create_sql_row = conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE type='table' AND name='scheduled_analyses'")
+            ).fetchone()
+            create_sql = (create_sql_row[0] if create_sql_row else "") or ""
+            if "uq_scheduled_user_symbol_task_slot" not in create_sql:
+                needs_rebuild = True
+
+            if not needs_rebuild:
+                return
+
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, user_id, symbol, horizon, trigger_time, is_active,
+                           last_run_date, last_run_status, last_report_id,
+                           consecutive_failures, created_at, updated_at
+                    FROM scheduled_analyses
+                    """
+                )
+            ).fetchall()
+
+            conn.execute(text("DROP TABLE IF EXISTS scheduled_analyses_new"))
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE scheduled_analyses_new (
+                        id VARCHAR(36) PRIMARY KEY,
+                        user_id VARCHAR(64) NOT NULL,
+                        symbol VARCHAR(20) NOT NULL,
+                        task_type VARCHAR(20) NOT NULL DEFAULT 'market_window',
+                        task_slot VARCHAR(40) NOT NULL,
+                        frequency VARCHAR(20) NOT NULL DEFAULT 'trading_day',
+                        horizon VARCHAR(10) DEFAULT 'short',
+                        trigger_time VARCHAR(5) DEFAULT '20:00',
+                        day_of_week INTEGER,
+                        day_of_month INTEGER,
+                        prompt_mode VARCHAR(20) NOT NULL DEFAULT 'merge_global',
+                        custom_prompt TEXT,
+                        is_active BOOLEAN DEFAULT 1,
+                        last_run_key VARCHAR(20),
+                        last_run_date VARCHAR(10),
+                        last_run_status VARCHAR(10),
+                        last_report_id VARCHAR(36),
+                        consecutive_failures INTEGER DEFAULT 0,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        CONSTRAINT uq_scheduled_user_symbol_task_slot UNIQUE (user_id, symbol, task_slot)
+                    )
+                    """
+                )
+            )
+
+            for row in rows:
+                horizon = row[3] or "short"
+                trigger_time = row[4] or "20:00"
+                if trigger_time == "08:00":
+                    task_slot = "pre_open_0800"
+                elif trigger_time == "12:00":
+                    task_slot = "midday_1200"
+                elif trigger_time == "20:00":
+                    task_slot = "post_close_2000"
+                elif horizon == "medium":
+                    task_slot = "custom_long"
+                else:
+                    task_slot = "custom_short"
+                task_type = "market_window" if task_slot in {"pre_open_0800", "midday_1200", "post_close_2000"} else "custom_recurring"
+                frequency = "trading_day" if task_type == "market_window" else "daily"
+
+                conn.execute(
+                    text(
+                        """
+                        INSERT OR IGNORE INTO scheduled_analyses_new (
+                            id, user_id, symbol, task_type, task_slot, frequency, horizon,
+                            trigger_time, day_of_week, day_of_month, prompt_mode,
+                            custom_prompt, is_active, last_run_key, last_run_date,
+                            last_run_status, last_report_id, consecutive_failures,
+                            created_at, updated_at
+                        ) VALUES (
+                            :id, :user_id, :symbol, :task_type, :task_slot, :frequency, :horizon,
+                            :trigger_time, NULL, NULL, 'merge_global',
+                            NULL, :is_active, :last_run_key, :last_run_date,
+                            :last_run_status, :last_report_id, :consecutive_failures,
+                            :created_at, :updated_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": row[0],
+                        "user_id": row[1],
+                        "symbol": row[2],
+                        "task_type": task_type,
+                        "task_slot": task_slot,
+                        "frequency": frequency,
+                        "horizon": horizon,
+                        "trigger_time": trigger_time,
+                        "is_active": row[5],
+                        "last_run_key": row[6],
+                        "last_run_date": row[6],
+                        "last_run_status": row[7],
+                        "last_report_id": row[8],
+                        "consecutive_failures": row[9],
+                        "created_at": row[10],
+                        "updated_at": row[11],
+                    },
+                )
+
+            conn.execute(text("DROP TABLE scheduled_analyses"))
+            conn.execute(text("ALTER TABLE scheduled_analyses_new RENAME TO scheduled_analyses"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scheduled_analyses_user_id ON scheduled_analyses (user_id)"))
+    except Exception as e:
+        print(f"Warning: Failed to ensure scheduled schema: {e}")
 
 
 def _migrate_tokens_to_hashed() -> None:
@@ -279,6 +429,11 @@ class ReportDB(Base):
     investment_plan = Column(Text, nullable=True)
     trader_investment_plan = Column(Text, nullable=True)
     final_trade_decision = Column(Text, nullable=True)
+    report_source = Column(String(20), default="manual")
+    scheduled_task_id = Column(String(36), nullable=True, index=True)
+    scheduled_task_slot = Column(String(40), nullable=True)
+    scheduled_frequency = Column(String(20), nullable=True)
+    prompt_snapshot = Column(Text, nullable=True)
     
     # Metadata
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -311,6 +466,11 @@ class ReportDB(Base):
             "investment_plan": self.investment_plan,
             "trader_investment_plan": self.trader_investment_plan,
             "final_trade_decision": self.final_trade_decision,
+            "report_source": self.report_source,
+            "scheduled_task_id": self.scheduled_task_id,
+            "scheduled_task_slot": self.scheduled_task_slot,
+            "scheduled_frequency": self.scheduled_frequency,
+            "prompt_snapshot": self.prompt_snapshot,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -352,6 +512,7 @@ class UserLLMConfigDB(Base):
     deep_think_llm = Column(String(255), nullable=True)
     max_debate_rounds = Column(Integer, nullable=True)
     max_risk_discuss_rounds = Column(Integer, nullable=True)
+    analysis_prompt = Column(Text, nullable=True)
     api_key_encrypted = Column(Text, nullable=True)
     wecom_webhook_encrypted = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -395,15 +556,23 @@ class WatchlistItemDB(Base):
 
 
 class ScheduledAnalysisDB(Base):
-    """Scheduled daily analysis tasks."""
+    """Scheduled analysis tasks in fixed per-stock slots."""
     __tablename__ = "scheduled_analyses"
 
     id = Column(String(36), primary_key=True)
     user_id = Column(String(64), index=True, nullable=False)
     symbol = Column(String(20), nullable=False)
+    task_type = Column(String(20), nullable=False, default="market_window")
+    task_slot = Column(String(40), nullable=False)
+    frequency = Column(String(20), nullable=False, default="trading_day")
     horizon = Column(String(10), default="short")
     trigger_time = Column(String(5), default="20:00")
+    day_of_week = Column(Integer, nullable=True)
+    day_of_month = Column(Integer, nullable=True)
+    prompt_mode = Column(String(20), nullable=False, default="merge_global")
+    custom_prompt = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
+    last_run_key = Column(String(20), nullable=True)
     last_run_date = Column(String(10), nullable=True)
     last_run_status = Column(String(10), nullable=True)
     last_report_id = Column(String(36), nullable=True)
@@ -411,7 +580,7 @@ class ScheduledAnalysisDB(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_scheduled_user_symbol'),)
+    __table_args__ = (UniqueConstraint('user_id', 'symbol', 'task_slot', name='uq_scheduled_user_symbol_task_slot'),)
 
 
 class ThsImportConfigDB(Base):

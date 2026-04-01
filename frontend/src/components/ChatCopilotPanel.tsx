@@ -142,6 +142,7 @@ function ReportCard({
 
 export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initialInput }: ChatCopilotPanelProps) {
     const [input, setInput] = useState(initialInput || '')
+    const [globalPrompt, setGlobalPrompt] = useState('')
     const [streaming, setStreaming] = useState(false)
     const [showConfig, setShowConfig] = useState(false)
     // Tracks agent bubbles waiting for their first token (shows "正在推理分析中..." spinner)
@@ -259,6 +260,12 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             behavior: 'smooth',
         })
     }, [chatMessages])
+
+    useEffect(() => {
+        api.getConfig()
+            .then(cfg => setGlobalPrompt(cfg.analysis_prompt?.trim() || ''))
+            .catch(() => {})
+    }, [])
 
     const toggleAnalyst = (id: string) => {
         setSelectedAnalysts((prev) =>
@@ -625,8 +632,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         if (!prompt || streaming) return
 
         // Inject custom analysis prompt from settings if set
-        const customPrompt = localStorage.getItem('ta-custom-prompt')?.trim() || ''
-        const fullPrompt = customPrompt ? `${prompt}\n\n[分析要求] ${customPrompt}` : prompt
+        const fullPrompt = globalPrompt ? `${prompt}\n\n[分析要求] ${globalPrompt}` : prompt
 
         setInput('')
         addChatMessage({
