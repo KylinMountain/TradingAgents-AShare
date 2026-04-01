@@ -1,0 +1,28 @@
+{
+  "money": [
+    { "name": "*生", "avatar": "/avatars/sponsor-1.jpg", "date": "2026-04-01" },
+    { "name": "*明", "avatar": "/avatars/sponsor-2.jpg", "date": "2026-03-31" }
+  ],
+  "token": [
+    { "name": "shaoqing404", "github": "shaoqing404", "provider": "Qwen", "date": "2026-03-11" }
+  ],
+  "excludeContributors": [
+    "Yijia-Xiao",
+    "EdwardoSunny",
+    "luohy15",
+    "ZeroAct",
+    "AtharvSabde",
+    "saksham0161",
+    "dowithless",
+    "Mirza-Samad-Ahmed-Baig",
+    "maxer137",
+    "quanqigu",
+    "Zhongyi-Lu",
+    "RinZ27",
+    "RealMyth21",
+    "csoboy",
+    "Ljx-007",
+    "chauhang",
+    "dependabot[bot]"
+  ]
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Heart, Megaphone } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Heart, Megaphone, Users } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
@@ -202,6 +202,14 @@ export default function Header() {
                     >
                         <Heart className="w-4 h-4 text-pink-500 dark:text-pink-400 group-hover:text-pink-600 dark:group-hover:text-pink-300" />
                         <span className="text-[13px] font-medium text-pink-600 dark:text-pink-400 group-hover:text-pink-700 dark:group-hover:text-pink-300 hidden sm:inline">赞助</span>
+                    </Link>
+                    <Link
+                        to="/thanks"
+                        className="group flex items-center gap-2 rounded-2xl border border-amber-200 dark:border-amber-900 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-amber-300 dark:hover:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all mr-1"
+                        title="致谢名单"
+                    >
+                        <Users className="w-4 h-4 text-amber-500 dark:text-amber-400 group-hover:text-amber-600 dark:group-hover:text-amber-300" />
+                        <span className="text-[13px] font-medium text-amber-600 dark:text-amber-400 group-hover:text-amber-700 dark:group-hover:text-amber-300 hidden sm:inline">致谢</span>
                     </Link>
                     <a
                         href="https://github.com/KylinMountain/TradingAgents-AShare"
