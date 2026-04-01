@@ -56,6 +56,36 @@ class TestWatchlist:
         assert by_symbol["300750.SZ"]["has_scheduled"] is True
         assert by_symbol["600519.SH"]["has_scheduled"] is False
 
+    def test_batch_add_returns_per_item_results(self, db):
+        results = watchlist_service.add_watchlist_items(
+            db,
+            "user1",
+            ["300750.SZ", "600519.SH"],
+        )
+        assert [item["status"] for item in results] == ["added", "added"]
+        assert len(watchlist_service.list_watchlist(db, "user1")) == 2
+
+    def test_batch_add_marks_duplicates(self, db):
+        watchlist_service.add_watchlist_item(db, "user1", "300750.SZ")
+        results = watchlist_service.add_watchlist_items(
+            db,
+            "user1",
+            ["300750.SZ", "600519.SH", "600519.SH"],
+        )
+        assert [item["status"] for item in results] == ["duplicate", "added", "duplicate"]
+
+    def test_batch_add_marks_limit_failures(self, db):
+        for i in range(49):
+            watchlist_service.add_watchlist_item(db, "user1", f"{600000 + i}.SH")
+        results = watchlist_service.add_watchlist_items(
+            db,
+            "user1",
+            ["300750.SZ", "000001.SZ"],
+        )
+        assert results[0]["status"] == "added"
+        assert results[1]["status"] == "failed"
+        assert "上限" in results[1]["message"]
+
 
 class TestScheduled:
     def test_create_and_list(self, db):
@@ -110,6 +140,45 @@ class TestScheduled:
         updated = scheduled_service.update_scheduled(db, "user1", item["id"], trigger_time="21:30")
         assert updated["trigger_time"] == "21:30"
 
+    def test_batch_update_horizon_and_time(self, db):
+        first = scheduled_service.create_scheduled(db, "user1", "300750.SZ", "short", "20:00")
+        second = scheduled_service.create_scheduled(db, "user1", "600519.SH", "short", "20:00")
+
+        items = scheduled_service.batch_update_scheduled(
+            db,
+            "user1",
+            [first["id"], second["id"]],
+            horizon="medium",
+            trigger_time="21:30",
+        )
+
+        assert [item["horizon"] for item in items] == ["medium", "medium"]
+        assert [item["trigger_time"] for item in items] == ["21:30", "21:30"]
+
+    def test_batch_update_active_resets_failures(self, db):
+        item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
+        scheduled_service.mark_run_failed(db, item["id"], "2026-03-21")
+
+        items = scheduled_service.batch_update_scheduled(
+            db,
+            "user1",
+            [item["id"]],
+            is_active=True,
+        )
+
+        assert items[0]["is_active"] is True
+        assert items[0]["consecutive_failures"] == 0
+
+    def test_batch_update_rejects_invalid_ids(self, db):
+        item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
+        with pytest.raises(ValueError, match="失效"):
+            scheduled_service.batch_update_scheduled(
+                db,
+                "user1",
+                [item["id"], "missing-id"],
+                horizon="medium",
+            )
+
     def test_update_reject_daytime(self, db):
         item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
         with pytest.raises(ValueError, match="20:00"):
@@ -129,6 +198,14 @@ class TestScheduled:
         items = scheduled_service.list_scheduled(db, "user1")
         assert items[0]["is_active"] is False
         assert items[0]["consecutive_failures"] == 3
+
+    def test_record_manual_test_result_keeps_schedule_window_available(self, db):
+        item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
+        scheduled_service.record_manual_test_result(db, item["id"], "success", "manual-report")
+        items = scheduled_service.list_scheduled(db, "user1")
+        assert items[0]["last_run_status"] == "success"
+        assert items[0]["last_report_id"] == "manual-report"
+        assert items[0]["last_run_date"] is None
 
     def test_reactivate_resets_failures(self, db):
         item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
@@ -159,3 +236,13 @@ class TestScheduled:
         item = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
         assert scheduled_service.delete_scheduled(db, "user1", item["id"])
         assert len(scheduled_service.list_scheduled(db, "user1")) == 0
+
+    def test_batch_delete(self, db):
+        first = scheduled_service.create_scheduled(db, "user1", "300750.SZ")
+        second = scheduled_service.create_scheduled(db, "user1", "600519.SH")
+
+        result = scheduled_service.batch_delete_scheduled(db, "user1", [first["id"], second["id"]])
+
+        assert result["deleted_ids"] == [first["id"], second["id"]]
+        assert result["missing_ids"] == []
+        assert scheduled_service.list_scheduled(db, "user1") == []

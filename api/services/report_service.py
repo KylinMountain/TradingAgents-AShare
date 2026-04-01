@@ -7,14 +7,37 @@ import re
 
 logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Iterable, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from api.database import ReportDB
+
+
+REPORT_SUMMARY_COLUMNS = (
+    ReportDB.id,
+    ReportDB.user_id,
+    ReportDB.symbol,
+    ReportDB.trade_date,
+    ReportDB.status,
+    ReportDB.error,
+    ReportDB.decision,
+    ReportDB.direction,
+    ReportDB.confidence,
+    ReportDB.target_price,
+    ReportDB.stop_loss_price,
+    ReportDB.risk_items,
+    ReportDB.key_metrics,
+    ReportDB.analyst_traces,
+    ReportDB.created_at,
+    ReportDB.updated_at,
+)
+
+ACTIVE_REPORT_STATUSES = ("pending", "running")
+STALE_REPORT_ERROR_MESSAGE = "分析任务已中断，请重新发起分析"
 
 
 # ─── Structured extraction schemas ───────────────────────────────────────────
@@ -282,6 +305,61 @@ def update_report_partial(
     return db_report
 
 
+def finalize_orphan_report(
+    db: Session,
+    report: ReportDB,
+    *,
+    error_message: str = STALE_REPORT_ERROR_MESSAGE,
+) -> ReportDB:
+    """Mark an orphaned pending/running report as failed."""
+    if str(report.status or "") not in ACTIVE_REPORT_STATUSES:
+        return report
+
+    report.status = "failed"
+    report.error = error_message
+    report.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def recover_stale_active_reports(
+    db: Session,
+    *,
+    active_job_ids: Optional[Iterable[str]] = None,
+    error_message: str = STALE_REPORT_ERROR_MESSAGE,
+) -> Dict[str, int]:
+    """Recover stale pending/running reports left behind by interrupted jobs."""
+    active_job_id_set = {str(job_id) for job_id in (active_job_ids or []) if str(job_id).strip()}
+    rows = (
+        db.query(ReportDB)
+        .filter(ReportDB.status.in_(ACTIVE_REPORT_STATUSES))
+        .all()
+    )
+    if not rows:
+        return {"total": 0, "failed": 0}
+
+    failed = 0
+    changed = False
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        if str(row.id) in active_job_id_set:
+            continue
+        row.status = "failed"
+        row.error = error_message
+        row.updated_at = now
+        changed = True
+        failed += 1
+
+    if changed:
+        db.commit()
+
+    return {
+        "total": failed,
+        "failed": failed,
+    }
+
+
 def mark_report_failed(
     db: Session,
     report_id: str,
@@ -397,12 +475,40 @@ def get_reports_by_user(
     skip: int = 0,
     limit: int = 100,
 ) -> List[ReportDB]:
-    query = db.query(ReportDB)
+    query = db.query(ReportDB).options(load_only(*REPORT_SUMMARY_COLUMNS))
     if user_id:
         query = query.filter(ReportDB.user_id == user_id)
     if symbol:
         query = query.filter(ReportDB.symbol == symbol)
     return query.order_by(ReportDB.created_at.desc()).offset(skip).limit(limit).all()
+
+
+def get_latest_reports_by_symbols(
+    db: Session,
+    symbols: List[str],
+    user_id: Optional[str] = None,
+) -> List[ReportDB]:
+    normalized_symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()]
+    if not normalized_symbols:
+        return []
+
+    query = db.query(ReportDB).options(load_only(*REPORT_SUMMARY_COLUMNS))
+    if user_id:
+        query = query.filter(ReportDB.user_id == user_id)
+
+    rows = (
+        query.filter(ReportDB.symbol.in_(normalized_symbols))
+        .order_by(ReportDB.symbol.asc(), ReportDB.created_at.desc())
+        .all()
+    )
+
+    latest_by_symbol: dict[str, ReportDB] = {}
+    for row in rows:
+        symbol = str(row.symbol or "").upper()
+        if symbol and symbol not in latest_by_symbol:
+            latest_by_symbol[symbol] = row
+
+    return [latest_by_symbol[symbol] for symbol in normalized_symbols if symbol in latest_by_symbol]
 
 
 def count_reports(
@@ -428,3 +534,42 @@ def delete_report(db: Session, report_id: str, user_id: Optional[str] = None) ->
         db.commit()
         return True
     return False
+
+
+def batch_delete_reports(db: Session, report_ids: Iterable[str], user_id: Optional[str] = None) -> dict:
+    normalized_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_report_id in report_ids:
+        report_id = str(raw_report_id or "").strip()
+        if not report_id or report_id in seen:
+            continue
+        seen.add(report_id)
+        normalized_ids.append(report_id)
+
+    if not normalized_ids:
+        raise ValueError("请至少选择 1 份报告")
+
+    query = db.query(ReportDB).filter(ReportDB.id.in_(normalized_ids))
+    if user_id:
+        query = query.filter(ReportDB.user_id == user_id)
+
+    rows = query.all()
+    row_by_id = {str(row.id): row for row in rows}
+    deleted_ids: list[str] = []
+    missing_ids: list[str] = []
+
+    for report_id in normalized_ids:
+        row = row_by_id.get(report_id)
+        if row is None:
+            missing_ids.append(report_id)
+            continue
+        db.delete(row)
+        deleted_ids.append(report_id)
+
+    if deleted_ids:
+        db.commit()
+
+    return {
+        "deleted_ids": deleted_ids,
+        "missing_ids": missing_ids,
+    }

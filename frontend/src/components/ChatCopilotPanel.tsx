@@ -176,6 +176,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setCurrentSymbol,
         setIsAnalyzing,
         setIsConnected,
+        setAnalysisRunState,
         setCurrentHorizon,
         updateAgentStatus,
         updateAgentSnapshot,
@@ -234,11 +235,13 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 pushAssistant(
                     `**分析完成（已从中断连接恢复）**\n\n方向倾向：**${String(result.result.direction || '未知')}**\n\n执行动作：**${String(result.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
                 )
+                setAnalysisRunState('completed')
                 return true
             }
 
             if (status.status === 'failed') {
                 pushAssistant(`分析失败：${status.error || 'unknown error'}`)
+                setAnalysisRunState('failed', status.error || 'unknown error')
                 return true
             }
 
@@ -312,6 +315,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             }
             case 'job.running':
                 setIsAnalyzing(true)
+                setAnalysisRunState('running')
                 // 切换 indicator 到"分析启动"阶段
                 if (typingIndicatorIdRef.current) {
                     setMessageContent(typingIndicatorIdRef.current, '__status:analyzing__')
@@ -328,6 +332,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.completed': {
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
+                setAnalysisRunState('completed')
                 // 任务结束：所有 agent 消息标记为已完成（持久化到 store）
                 pendingAgentMsgIdsRef.current = new Set()
                 forceUpdate(n => n + 1)
@@ -361,6 +366,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             case 'job.failed':
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
+                setAnalysisRunState('failed', String(data.error || 'unknown error'))
                 pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
                 break
             case 'agent.status': {
@@ -647,6 +653,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setStreaming(true)
         setIsAnalyzing(true)
         setIsConnected(false)
+        setAnalysisRunState('running')
 
         try {
             await streamChat(fullPrompt)
@@ -663,9 +670,11 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             if (shouldRecover) {
                 const recovered = await recoverInterruptedJob()
                 if (!recovered) {
+                    setAnalysisRunState('failed', errorMessage)
                     pushAssistant(`请求中断：${errorMessage}\n\n后端任务可能仍在执行，请稍后到历史报告中查看结果。`)
                 }
             } else {
+                setAnalysisRunState('failed', errorMessage)
                 pushAssistant(`请求失败：${errorMessage}`)
             }
             setIsAnalyzing(false)
