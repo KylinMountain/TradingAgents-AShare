@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 
 const GITHUB_REPO = 'KylinMountain/TradingAgents-AShare'
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/contributors?per_page=100`
+const CACHE_KEY = 'ta-contributors-cache'
+const CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
 interface MoneySponsor {
     name: string
@@ -107,10 +109,22 @@ export default function Thanks() {
     useEffect(() => {
         if (!sponsors) return
         const excludeSet = new Set(sponsors.excludeContributors ?? [])
+
+        const cached = localStorage.getItem(CACHE_KEY)
+        if (cached) {
+            const { data, ts } = JSON.parse(cached)
+            if (Date.now() - ts < CACHE_TTL) {
+                setContributors(data.filter((c: GitHubContributor) => !excludeSet.has(c.login)))
+                setLoadingContributors(false)
+                return
+            }
+        }
+
         fetch(GITHUB_API)
             .then(res => res.json())
             .then((data) => {
                 if (Array.isArray(data)) {
+                    localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }))
                     setContributors(data.filter((c: GitHubContributor) => !excludeSet.has(c.login)))
                 }
             })
