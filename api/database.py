@@ -125,6 +125,8 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(45)"))
             if "email_report_enabled" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+            if "wecom_report_enabled" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN wecom_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
             llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
             if "wecom_webhook_encrypted" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
@@ -312,6 +314,7 @@ class UserDB(Base):
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(String(45), nullable=True)
     email_report_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    wecom_report_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
 
 
 class EmailVerificationCodeDB(Base):

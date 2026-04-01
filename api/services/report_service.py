@@ -7,7 +7,7 @@ import re
 
 logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Iterable, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -472,3 +472,42 @@ def delete_report(db: Session, report_id: str, user_id: Optional[str] = None) ->
         db.commit()
         return True
     return False
+
+
+def batch_delete_reports(db: Session, report_ids: Iterable[str], user_id: Optional[str] = None) -> dict:
+    normalized_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_report_id in report_ids:
+        report_id = str(raw_report_id or "").strip()
+        if not report_id or report_id in seen:
+            continue
+        seen.add(report_id)
+        normalized_ids.append(report_id)
+
+    if not normalized_ids:
+        raise ValueError("请至少选择 1 份报告")
+
+    query = db.query(ReportDB).filter(ReportDB.id.in_(normalized_ids))
+    if user_id:
+        query = query.filter(ReportDB.user_id == user_id)
+
+    rows = query.all()
+    row_by_id = {str(row.id): row for row in rows}
+    deleted_ids: list[str] = []
+    missing_ids: list[str] = []
+
+    for report_id in normalized_ids:
+        row = row_by_id.get(report_id)
+        if row is None:
+            missing_ids.append(report_id)
+            continue
+        db.delete(row)
+        deleted_ids.append(report_id)
+
+    if deleted_ids:
+        db.commit()
+
+    return {
+        "deleted_ids": deleted_ids,
+        "missing_ids": missing_ids,
+    }

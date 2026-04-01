@@ -105,6 +105,91 @@ def _report_version_stats() -> None:
 
 
 _scheduler_task: Optional[asyncio.Task] = None
+_scheduled_analysis_max_concurrency = int(os.getenv("TA_SCHEDULED_ANALYSIS_MAX_CONCURRENCY", "2"))
+_scheduled_analysis_semaphore: Optional[asyncio.Semaphore] = None
+_scheduled_analysis_queue_lock: Optional[asyncio.Lock] = None
+_scheduled_analysis_waiting_job_ids: list[str] = []
+_scheduled_analysis_running_job_ids: set[str] = set()
+
+
+def _ensure_scheduled_analysis_queue() -> tuple[asyncio.Semaphore, asyncio.Lock]:
+    global _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
+    if _scheduled_analysis_semaphore is None:
+        _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
+    if _scheduled_analysis_queue_lock is None:
+        _scheduled_analysis_queue_lock = asyncio.Lock()
+    return _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
+
+
+async def _scheduled_analysis_acquire(job_id: str, symbol: str) -> None:
+    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
+
+    async with queue_lock:
+        _scheduled_analysis_waiting_job_ids.append(job_id)
+        queue_position = _scheduled_analysis_waiting_job_ids.index(job_id) + 1
+        running_count = len(_scheduled_analysis_running_job_ids)
+        _set_job(
+            job_id,
+            queue_position=queue_position,
+            waiting_ahead_count=max(0, queue_position - 1),
+            scheduled_running_count=running_count,
+            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
+        )
+        _log(
+            f"[Scheduled Queue] queued job={job_id} symbol={symbol} "
+            f"waiting_position={queue_position} running={running_count}/{_scheduled_analysis_max_concurrency}"
+        )
+
+    await semaphore.acquire()
+
+    async with queue_lock:
+        if job_id in _scheduled_analysis_waiting_job_ids:
+            _scheduled_analysis_waiting_job_ids.remove(job_id)
+        _scheduled_analysis_running_job_ids.add(job_id)
+        _set_job(
+            job_id,
+            queue_position=None,
+            waiting_ahead_count=None,
+            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
+            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
+        )
+        _log(
+            f"[Scheduled Queue] acquired slot job={job_id} symbol={symbol} "
+            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
+            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
+        )
+
+
+async def _scheduled_analysis_release(job_id: str, symbol: str) -> None:
+    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
+
+    async with queue_lock:
+        _scheduled_analysis_running_job_ids.discard(job_id)
+        if job_id in _scheduled_analysis_waiting_job_ids:
+            _scheduled_analysis_waiting_job_ids.remove(job_id)
+        _set_job(
+            job_id,
+            queue_position=None,
+            waiting_ahead_count=None,
+            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
+            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
+        )
+        _log(
+            f"[Scheduled Queue] released slot job={job_id} symbol={symbol} "
+            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
+            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
+        )
+
+    semaphore.release()
+
+
+@asynccontextmanager
+async def _scheduled_analysis_slot(job_id: str, symbol: str):
+    await _scheduled_analysis_acquire(job_id, symbol)
+    try:
+        yield
+    finally:
+        await _scheduled_analysis_release(job_id, symbol)
 
 
 async def _scheduler_loop():
@@ -208,6 +293,7 @@ async def _send_scheduled_report_notifications(user_id: str, report_id: str, sym
         email_user = None
         report_to_send = None
         webhook_url = None
+        wecom_report_enabled = True
         with get_db_ctx() as db:
             user = db.query(UserDB).filter(UserDB.id == user_id).first()
             report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
@@ -216,13 +302,15 @@ async def _send_scheduled_report_notifications(user_id: str, report_id: str, sym
             if report:
                 db.expunge(report)
                 report_to_send = report
-            if user and getattr(user, "email_report_enabled", True):
-                db.expunge(user)
-                email_user = user
+            if user:
+                wecom_report_enabled = getattr(user, "wecom_report_enabled", True)
+                if getattr(user, "email_report_enabled", True):
+                    db.expunge(user)
+                    email_user = user
         if email_user and report_to_send:
             _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
             asyncio.create_task(send_report_email_with_retry(email_user, report_to_send))
-        if report_to_send and webhook_url:
+        if report_to_send and webhook_url and wecom_report_enabled:
             _log(f"[Scheduler] Sending WeCom report for {symbol}")
             asyncio.create_task(send_report_message_with_retry(report_to_send, webhook_url))
     except Exception as e:
@@ -247,18 +335,19 @@ async def _run_scheduled_analysis_once(
     _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
     try:
-        with get_db_ctx() as db:
-            scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(db, user_id, symbol)
-            req = _build_scheduled_analyze_request(
-                db=db,
-                user_id=user_id,
-                symbol=symbol,
-                horizon=horizon,
-                trade_date=actual_trade_date,
-                scheduled_user_context=scheduled_user_context,
-            )
+        async with _scheduled_analysis_slot(job_id, symbol):
+            with get_db_ctx() as db:
+                scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(db, user_id, symbol)
+                req = _build_scheduled_analyze_request(
+                    db=db,
+                    user_id=user_id,
+                    symbol=symbol,
+                    horizon=horizon,
+                    trade_date=actual_trade_date,
+                    scheduled_user_context=scheduled_user_context,
+                )
 
-        await _run_job(job_id, req, False, True, user_id, "scheduled" if mark_schedule_run else "scheduled_manual")
+            await _run_job(job_id, req, False, True, user_id, "scheduled" if mark_schedule_run else "scheduled_manual")
         job_state = _get_job(job_id)
         if job_state.get("status") == "failed":
             raise RuntimeError(job_state.get("error") or f"scheduled analysis job {job_id} failed")
@@ -306,9 +395,14 @@ async def _run_scheduled_job(task: dict, trade_date: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
-    global _scheduler_task
+    global _scheduler_task, _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
     init_db()
     _log("Database initialized.")
+    _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
+    _scheduled_analysis_queue_lock = asyncio.Lock()
+    _scheduled_analysis_waiting_job_ids.clear()
+    _scheduled_analysis_running_job_ids.clear()
+    _log(f"[Scheduled Queue] Concurrency limit set to {_scheduled_analysis_max_concurrency}")
 
     # Security: warn loudly if using default secret key
     if not os.getenv("TA_APP_SECRET_KEY"):
@@ -660,6 +754,9 @@ class BatchScheduledTriggerJob(BaseModel):
     created_at: str
     current_position: Optional[float] = None
     average_cost: Optional[float] = None
+    waiting_ahead_count: Optional[int] = None
+    scheduled_running_count: Optional[int] = None
+    scheduled_concurrency_limit: Optional[int] = None
 
 
 class BatchScheduledTriggerResponse(BaseModel):
@@ -676,6 +773,9 @@ class JobStatusResponse(BaseModel):
     symbol: str
     trade_date: str
     error: Optional[str] = None
+    waiting_ahead_count: Optional[int] = None
+    scheduled_running_count: Optional[int] = None
+    scheduled_concurrency_limit: Optional[int] = None
 
 
 class ChatMessage(BaseModel):
@@ -727,6 +827,9 @@ class ReportResponse(BaseModel):
     analyst_traces: Optional[List[Dict[str, Any]]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    waiting_ahead_count: Optional[int] = None
+    scheduled_running_count: Optional[int] = None
+    scheduled_concurrency_limit: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -752,6 +855,11 @@ class ReportDetailResponse(ReportResponse):
 class ReportListResponse(BaseModel):
     total: int
     reports: List[ReportResponse]
+
+
+class ReportBatchDeleteResponse(BaseModel):
+    deleted_ids: List[str]
+    missing_ids: List[str]
 
 
 class LatestReportsBySymbolsRequest(BaseModel):
@@ -827,8 +935,10 @@ class UserRuntimeConfigResponse(BaseModel):
     max_risk_discuss_rounds: int
     has_api_key: bool = False
     has_wecom_webhook: bool = False
+    wecom_webhook_display: Optional[str] = None
     server_fallback_enabled: bool = True
     email_report_enabled: bool = True
+    wecom_report_enabled: bool = True
 
 
 class UserRuntimeConfigUpdateRequest(BaseModel):
@@ -839,6 +949,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     max_debate_rounds: Optional[int] = None
     max_risk_discuss_rounds: Optional[int] = None
     email_report_enabled: Optional[bool] = None
+    wecom_report_enabled: Optional[bool] = None
     api_key: Optional[str] = None
     wecom_webhook_url: Optional[str] = None
     clear_api_key: bool = False
@@ -861,6 +972,17 @@ class RuntimeWarmupResult(BaseModel):
 class UserRuntimeWarmupResponse(BaseModel):
     prompt: str
     results: List[RuntimeWarmupResult]
+
+
+class WecomWebhookWarmupRequest(BaseModel):
+    wecom_webhook_url: Optional[str] = None
+    content: Optional[str] = None
+
+
+class WecomWebhookWarmupResponse(BaseModel):
+    sent: bool = True
+    message: str
+    webhook_display: Optional[str] = None
 
 
 class QmtImportSyncRequest(BaseModel):
@@ -1090,6 +1212,20 @@ def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
         except RuntimeError:
             # Fallback: no event loop available at all
             q.put_nowait(payload)
+
+
+def _attach_job_runtime_state(target: Any, job_id: Optional[str]) -> Any:
+    if not job_id:
+        return target
+    job = _get_job(job_id)
+    if not job:
+        return target
+
+    for field in ("waiting_ahead_count", "scheduled_running_count", "scheduled_concurrency_limit"):
+        value = job.get(field)
+        if value is not None or hasattr(target, field):
+            setattr(target, field, value)
+    return target
 
 
 def _extract_request_user_context(request: UserContextInput) -> Dict[str, Any]:
@@ -2632,6 +2768,9 @@ def get_job_status(job_id: str, current_user: UserDB = Depends(_require_api_user
         symbol=job["symbol"],
         trade_date=job["trade_date"],
         error=job.get("error"),
+        waiting_ahead_count=job.get("waiting_ahead_count"),
+        scheduled_running_count=job.get("scheduled_running_count"),
+        scheduled_concurrency_limit=job.get("scheduled_concurrency_limit"),
     )
 
 
@@ -3101,6 +3240,7 @@ def list_reports(
     code_to_name = _get_reverse_stock_map_cached_only()
     for r in reports:
         r.name = code_to_name.get(r.symbol, r.symbol)
+        _attach_job_runtime_state(r, str(getattr(r, "id", "")))
     return {"total": total, "reports": reports}
 
 
@@ -3130,6 +3270,7 @@ def get_report_endpoint(
         raise HTTPException(status_code=404, detail="报告不存在")
     code_to_name = _get_reverse_stock_map()
     report.name = code_to_name.get(report.symbol, report.symbol)
+    _attach_job_runtime_state(report, report_id)
     return report
 
 
@@ -3144,6 +3285,21 @@ def delete_report_endpoint(
     if not success:
         raise HTTPException(status_code=404, detail="报告不存在")
     return {"message": "报告已删除"}
+
+
+@app.post("/v1/reports/batch/delete", response_model=ReportBatchDeleteResponse)
+def batch_delete_reports_endpoint(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    report_ids = body.get("report_ids") or []
+    if not isinstance(report_ids, list):
+        raise HTTPException(400, "report_ids 必须为数组")
+    try:
+        return report_service.batch_delete_reports(db, report_ids, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 # ─── API Token Endpoints ────────────────────────────────────────────────────
@@ -3248,6 +3404,7 @@ _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
     "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
 }
+_CONFIG_PREFERENCE_KEYS = {"email_report_enabled", "wecom_report_enabled"}
 _CONFIG_MODEL_KEYS = ("llm_provider", "backend_url", "quick_think_llm", "deep_think_llm")
 _CONFIG_MODEL_LABELS = {
     "quick_think_llm": "常规模型",
@@ -3257,6 +3414,31 @@ _CONFIG_PROBE_TIMEOUT_SECONDS = 12.0
 _CONFIG_PROBE_PROMPT = "Reply with the single word OK."
 _CONFIG_WARMUP_TIMEOUT_SECONDS = 20.0
 _CONFIG_WARMUP_PROMPT = "Reply with the single word OK."
+
+
+def _mask_secret_value(value: Optional[str], *, head: int = 4, tail: int = 4) -> Optional[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    if len(normalized) <= head + tail:
+        return "*" * max(6, len(normalized))
+    return f"{normalized[:head]}{'*' * max(6, len(normalized) - head - tail)}{normalized[-tail:]}"
+
+
+def _mask_wecom_webhook(webhook_url: Optional[str]) -> Optional[str]:
+    normalized = str(webhook_url or "").strip()
+    if not normalized:
+        return None
+    prefix = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key="
+    if normalized.startswith(prefix):
+        masked_key = _mask_secret_value(normalized[len(prefix):])
+        return f"{prefix}{masked_key}"
+    if normalized.startswith("http"):
+        if "key=" in normalized:
+            base, key = normalized.rsplit("key=", 1)
+            return f"{base}key={_mask_secret_value(key)}"
+        return _mask_secret_value(normalized, head=18, tail=8)
+    return _mask_secret_value(normalized)
 
 
 def _warmup_model_names(config: Dict[str, Any]) -> List[str]:
@@ -3459,6 +3641,7 @@ def _run_config_warmup(config: Dict[str, Any], user_id: str) -> None:
 def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntimeConfigResponse:
     cfg = _build_runtime_config({}, user_id=user.id if user else None, db=db)
     user_cfg = auth_service.get_user_llm_config(db, user.id) if user else None
+    webhook_url = auth_service.decrypt_secret(getattr(user_cfg, "wecom_webhook_encrypted", None))
     return UserRuntimeConfigResponse(
         llm_provider=cfg["llm_provider"],
         deep_think_llm=cfg["deep_think_llm"],
@@ -3467,9 +3650,11 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         max_debate_rounds=cfg["max_debate_rounds"],
         max_risk_discuss_rounds=cfg["max_risk_discuss_rounds"],
         has_api_key=bool(user_cfg and user_cfg.api_key_encrypted),
-        has_wecom_webhook=bool(user_cfg and user_cfg.wecom_webhook_encrypted),
+        has_wecom_webhook=bool(webhook_url),
+        wecom_webhook_display=_mask_wecom_webhook(webhook_url),
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
         email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
+        wecom_report_enabled=user.wecom_report_enabled if user and hasattr(user, "wecom_report_enabled") else True,
     )
 
 
@@ -3519,17 +3704,18 @@ def update_runtime_config(
     current_user: UserDB = Depends(_require_web_user),
 ):
     """更新当前用户运行时配置，下次分析时生效。"""
-    before_cfg = _config_response_for_user(current_user, db)
-    pending_cfg = _build_pending_runtime_config(updates, current_user.id, db)
+    persistent_user = db.query(UserDB).filter(UserDB.id == current_user.id).first() or current_user
+    before_cfg = _config_response_for_user(persistent_user, db)
+    pending_cfg = _build_pending_runtime_config(updates, persistent_user.id, db)
     if _should_probe_runtime_config(before_cfg, pending_cfg, updates):
         probe = _probe_runtime_config(pending_cfg)
         _log(
-            f"[LLM Probe] user={current_user.id} provider={pending_cfg.get('llm_provider')} "
+            f"[LLM Probe] user={persistent_user.id} provider={pending_cfg.get('llm_provider')} "
             f"model={probe.get('model', '')} status={probe.get('status')}"
         )
     row = auth_service.upsert_user_llm_config(
         db,
-        current_user.id,
+        persistent_user.id,
         llm_provider=updates.llm_provider,
         deep_think_llm=updates.deep_think_llm,
         quick_think_llm=updates.quick_think_llm,
@@ -3541,10 +3727,16 @@ def update_runtime_config(
         clear_api_key=updates.clear_api_key,
         clear_wecom_webhook=updates.clear_wecom_webhook,
     )
+    user_pref_updated = False
     if updates.email_report_enabled is not None:
-        current_user.email_report_enabled = updates.email_report_enabled
+        persistent_user.email_report_enabled = updates.email_report_enabled
+        user_pref_updated = True
+    if updates.wecom_report_enabled is not None:
+        persistent_user.wecom_report_enabled = updates.wecom_report_enabled
+        user_pref_updated = True
+    if user_pref_updated:
         db.commit()
-    current_cfg = _config_response_for_user(current_user, db)
+    current_cfg = _config_response_for_user(persistent_user, db)
     warmup_models = _warmup_model_names(current_cfg.model_dump())
     should_warmup = _should_trigger_config_warmup(before_cfg, current_cfg, updates)
     warmup_payload: Dict[str, Any]
@@ -3558,8 +3750,8 @@ def update_runtime_config(
         }
         background_tasks.add_task(
             _run_config_warmup,
-            _build_runtime_config({}, user_id=current_user.id, db=db),
-            current_user.id,
+            _build_runtime_config({}, user_id=persistent_user.id, db=db),
+            persistent_user.id,
         )
     elif updates.warmup:
         warmup_payload = {
@@ -3582,7 +3774,11 @@ def update_runtime_config(
         for k, v in updates.model_dump().items()
         if v is not None
         and k not in {"api_key", "wecom_webhook_url", "warmup", "force_warmup"}
-        and (k in _CONFIG_ALLOWED_KEYS or (k in {"clear_api_key", "clear_wecom_webhook"} and bool(v)))
+        and (
+            k in _CONFIG_ALLOWED_KEYS
+            or k in _CONFIG_PREFERENCE_KEYS
+            or (k in {"clear_api_key", "clear_wecom_webhook"} and bool(v))
+        )
     }
     return {
         "message": "用户配置已更新",
@@ -3605,6 +3801,35 @@ def warmup_runtime_config(
     return {
         "prompt": prompt,
         "results": results,
+    }
+
+
+@app.post("/v1/config/wecom/warmup", response_model=WecomWebhookWarmupResponse)
+async def warmup_wecom_webhook(
+    request: WecomWebhookWarmupRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    from api.services.wecom_notification_service import build_test_message, send_message
+
+    webhook_url = (request.wecom_webhook_url or "").strip()
+    if not webhook_url:
+        user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+        webhook_url = auth_service.decrypt_secret(getattr(user_cfg, "wecom_webhook_encrypted", None)) or ""
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="请先填写或保存企业微信 Webhook")
+
+    try:
+        sent = await asyncio.to_thread(send_message, build_test_message(request.content), webhook_url)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Webhook 测试发送失败：{exc}") from exc
+    if not sent:
+        raise HTTPException(status_code=400, detail="Webhook 测试发送失败，请检查地址或机器人状态")
+
+    return {
+        "sent": True,
+        "message": "Webhook 测试发送成功",
+        "webhook_display": _mask_wecom_webhook(webhook_url),
     }
 
 
@@ -4074,6 +4299,9 @@ async def trigger_scheduled_analyses_batch(
             "created_at": now,
             "current_position": scheduled_user_context.get("current_position"),
             "average_cost": scheduled_user_context.get("average_cost"),
+            "waiting_ahead_count": _get_job(job_id).get("waiting_ahead_count"),
+            "scheduled_running_count": _get_job(job_id).get("scheduled_running_count"),
+            "scheduled_concurrency_limit": _get_job(job_id).get("scheduled_concurrency_limit"),
         })
 
     return {

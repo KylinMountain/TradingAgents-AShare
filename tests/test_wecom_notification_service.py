@@ -53,6 +53,14 @@ class TestBuildReportMessage:
 
         assert "控制仓位" in message
 
+    def test_build_test_message_uses_default_copy(self):
+        from api.services.wecom_notification_service import build_test_message
+
+        message = build_test_message()
+
+        assert "TradingAgents Webhook Warmup" in message
+        assert "测试消息" in message
+
 
 class TestSendMessage:
     @patch("api.services.wecom_notification_service.requests.post")

@@ -339,6 +339,69 @@ class TestRuntimeConfigWarmup:
         assert "模型 warmup 失败" in r.json()["detail"]
 
 
+class TestWecomRuntimeConfig:
+    WEBHOOK_URL = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=e1d21302-1925-4247-ad5a-6bc023c7fd2a"
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.client = _get_client()
+        self.token = _auth_unique(self.client)
+        self.headers = {"Authorization": f"Bearer {self.token}"}
+
+    def test_config_returns_masked_webhook_and_toggle_state(self):
+        r = self.client.patch("/v1/config", headers=self.headers, json={
+            "wecom_webhook_url": self.WEBHOOK_URL,
+            "wecom_report_enabled": False,
+            "warmup": False,
+        })
+
+        assert r.status_code == 200
+        body = r.json()
+        current = body["current"]
+        assert current["has_wecom_webhook"] is True
+        assert current["wecom_report_enabled"] is False
+        assert current["wecom_webhook_display"].startswith("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=")
+        assert current["wecom_webhook_display"] != self.WEBHOOK_URL
+        assert "fd2a" in current["wecom_webhook_display"]
+        assert body["applied"]["wecom_report_enabled"] is False
+
+        config_resp = self.client.get("/v1/config", headers=self.headers)
+        assert config_resp.status_code == 200
+        assert config_resp.json()["wecom_report_enabled"] is False
+
+    def test_wecom_warmup_uses_stored_webhook_when_input_missing(self):
+        save_resp = self.client.patch("/v1/config", headers=self.headers, json={
+            "wecom_webhook_url": self.WEBHOOK_URL,
+            "warmup": False,
+        })
+        assert save_resp.status_code == 200
+
+        with patch("api.services.wecom_notification_service.send_message", return_value=True) as mock_send:
+            r = self.client.post("/v1/config/wecom/warmup", headers=self.headers, json={})
+
+        assert r.status_code == 200
+        body = r.json()
+        assert body["sent"] is True
+        assert "成功" in body["message"]
+        assert mock_send.call_count == 1
+        assert "TradingAgents Webhook Warmup" in mock_send.call_args.args[0]
+        assert mock_send.call_args.args[1] == self.WEBHOOK_URL
+
+    def test_inline_wecom_warmup_does_not_persist_unsaved_webhook(self):
+        with patch("api.services.wecom_notification_service.send_message", return_value=True) as mock_send:
+            r = self.client.post("/v1/config/wecom/warmup", headers=self.headers, json={
+                "wecom_webhook_url": "inline-key-1234",
+            })
+
+        assert r.status_code == 200
+        assert mock_send.call_count == 1
+        assert mock_send.call_args.args[1] == "inline-key-1234"
+
+        config_resp = self.client.get("/v1/config", headers=self.headers)
+        assert config_resp.status_code == 200
+        assert config_resp.json()["has_wecom_webhook"] is False
+
+
 class TestWatchlistAddEndpoint:
     @pytest.fixture(autouse=True)
     def setup(self):
@@ -387,22 +450,19 @@ class TestReportsEndpoint:
         self.token = _auth_unique(self.client)
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
+    def _create_report(self, symbol: str, trade_date: str, decision: str):
+        response = self.client.post("/v1/reports", headers=self.headers, json={
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "decision": decision,
+        })
+        assert response.status_code == 200
+        return response.json()
+
     def test_latest_by_symbols_returns_only_each_symbol_latest_report(self):
-        self.client.post("/v1/reports", headers=self.headers, json={
-            "symbol": "600519.SH",
-            "trade_date": "2026-03-28",
-            "decision": "HOLD",
-        })
-        self.client.post("/v1/reports", headers=self.headers, json={
-            "symbol": "600519.SH",
-            "trade_date": "2026-03-30",
-            "decision": "BUY",
-        })
-        self.client.post("/v1/reports", headers=self.headers, json={
-            "symbol": "300750.SZ",
-            "trade_date": "2026-03-29",
-            "decision": "SELL",
-        })
+        self._create_report("600519.SH", "2026-03-28", "HOLD")
+        self._create_report("600519.SH", "2026-03-30", "BUY")
+        self._create_report("300750.SZ", "2026-03-29", "SELL")
 
         response = self.client.post(
             "/v1/reports/latest-by-symbols",
@@ -415,6 +475,27 @@ class TestReportsEndpoint:
         assert [item["symbol"] for item in body["reports"]] == ["300750.SZ", "600519.SH"]
         assert body["reports"][0]["decision"] == "SELL"
         assert body["reports"][1]["decision"] == "BUY"
+
+    def test_batch_delete_endpoint_removes_multiple_reports(self):
+        first = self._create_report("600519.SH", "2026-03-28", "HOLD")
+        second = self._create_report("300750.SZ", "2026-03-29", "SELL")
+        third = self._create_report("000001.SZ", "2026-03-30", "BUY")
+
+        response = self.client.post(
+            "/v1/reports/batch/delete",
+            headers=self.headers,
+            json={"report_ids": [first["id"], second["id"], "missing-report-id"]},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["deleted_ids"] == [first["id"], second["id"]]
+        assert body["missing_ids"] == ["missing-report-id"]
+
+        remaining = self.client.get("/v1/reports", headers=self.headers)
+        assert remaining.status_code == 200
+        remaining_ids = [item["id"] for item in remaining.json()["reports"]]
+        assert remaining_ids == [third["id"]]
 
 
 class TestPortfolioOverviewEndpoint:

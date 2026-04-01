@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AgentCollaboration from '@/components/AgentCollaboration'
 import DebateDrawer from '@/components/DebateDrawer'
@@ -8,7 +8,9 @@ import KlinePanel from '@/components/KlinePanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
+import TaskProgressBanner from '@/components/TaskProgressBanner'
 import { useAnalysisStore } from '@/stores/analysisStore'
+import { getAnalysisProgress, getTaskStatusLabel } from '@/utils/progressFeedback'
 
 function mapDecision(decision?: string): 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch' | undefined {
     if (!decision) return undefined
@@ -52,6 +54,7 @@ export default function Analysis() {
     const [debateDrawer, setDebateDrawer] = useState<'research' | 'risk' | null>(null)
     const reportRef = useRef<HTMLDivElement | null>(null)
     const {
+        agents,
         report,
         currentSymbol,
         setCurrentSymbol,
@@ -60,6 +63,10 @@ export default function Analysis() {
         jobStopLoss,
         riskItems,
         keyMetrics,
+        isConnected,
+        analysisRunState,
+        analysisRunError,
+        currentHorizon,
     } = useAnalysisStore()
 
     const handleShowReport = (section?: string) => {
@@ -80,55 +87,91 @@ export default function Analysis() {
     }, [currentSymbol])
 
     const finalDecision = report?.final_trade_decision
+    const completedAgents = useMemo(
+        () => agents.filter((agent) => agent.status === 'completed' || agent.status === 'skipped').length,
+        [agents],
+    )
+    const progressStatus = analysisRunState === 'running'
+        ? 'loading'
+        : analysisRunState === 'completed'
+            ? 'success'
+            : analysisRunState === 'failed'
+                ? 'error'
+                : 'idle'
+    const progressValue = analysisRunState === 'running'
+        ? getAnalysisProgress({
+            isConnected,
+            hasHorizon: Boolean(currentHorizon),
+            completedAgents,
+            totalAgents: agents.length,
+            hasFinalDecision: Boolean(finalDecision),
+        })
+        : 100
+    const progressDetail = analysisRunState === 'running'
+        ? `${currentHorizon ? `${currentHorizon === 'short' ? '短线' : '中线'}链路已启动` : '正在建立分析链路'} · 已完成 ${completedAgents}/${agents.length} 个智能体`
+        : analysisRunState === 'failed'
+            ? analysisRunError
+            : finalDecision
+                ? '分析结果已生成，可继续查看完整报告。'
+                : null
     // Prefer LLM-extracted structured values, fall back to regex parsing
     const confidence = jobConfidence ?? extractConfidence(finalDecision)
     const targetPrice = jobTargetPrice ?? extractPrice(finalDecision, 'target')
     const stopLoss = jobStopLoss ?? extractPrice(finalDecision, 'stop')
 
     return (
-        <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-4 min-h-[calc(100vh-5rem)]">
-            <aside className="h-[calc(100vh-5rem)] sticky top-0 flex flex-col gap-4">
-                <div className="min-h-0 flex-1">
-                    <ChatCopilotPanel
-                        onSymbolDetected={(symbol) => {
-                            setActiveSymbol(symbol)
-                            setCurrentSymbol(symbol)
-                        }}
-                        onShowReport={handleShowReport}
-                        initialInput={initialChatInput}
-                    />
-                </div>
-            </aside>
+        <div className="space-y-4">
+            <TaskProgressBanner
+                status={progressStatus}
+                progress={progressValue}
+                label={getTaskStatusLabel('analysis', progressStatus === 'idle' ? 'success' : progressStatus)}
+                detail={progressDetail}
+            />
 
-            <div className="min-w-0 space-y-4">
-                <div className="h-[360px]">
-                    <KlinePanel
-                        symbol={activeSymbol}
-                        onSymbolChange={(symbol) => {
-                            setActiveSymbol(symbol)
-                        }}
-                    />
-                </div>
+            <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-4 min-h-[calc(100vh-5rem)]">
+                <aside className="h-[calc(100vh-5rem)] sticky top-0 flex flex-col gap-4">
+                    <div className="min-h-0 flex-1">
+                        <ChatCopilotPanel
+                            onSymbolDetected={(symbol) => {
+                                setActiveSymbol(symbol)
+                                setCurrentSymbol(symbol)
+                            }}
+                            onShowReport={handleShowReport}
+                            initialInput={initialChatInput}
+                        />
+                    </div>
+                </aside>
 
-                <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
+                <div className="min-w-0 space-y-4">
+                    <div className="h-[360px]">
+                        <KlinePanel
+                            symbol={activeSymbol}
+                            onSymbolChange={(symbol) => {
+                                setActiveSymbol(symbol)
+                            }}
+                        />
+                    </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                    <DecisionCard
-                        symbol={activeSymbol}
-                        report={report || undefined}
-                        decision={mapDecision(report?.decision)}
-                        direction={report?.direction}
-                        confidence={confidence}
-                        targetPrice={targetPrice}
-                        stopLoss={stopLoss}
-                        reasoning={finalDecision?.slice(0, 300)}
-                    />
-                    <RiskRadar items={riskItems} />
-                    <KeyMetrics items={keyMetrics} />
-                </div>
+                    <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 
-                <div ref={reportRef}>
-                    <ReportViewer activeSection={activeSection} />
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                        <DecisionCard
+                            symbol={activeSymbol}
+                            report={report || undefined}
+                            decision={mapDecision(report?.decision)}
+                            direction={report?.direction}
+                            confidence={confidence}
+                            targetPrice={targetPrice}
+                            stopLoss={stopLoss}
+                            reasoning={finalDecision?.slice(0, 300)}
+                        />
+                        <RiskRadar items={riskItems} />
+                        <KeyMetrics items={keyMetrics} />
+                    </div>
+
+                    <div ref={reportRef}>
+                        <ReportViewer activeSection={activeSection} />
+                    </div>
                 </div>
             </div>
 

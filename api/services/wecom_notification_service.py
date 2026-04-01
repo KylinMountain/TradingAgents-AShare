@@ -45,6 +45,12 @@ def build_report_message(report: "ReportDB") -> str:
     return "\n".join(lines)[:1800]
 
 
+def build_test_message(content: str | None = None) -> str:
+    custom = " ".join(str(content or "").split()).strip()
+    message = custom or "TradingAgents Webhook Warmup\n这是一条企业微信机器人测试消息。"
+    return message[:1800]
+
+
 def send_message(content: str, webhook_url: str) -> bool:
     if not webhook_url:
         return False

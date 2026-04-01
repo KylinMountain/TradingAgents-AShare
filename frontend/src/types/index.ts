@@ -113,6 +113,9 @@ export interface JobStatus {
     symbol: string
     trade_date: string
     error?: string
+    waiting_ahead_count?: number | null
+    scheduled_running_count?: number | null
+    scheduled_concurrency_limit?: number | null
 }
 
 // SSE Event Types
@@ -329,6 +332,9 @@ export interface Report {
     key_metrics?: KeyMetric[]
     created_at?: string
     updated_at?: string
+    waiting_ahead_count?: number | null
+    scheduled_running_count?: number | null
+    scheduled_concurrency_limit?: number | null
 }
 
 export interface ReportDetail extends Report {
@@ -348,6 +354,11 @@ export interface ReportDetail extends Report {
 export interface ReportListResponse {
     total: number
     reports: Report[]
+}
+
+export interface ReportBatchDeleteResponse {
+    deleted_ids: string[]
+    missing_ids: string[]
 }
 
 export interface AnnouncementItem {
@@ -554,8 +565,10 @@ export interface RuntimeConfig {
     max_risk_discuss_rounds: number
     has_api_key?: boolean
     has_wecom_webhook?: boolean
+    wecom_webhook_display?: string | null
     server_fallback_enabled?: boolean
     email_report_enabled?: boolean
+    wecom_report_enabled?: boolean
 }
 
 export interface RuntimeConfigUpdateResponse {
@@ -578,6 +591,7 @@ export interface RuntimeConfigUpdate {
     clear_api_key?: boolean
     clear_wecom_webhook?: boolean
     email_report_enabled?: boolean
+    wecom_report_enabled?: boolean
     warmup?: boolean
     force_warmup?: boolean
 }
@@ -604,6 +618,17 @@ export interface RuntimeWarmupResult {
 export interface RuntimeWarmupResponse {
     prompt: string
     results: RuntimeWarmupResult[]
+}
+
+export interface WecomWarmupRequest {
+    wecom_webhook_url?: string
+    content?: string
+}
+
+export interface WecomWarmupResponse {
+    sent: boolean
+    message: string
+    webhook_display?: string | null
 }
 
 export interface AuthUser {

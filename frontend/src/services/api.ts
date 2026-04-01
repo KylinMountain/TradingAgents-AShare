@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioOverviewResponse, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioOverviewResponse, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -140,6 +140,13 @@ class ApiService {
         })
     }
 
+    async deleteReportsBatch(reportIds: string[]): Promise<ReportBatchDeleteResponse> {
+        return this.request<ReportBatchDeleteResponse>('/v1/reports/batch/delete', {
+            method: 'POST',
+            body: JSON.stringify({ report_ids: reportIds }),
+        })
+    }
+
     async createReport(report: {
         symbol: string
         trade_date: string
@@ -257,6 +264,13 @@ class ApiService {
 
     async warmupConfig(request: RuntimeWarmupRequest): Promise<RuntimeWarmupResponse> {
         return this.request<RuntimeWarmupResponse>('/v1/config/warmup', {
+            method: 'POST',
+            body: JSON.stringify(request),
+        })
+    }
+
+    async warmupWecom(request: WecomWarmupRequest): Promise<WecomWarmupResponse> {
+        return this.request<WecomWarmupResponse>('/v1/config/wecom/warmup', {
             method: 'POST',
             body: JSON.stringify(request),
         })

@@ -47,6 +47,7 @@ export default function Settings() {
     const [hasStoredApiKey, setHasStoredApiKey] = useState(false)
     const [wecomWebhook, setWecomWebhook] = useState('')
     const [hasStoredWebhook, setHasStoredWebhook] = useState(false)
+    const [storedWebhookDisplay, setStoredWebhookDisplay] = useState('')
 
     const [providerPreset, setProviderPreset] = useState('openai')
     const [customBaseUrl, setCustomBaseUrl] = useState('')
@@ -56,6 +57,7 @@ export default function Settings() {
     const [maxRiskRounds, setMaxRiskRounds] = useState(1)
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
+    const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
     const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
     const [qmtLoading, setQmtLoading] = useState(false)
     const [qmtSyncing, setQmtSyncing] = useState(false)
@@ -74,6 +76,9 @@ export default function Settings() {
     const [configError, setConfigError] = useState<string | null>(null)
     const [warmupResults, setWarmupResults] = useState<RuntimeWarmupResult[]>([])
     const [warmupError, setWarmupError] = useState<string | null>(null)
+    const [wecomWarmingUp, setWecomWarmingUp] = useState(false)
+    const [wecomWarmupMessage, setWecomWarmupMessage] = useState<string | null>(null)
+    const [wecomWarmupError, setWecomWarmupError] = useState<string | null>(null)
 
     // API Token states
     const [tokens, setTokens] = useState<UserToken[]>([])
@@ -96,6 +101,11 @@ export default function Settings() {
         setWarmupResults([])
         setWarmupError(null)
     }, [providerPreset, customBaseUrl, deepThinkLlm, quickThinkLlm, llmApiKey])
+
+    useEffect(() => {
+        setWecomWarmupMessage(null)
+        setWecomWarmupError(null)
+    }, [wecomWebhook])
 
     useEffect(() => {
         try {
@@ -127,8 +137,10 @@ export default function Settings() {
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
                 setHasStoredApiKey(!!cfg.has_api_key)
                 setHasStoredWebhook(!!cfg.has_wecom_webhook)
+                setStoredWebhookDisplay(cfg.wecom_webhook_display || '')
                 setServerFallbackEnabled(!!cfg.server_fallback_enabled)
                 setEmailReportEnabled(cfg.email_report_enabled !== false)
+                setWecomReportEnabled(cfg.wecom_report_enabled !== false)
             })
             .catch(err => {
                 setConfigError(err instanceof Error ? err.message : '无法连接到后端')
@@ -216,7 +228,10 @@ export default function Settings() {
         max_debate_rounds: maxDebateRounds,
         max_risk_discuss_rounds: maxRiskRounds,
         api_key: llmApiKey || undefined,
-        ...(options?.includeWecom ? { wecom_webhook_url: wecomWebhook.trim() || undefined } : {}),
+        ...(options?.includeWecom ? {
+            wecom_webhook_url: wecomWebhook.trim() || undefined,
+            wecom_report_enabled: wecomReportEnabled,
+        } : {}),
         ...(options?.includeEmail ? { email_report_enabled: emailReportEnabled } : {}),
     })
 
@@ -259,6 +274,8 @@ export default function Settings() {
         })
         setHasStoredApiKey(!!response.has_api_key)
         setHasStoredWebhook(!!response.current.has_wecom_webhook)
+        setStoredWebhookDisplay(response.current.wecom_webhook_display || '')
+        setWecomReportEnabled(response.current.wecom_report_enabled !== false)
         setLlmApiKey('')
         setWecomWebhook('')
         showSavedMessage(response.warmup?.message || successMessage)
@@ -333,12 +350,35 @@ export default function Settings() {
         try {
             const response = await api.updateConfig({ clear_wecom_webhook: true })
             setHasStoredWebhook(!!response.current.has_wecom_webhook)
+            setStoredWebhookDisplay(response.current.wecom_webhook_display || '')
             setWecomWebhook('')
+            setWecomWarmupMessage(null)
+            setWecomWarmupError(null)
             showSavedMessage('企业微信机器人已清除')
         } catch (err) {
             alert(err instanceof Error ? err.message : '清除企业微信机器人失败')
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleWecomWarmup = async () => {
+        setWecomWarmingUp(true)
+        setWecomWarmupMessage(null)
+        setWecomWarmupError(null)
+        try {
+            const response = await api.warmupWecom({
+                wecom_webhook_url: wecomWebhook.trim() || undefined,
+            })
+            setWecomWarmupMessage(
+                response.webhook_display
+                    ? `${response.message}，目标：${response.webhook_display}`
+                    : response.message
+            )
+        } catch (err) {
+            setWecomWarmupError(err instanceof Error ? err.message : 'Webhook 测试发送失败')
+        } finally {
+            setWecomWarmingUp(false)
         }
     }
 
@@ -892,21 +932,79 @@ export default function Settings() {
                             disabled={configLoading}
                         />
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                            定时分析完成后，除邮件外也会向企业微信机器人发送摘要通知。建议直接填写完整 webhook 地址。
-                        </div>
-                        {hasStoredWebhook && (
+                    <div className="mt-3 space-y-3">
+                        {storedWebhookDisplay && (
+                            <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
+                                当前已保存：<span className="font-mono break-all">{storedWebhookDisplay}</span>
+                            </div>
+                        )}
+
+                        <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-700/80 dark:bg-slate-900/40">
+                            <div>
+                                <div className="text-sm text-slate-600 dark:text-slate-300">是否发送到 Webhook</div>
+                                <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                                    定时分析完成后，按这个开关决定是否向企业微信机器人推送摘要。
+                                </div>
+                            </div>
                             <button
                                 type="button"
-                                onClick={handleClearWebhook}
-                                disabled={saving || modelSaving || saveAllSaving}
-                                className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                                onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
+                                disabled={configLoading}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                    wecomReportEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
+                                }`}
                             >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                清除机器人
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                        wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
                             </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                                支持直接填写完整地址，例如 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`。测试发送优先使用当前输入，留空时会使用已保存的地址。
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleWecomWarmup}
+                                    disabled={configLoading || saving || modelSaving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
+                                    className="btn-secondary inline-flex items-center gap-2"
+                                >
+                                    {wecomWarmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
+                                    {wecomWarmingUp ? '发送中...' : 'Webhook Warmup'}
+                                </button>
+                                {hasStoredWebhook && (
+                                    <button
+                                        type="button"
+                                        onClick={handleClearWebhook}
+                                        disabled={saving || modelSaving || saveAllSaving}
+                                        className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        清除机器人
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {wecomWarmupMessage && (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                {wecomWarmupMessage}
+                            </div>
                         )}
+
+                        {wecomWarmupError && (
+                            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                                {wecomWarmupError}
+                            </div>
+                        )}
+
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                            当前保存设置时会一起保存这个 webhook 和发送开关；为了安全，页面只展示脱敏后的已保存地址。
+                        </div>
                     </div>
                 </div>
             </div>
