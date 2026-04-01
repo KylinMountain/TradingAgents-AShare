@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 
 from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, QmtImportConfigDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, dashboard_service
+from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, tracking_board_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -4085,7 +4085,7 @@ def get_dashboard_tracking_board(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    return dashboard_service.get_tracking_board(db, current_user.id)
+    return tracking_board_service.get_tracking_board(db, current_user.id)
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
