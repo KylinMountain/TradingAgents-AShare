@@ -45,6 +45,7 @@ def create_market_impact_analyst(llm, data_collector=None):
             data_window = pool.get("_data_window", "14天" if horizon == "short" else "90天")
             global_news = pool.get("global_news", "无数据")
             stock_news = pool.get("news", "无数据")
+            geopolitical_news = pool.get("geopolitical_news", "")
         else:
             from datetime import datetime, timedelta
             from tradingagents.agents.utils.agent_utils import get_global_news, get_news
@@ -63,18 +64,36 @@ def create_market_impact_analyst(llm, data_collector=None):
             global_news, stock_news = results
             data_window = f"{days}天"
 
+            # Fallback: fetch geopolitical data directly
+            geopolitical_news = ""
+            try:
+                from tradingagents.dataflows.geopolitical_fetcher import fetch_geopolitical_news
+                geo_data = await asyncio.to_thread(fetch_geopolitical_news, 15)
+                geopolitical_news = geo_data.get("formatted", "")
+            except Exception:
+                pass
+
+        # Build prompt with all data sources
+        data_sections = [
+            horizon_ctx,
+            f"\n以下是截至 {current_date} 的全球重大事件与地缘政治资料（{data_window}），"
+            f"以及 {ticker} 的相关新闻。\n",
+        ]
+
+        if geopolitical_news:
+            data_sections.append(
+                f"【实时地缘政治数据 — Trump Truth Social / 国际通讯社 / 中文财经快讯】\n{geopolitical_news}\n"
+            )
+
+        data_sections.append(f"【get_global_news — 全球新闻（akshare）】\n{global_news}\n")
+        data_sections.append(f"【get_news — 个股相关新闻】\n{stock_news}\n")
+
         messages = [
             SystemMessage(content=(
                 system_message
                 + "\n\n请严格基于提供的新闻资料输出报告，全程使用中文。"
             )),
-            HumanMessage(content=(
-                horizon_ctx + "\n"
-                f"以下是截至 {current_date} 的全球重大事件与地缘政治新闻（{data_window}），"
-                f"以及 {ticker} 的相关新闻。\n\n"
-                f"【get_global_news — 全球新闻】\n{global_news}\n\n"
-                f"【get_news — 个股相关新闻】\n{stock_news}\n"
-            )),
+            HumanMessage(content="\n".join(data_sections)),
         ]
 
         # Token-level streaming

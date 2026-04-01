@@ -147,6 +147,16 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
     results["indicators"] = indicators_res
     # ────────────────────────────────────────────────
 
+    # ── 地缘政治与外部冲击数据 ──────────────────────
+    try:
+        from tradingagents.dataflows.geopolitical_fetcher import fetch_geopolitical_news
+        geo_data = fetch_geopolitical_news(limit_per_source=15)
+        results["geopolitical_news"] = geo_data.get("formatted", "")
+    except Exception as e:
+        print(f"  [Warning] Geopolitical news fetch failed: {e}")
+        results["geopolitical_news"] = ""
+    # ────────────────────────────────────────────────
+
     print(f"[Timer] Total Data Collection for {ticker} took {time.time() - fetch_start:.2f}s")
     return results
 
