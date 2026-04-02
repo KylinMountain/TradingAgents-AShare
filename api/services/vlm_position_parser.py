@@ -3,7 +3,7 @@
 VLM configuration is server-side via environment variables:
   TA_VLM_API_KEY      — required, API key for the VLM provider
   TA_VLM_BASE_URL     — base URL (default: https://open.bigmodel.cn/api/paas/v4)
-  TA_VLM_MODEL        — model name (default: glm-4v-flash)
+  TA_VLM_MODEL        — model name (default: glm-4.6v-flashx)
   TA_VLM_PROVIDER     — "openai" (default) or "anthropic"
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _get_vlm_config() -> dict[str, str]:
         "provider": os.getenv("TA_VLM_PROVIDER", "openai").strip(),
         "api_key": api_key,
         "base_url": os.getenv("TA_VLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").strip(),
-        "model": os.getenv("TA_VLM_MODEL", "glm-4v-flash").strip(),
+        "model": os.getenv("TA_VLM_MODEL", "glm-4.6v-flashx").strip(),
     }
 
 
@@ -71,12 +71,17 @@ def _call_openai_compatible(base64_image: str, media_type: str, vlm_config: dict
         api_key=vlm_config["api_key"],
         base_url=vlm_config.get("base_url") or None,
     )
+    # Some providers (e.g. ZhipuAI) expect raw base64 without data URI prefix;
+    # others (OpenAI, etc.) expect the full data URI. Use TA_VLM_RAW_BASE64=1 for raw.
+    raw_base64 = os.getenv("TA_VLM_RAW_BASE64", "1").strip() in ("1", "true", "yes")
+    image_url = base64_image if raw_base64 else f"data:{media_type};base64,{base64_image}"
+
     response = client.chat.completions.create(
-        model=vlm_config.get("model", "glm-4v-flash"),
+        model=vlm_config.get("model", "glm-4.6v-flashx"),
         messages=[
             {"role": "user", "content": [
                 {"type": "text", "text": SYSTEM_PROMPT + "\n\n请解析这张持仓截图。"},
-                {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{base64_image}"}},
+                {"type": "image_url", "image_url": {"url": image_url}},
             ]},
         ],
         max_tokens=2000,
