@@ -218,10 +218,9 @@ function TrackingBoardSummary({
                 <button
                     type="button"
                     onClick={onOpen}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
                 >
-                    查看完整看板
-                    <ArrowRight className="h-4 w-4" />
+                    查看完整看板 <ArrowRight className="h-3.5 w-3.5" />
                 </button>
             </div>
 
