@@ -86,7 +86,9 @@ def _call_openai_compatible(base64_image: str, media_type: str, vlm_config: dict
         ],
         max_tokens=2000,
     )
-    return response.choices[0].message.content or "[]"
+    raw = response.choices[0].message.content or "[]"
+    logger.info("[vlm-parser] VLM raw response (first 300 chars): %s", raw[:300])
+    return raw
 
 
 def _call_anthropic(base64_image: str, media_type: str, vlm_config: dict) -> str:
