@@ -12,8 +12,7 @@ def test_parse_position_image_returns_positions():
         {"symbol": "000001", "name": "平安银行", "current_position": 5000, "average_cost": 12.5, "market_value": 62500.0},
     ])
 
-    with patch("api.services.vlm_position_parser._call_vlm") as mock_vlm, \
-         patch("api.services.vlm_position_parser._get_vlm_config", return_value={"provider": "openai", "api_key": "test", "model": "glm-4v-flash", "base_url": ""}):
+    with patch("api.services.vlm_position_parser.call_vlm") as mock_vlm:
         mock_vlm.return_value = mock_llm_response
         result = parse_position_image(b"fake_image_bytes", "image/png")
 
@@ -28,8 +27,7 @@ def test_parse_position_image_returns_positions():
 def test_parse_position_image_empty_response():
     from api.services.vlm_position_parser import parse_position_image
 
-    with patch("api.services.vlm_position_parser._call_vlm") as mock_vlm, \
-         patch("api.services.vlm_position_parser._get_vlm_config", return_value={"provider": "openai", "api_key": "test", "model": "glm-4v-flash", "base_url": ""}):
+    with patch("api.services.vlm_position_parser.call_vlm") as mock_vlm:
         mock_vlm.return_value = "[]"
         result = parse_position_image(b"fake_image_bytes", "image/png")
 
