@@ -1,5 +1,5 @@
 import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3 } from 'lucide-react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TaskProgressBanner from '@/components/TaskProgressBanner'
 import { api } from '@/services/api'
@@ -366,16 +366,21 @@ export default function Reports() {
         return () => window.clearInterval(timer)
     }, [detailLoading, fetchReports, hasActiveReport, loading, page, selectedReport])
 
+    const selectedReportRef = useRef(selectedReport)
+    selectedReportRef.current = selectedReport
+
     useEffect(() => {
         if (!selectedReport || detailLoading) return
         if (selectedReport.status !== 'pending' && selectedReport.status !== 'running') return
 
         const timer = window.setInterval(() => {
-            void loadReportDetail(selectedReport.id, { silent: true, preserveHistory: true })
+            const current = selectedReportRef.current
+            if (!current || (current.status !== 'pending' && current.status !== 'running')) return
+            void loadReportDetail(current.id, { silent: true, preserveHistory: true })
         }, 4000)
 
         return () => window.clearInterval(timer)
-    }, [detailLoading, loadReportDetail, selectedReport])
+    }, [detailLoading, loadReportDetail, selectedReport?.id, selectedReport?.status])
 
     // ─── 详情视图 ────────────────────────────────────────────────────────────
     if (detailLoading) {
