@@ -17,6 +17,7 @@ setuptools
 fastapi
 uvicorn
 sqlalchemy
-python-jose[cryptography]
+PyJWT
+cryptography
 json-repair
 markdown
