@@ -9,7 +9,7 @@ import ReportViewer from '@/components/ReportViewer'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
 import { useAuthStore } from '@/stores/authStore'
-import { advanceProgress, getReportRunProgress, getTaskStatusLabel } from '@/utils/progressFeedback'
+import { advanceProgress, getReportRunProgress } from '@/utils/progressFeedback'
 
 type ProgressState = {
     status: 'idle' | 'loading' | 'success' | 'error'
@@ -380,16 +380,8 @@ export default function Reports() {
     // ─── 详情视图 ────────────────────────────────────────────────────────────
     if (detailLoading) {
         return (
-            <div className="space-y-6">
-                <TaskProgressBanner
-                    status={detailProgress.status}
-                    progress={detailProgress.progress}
-                    label={getTaskStatusLabel('report-detail', detailProgress.status === 'idle' ? 'loading' : detailProgress.status)}
-                    detail={detailProgress.detail}
-                />
-                <div className="flex items-center justify-center py-24">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                </div>
+            <div className="flex items-center justify-center py-24">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
             </div>
         )
     }
@@ -415,14 +407,14 @@ export default function Reports() {
 
         return (
             <div className="space-y-6">
-                <TaskProgressBanner
-                    status={selectedReportProgressStatus}
-                    progress={selectedReportProgressValue}
-                    label={selectedReportProgressStatus === 'loading'
-                        ? (selectedReport.status === 'pending' ? '报告任务排队中...' : '报告生成中...')
-                        : getTaskStatusLabel('report-detail', selectedReportProgressStatus)}
-                    detail={selectedReportProgressDetail}
-                />
+                {(selectedReport.status === 'pending' || selectedReport.status === 'running') && (
+                    <TaskProgressBanner
+                        status={selectedReportProgressStatus}
+                        progress={selectedReportProgressValue}
+                        label={selectedReport.status === 'pending' ? '报告任务排队中...' : '报告生成中...'}
+                        detail={selectedReportProgressDetail}
+                    />
+                )}
                 {/* 返回按钮 + 标题 */}
                 <div className="flex items-center gap-4">
 
