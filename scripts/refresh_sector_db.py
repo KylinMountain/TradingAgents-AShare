@@ -43,8 +43,7 @@ def main():
         return
 
     print(f"Refreshing sector DB...")
-    print(f"  Concepts to fetch: {len(IMPACT_CONCEPTS)}")
-    print(f"  Include industry:  {not args.fast}")
+    print(f"  Mode: {'fast (curated concepts only)' if args.fast else 'full (all ~483 concepts + industries)'}")
     print()
 
     t0 = time.time()
@@ -54,6 +53,7 @@ def main():
         print(f"  [{current}/{total}] {pct:5.1f}% {msg}")
 
     stats = db.refresh(
+        concepts=IMPACT_CONCEPTS if args.fast else None,  # None = fetch all from API
         include_industry=not args.fast,
         progress_callback=progress,
     )

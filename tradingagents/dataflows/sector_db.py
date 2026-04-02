@@ -211,8 +211,13 @@ class SectorDB:
     ) -> Dict[str, int]:
         """Rebuild the local cache from akshare.
 
+        By default fetches ALL concept boards (~483) and all industry boards
+        (~90) from 东方财富. Data is stored in full so it can be reused for
+        any future purpose; filtering happens at query time.
+
         Args:
-            concepts: List of concept names to fetch. Defaults to IMPACT_CONCEPTS.
+            concepts: Explicit list of concept names. If None, fetches all
+                      from ``stock_board_concept_name_em()``.
             include_industry: Also fetch industry board mappings.
             progress_callback: Optional callable(current, total, message).
 
@@ -221,8 +226,13 @@ class SectorDB:
         """
         import akshare as ak
 
+        # Fetch full concept list from 东方财富 when no explicit list given
         if concepts is None:
-            concepts = IMPACT_CONCEPTS
+            try:
+                concept_df = ak.stock_board_concept_name_em()
+                concepts = concept_df["板块名称"].tolist()
+            except Exception:
+                concepts = IMPACT_CONCEPTS  # fallback to curated list
 
         now = datetime.now().isoformat()
         stats = {"industries": 0, "concepts": 0, "stocks": set()}
@@ -302,16 +312,24 @@ class SectorDB:
     # ── Format for LLM ──────────────────────────────────────────────────────
 
     def format_stock_context(self, stock_code: str) -> str:
-        """Format a stock's sector/concept info for the analyst prompt."""
+        """Format a stock's sector/concept info for the analyst prompt.
+
+        All concepts are listed; those in IMPACT_CONCEPTS are marked with
+        a star (*) to help the analyst focus on geopolitically relevant ones.
+        """
         info = self.get_stock_sectors(stock_code)
         if not info["industry"] and not info["concepts"]:
             return ""
 
+        impact_set = set(IMPACT_CONCEPTS)
         parts = []
         if info["industry"]:
             parts.append(f"所属行业：{', '.join(info['industry'])}")
         if info["concepts"]:
-            parts.append(f"所属概念板块（{len(info['concepts'])}个）：{', '.join(info['concepts'])}")
+            tagged = []
+            for c in info["concepts"]:
+                tagged.append(f"★{c}" if c in impact_set else c)
+            parts.append(f"所属概念板块（{len(info['concepts'])}个，★=地缘敏感）：{', '.join(tagged)}")
         return "\n".join(parts)
 
 

@@ -199,7 +199,7 @@ def _refresh_sector_db_sync():
         from tradingagents.dataflows.sector_db import get_sector_db
         t0 = _time.time()
         sdb = get_sector_db()
-        stats = sdb.refresh(include_industry=False)  # concepts only (~5 min)
+        stats = sdb.refresh()  # all concepts + industries
         elapsed = _time.time() - t0
         _log(f"[Scheduler] Sector DB refreshed in {elapsed:.0f}s: {stats}")
     except Exception as e:
