@@ -475,36 +475,6 @@ export default function Settings() {
                         </p>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            辩论轮数上限
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={5}
-                            value={maxDebateRounds}
-                            onChange={e => setMaxDebateRounds(Number(e.target.value))}
-                            className="input w-full"
-                            disabled={configLoading}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            风险讨论轮数上限
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={5}
-                            value={maxRiskRounds}
-                            onChange={e => setMaxRiskRounds(Number(e.target.value))}
-                            className="input w-full"
-                            disabled={configLoading}
-                        />
-                    </div>
-
                     <div className="md:col-span-2 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
@@ -588,6 +558,37 @@ export default function Settings() {
                                 </button>
                             )
                         })}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            辩论轮数上限
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={maxDebateRounds}
+                            onChange={e => setMaxDebateRounds(Number(e.target.value))}
+                            className="input w-full"
+                            disabled={configLoading}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            风险讨论轮数上限
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={maxRiskRounds}
+                            onChange={e => setMaxRiskRounds(Number(e.target.value))}
+                            className="input w-full"
+                            disabled={configLoading}
+                        />
                     </div>
                 </div>
             </div>
