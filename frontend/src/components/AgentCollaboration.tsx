@@ -70,12 +70,12 @@ const VERDICT_COLORS: Record<string, string> = {
 const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
     // 左列：数据源分析师（紧凑排列）
     'Market Analyst':       { x: 0, y: 0 },
-    'Social Analyst':       { x: 0, y: 105 },
-    'News Analyst':         { x: 0, y: 210 },
-    'Fundamentals Analyst': { x: 0, y: 315 },
-    'Macro Analyst':        { x: 0, y: 420 },
-    'Smart Money Analyst':  { x: 0, y: 525 },
-    'Volume Price Analyst': { x: 0, y: 630 },
+    'Social Analyst':       { x: 0, y: 90 },
+    'News Analyst':         { x: 0, y: 180 },
+    'Fundamentals Analyst': { x: 0, y: 270 },
+    'Macro Analyst':        { x: 0, y: 360 },
+    'Smart Money Analyst':  { x: 0, y: 450 },
+    'Volume Price Analyst': { x: 0, y: 540 },
     // 研究团队
     'Bull Researcher':      { x: 600, y: 80 },
     'Research Manager':     { x: 600, y: 240 },
@@ -139,7 +139,7 @@ interface GroupLabelDef {
 }
 
 const GROUP_LABELS: GroupLabelDef[] = [
-    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 745 },
+    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 650 },
     { id: 'group-research', label: '研究团队', position: { x: 584, y: 44 }, width: 248, height: 450 },
     { id: 'group-risk', label: '风控团队', position: { x: 1164, y: 44 }, width: 248, height: 450 },
 ]

@@ -690,19 +690,21 @@ FIXED_TEAMS = {
         "Fundamentals Analyst",
         "Macro Analyst",
         "Smart Money Analyst",
+        "Volume Price Analyst",
     ],
     "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
     "Trading Team": ["Trader"],
     "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
     "Portfolio Management": ["Portfolio Manager"],
 }
-ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
 ANALYST_AGENT_NAMES = {
     "market": "Market Analyst",
     "social": "Social Analyst",
     "news": "News Analyst",
     "fundamentals": "Fundamentals Analyst",
     "macro": "Macro Analyst",
+    "volume_price": "Volume Price Analyst",
     "smart_money": "Smart Money Analyst",
     "bull": "Bull Researcher",
     "bear": "Bear Researcher",
