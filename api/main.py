@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 
 from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, QmtImportConfigDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, manual_import_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, tracking_board_service
+from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, tracking_board_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -906,7 +906,6 @@ class PortfolioOverviewResponse(BaseModel):
     scheduled: List[dict]
     latest_reports: List[ReportResponse]
     qmt_import: Optional[dict] = None
-    manual_import: Optional[dict] = None
 
 
 class WatchlistAddRequest(BaseModel):
@@ -1038,21 +1037,6 @@ class QmtImportSyncRequest(BaseModel):
     account_id: str = Field(..., description="QMT 资金账号")
     account_type: str = Field("STOCK", description="账户类型，默认 STOCK")
     auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务，并优先使用 QMT 持仓上下文")
-
-
-class ManualPositionItem(BaseModel):
-    symbol: str = Field(..., description="股票代码，如 600519.SH 或 600519")
-    name: Optional[str] = Field(None, description="股票名称")
-    current_position: Optional[float] = Field(None, description="持仓数量")
-    available_position: Optional[float] = Field(None, description="可用数量")
-    average_cost: Optional[float] = Field(None, description="成本价")
-    market_value: Optional[float] = Field(None, description="市值")
-    current_position_pct: Optional[float] = Field(None, description="仓位占比 %")
-
-
-class ManualImportSyncRequest(BaseModel):
-    positions: List[ManualPositionItem] = Field(..., description="持仓列表")
-    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务")
 
 
 class UserTokenResponse(BaseModel):
@@ -4053,10 +4037,7 @@ def _merge_imported_user_context(*contexts: Dict[str, Any]) -> Dict[str, Any]:
 
 def _build_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
     qmt_context = qmt_import_service.build_scheduled_user_context(db, user_id, symbol)
-    if qmt_context:
-        return _merge_imported_user_context(qmt_context)
-    manual_context = manual_import_service.build_scheduled_user_context(db, user_id, symbol)
-    return _merge_imported_user_context(manual_context)
+    return _merge_imported_user_context(qmt_context)
 
 
 def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
@@ -4093,25 +4074,6 @@ def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) 
                 f"账户：{qmt_config.account_id if qmt_config else '-'}\n"
                 f"QMT 路径：{qmt_config.qmt_path if qmt_config else '-'}"
             ),
-        })
-
-    # Also check manual import source
-    manual_row = (
-        db.query(ImportedPortfolioPositionDB)
-        .filter(
-            ImportedPortfolioPositionDB.user_id == user_id,
-            ImportedPortfolioPositionDB.source == "manual",
-            ImportedPortfolioPositionDB.symbol == normalized_symbol,
-        )
-        .first()
-    )
-    if manual_row and not qmt_row:
-        contexts.append({
-            "objective": "持有处理" if (manual_row.current_position or 0) > 0 else "观察",
-            "current_position": manual_row.current_position,
-            "current_position_pct": manual_row.current_position_pct,
-            "average_cost": manual_row.average_cost,
-            "user_notes": "来源：手动导入持仓（手动测试）",
         })
 
     return _merge_imported_user_context(*contexts)
@@ -4157,41 +4119,6 @@ def clear_qmt_import_state(
     db: Session = Depends(get_db),
 ):
     qmt_import_service.clear_imported_portfolio(db, current_user.id)
-
-
-# ── Manual position import ────────────────────────────────────────────────
-
-@app.get("/v1/portfolio/imports/manual")
-def get_manual_import_state(
-    current_user: UserDB = Depends(_require_api_user),
-    db: Session = Depends(get_db),
-):
-    return manual_import_service.get_import_state(db, current_user.id)
-
-
-@app.post("/v1/portfolio/imports/manual")
-def sync_manual_import(
-    body: ManualImportSyncRequest,
-    current_user: UserDB = Depends(_require_api_user),
-    db: Session = Depends(get_db),
-):
-    try:
-        return manual_import_service.sync_manual_portfolio(
-            db=db,
-            user_id=current_user.id,
-            positions=[p.model_dump() for p in body.positions],
-            auto_apply_scheduled=body.auto_apply_scheduled,
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-
-@app.delete("/v1/portfolio/imports/manual", status_code=204)
-def clear_manual_import_state(
-    current_user: UserDB = Depends(_require_api_user),
-    db: Session = Depends(get_db),
-):
-    manual_import_service.clear_imported_portfolio(db, current_user.id)
 
 
 @app.get("/v1/dashboard/tracking-board")
@@ -4338,14 +4265,12 @@ def get_portfolio_overview(
         report.name = code_to_name.get(report.symbol, report.symbol)
 
     qmt_import = qmt_import_service.get_import_state(db, current_user.id)
-    manual_import = manual_import_service.get_import_state(db, current_user.id)
 
     return {
         "watchlist": watchlist_items,
         "scheduled": scheduled_items,
         "latest_reports": latest_reports,
         "qmt_import": qmt_import,
-        "manual_import": manual_import,
     }
 
 

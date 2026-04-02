@@ -6,7 +6,7 @@ import {
     Database, Info, ArrowRight,
 } from 'lucide-react'
 import { api } from '@/services/api'
-import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report, QmtImportState, ManualImportState } from '@/types'
+import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report, QmtImportState } from '@/types'
 import { buildQmtSyncSummary } from '@/utils/qmtSync'
 
 const HORIZON_LABELS: Record<string, string> = { short: '短线', medium: '中线' }
@@ -64,7 +64,6 @@ export default function Portfolio() {
     const [scheduled, setScheduled] = useState<ScheduledAnalysis[]>([])
     const [latestReports, setLatestReports] = useState<Record<string, Report>>({})
     const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
-    const [manualImportState, setManualImportState] = useState<ManualImportState | null>(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [selectedScheduledIds, setSelectedScheduledIds] = useState<string[]>([])
@@ -105,7 +104,6 @@ export default function Portfolio() {
             setWatchlist(overview.watchlist)
             setScheduled(overview.scheduled)
             setQmtImportState(overview.qmt_import)
-            setManualImportState(overview.manual_import)
             const reportMap: Record<string, Report> = {}
             for (const report of overview.latest_reports) {
                 reportMap[report.symbol] = report
@@ -459,10 +457,10 @@ export default function Portfolio() {
                 <div className="card space-y-4">
                     <div className="flex items-center gap-2">
                         <Database className="w-5 h-5 text-emerald-500" />
-                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">1. 持仓同步</h2>
+                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">1. 一键同步 QMT 持仓</h2>
                     </div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                        持仓同步入口已移动到设置页，支持手动导入（适合 Web 端）和 QMT 同步两种方式。这里保留当前同步状态。
+                        QMT 同步入口已经移动到设置页。这里保留当前同步状态，方便确认持仓是否已经导入成功。
                     </p>
                     <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div>
@@ -479,36 +477,13 @@ export default function Portfolio() {
                                 <ArrowRight className="w-4 h-4" />
                             </button>
                             <div className="text-xs text-slate-500 dark:text-slate-400 self-center">
-                                前往设置页进行手动导入或 QMT 同步。
+                                需要修改账号、重新同步或清空 QMT 持仓时，也请前往设置页操作。
                             </div>
                         </div>
                     </div>
-                    {manualImportState && manualImportState.summary.positions > 0 && (
-                        <div className="rounded-2xl border border-sky-200 dark:border-sky-700/50 bg-sky-50/80 dark:bg-sky-900/20 p-4 space-y-2 text-sm">
-                            <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
-                                <span className="font-medium text-sky-700 dark:text-sky-300">手动导入</span>
-                                <span>持仓 {manualImportState.summary.positions} 只</span>
-                                <span>{manualImportState.last_synced_at ? `最近同步 ${manualImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : ''}</span>
-                            </div>
-                            <div className="max-h-48 overflow-y-auto pr-1 space-y-2">
-                                {manualImportState.positions.map(item => (
-                                    <div
-                                        key={item.symbol}
-                                        className="flex flex-wrap gap-3 rounded-xl border border-sky-200/80 dark:border-sky-700/50 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
-                                    >
-                                        <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
-                                        <span>{item.symbol}</span>
-                                        <span>持仓 {item.current_position ?? '-'}</span>
-                                        <span>成本 {item.average_cost ?? '-'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    {qmtImportState && qmtImportState.summary.positions > 0 && (
+                    {qmtImportState && (
                         <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
                             <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
-                                <span className="font-medium text-emerald-700 dark:text-emerald-300">QMT 同步</span>
                                 <span>持仓 {qmtImportState.summary.positions} 只</span>
                                 <span>{qmtImportState.last_synced_at ? `最近同步 ${qmtImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
                             </div>

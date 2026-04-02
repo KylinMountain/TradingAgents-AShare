@@ -97,12 +97,11 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
 
 
 def _list_qmt_position_rows(db: Session, user_id: str) -> list[ImportedPortfolioPositionDB]:
-    """Return imported positions from any source (QMT or manual)."""
     return (
         db.query(ImportedPortfolioPositionDB)
         .filter(
             ImportedPortfolioPositionDB.user_id == user_id,
-            ImportedPortfolioPositionDB.source.in_([SOURCE_NAME, "manual"]),
+            ImportedPortfolioPositionDB.source == SOURCE_NAME,
         )
         .order_by(
             ImportedPortfolioPositionDB.market_value.desc(),

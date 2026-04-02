@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, ManualImportState, ManualPositionInput, PortfolioOverviewResponse, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioOverviewResponse, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -240,24 +240,6 @@ class ApiService {
 
     async clearQmtImport(): Promise<void> {
         await this.request('/v1/portfolio/imports/qmt', { method: 'DELETE' })
-    }
-
-    async getManualImportState(): Promise<ManualImportState> {
-        return this.request<ManualImportState>('/v1/portfolio/imports/manual')
-    }
-
-    async syncManualImport(data: {
-        positions: ManualPositionInput[]
-        auto_apply_scheduled: boolean
-    }): Promise<ManualImportState> {
-        return this.request<ManualImportState>('/v1/portfolio/imports/manual', {
-            method: 'POST',
-            body: JSON.stringify(data),
-        })
-    }
-
-    async clearManualImport(): Promise<void> {
-        await this.request('/v1/portfolio/imports/manual', { method: 'DELETE' })
     }
 
     async getDashboardTrackingBoard(): Promise<TrackingBoardResponse> {
