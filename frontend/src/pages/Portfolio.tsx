@@ -501,7 +501,7 @@ export default function Portfolio() {
                                         onChange={e => setSearchQuery(e.target.value)}
                                         onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
                                         onKeyDown={e => e.key === 'Enter' && trimmedQuery && submitWatchlistInput()}
-                                        placeholder="搜索代码/名称，或批量粘贴：600519,贵州茅台,宁德时代"
+                                        placeholder="搜索代码/名称，批量粘贴，或点右侧📷上传截图识别"
                                         className="input pl-9 pr-10 w-full"
                                     />
                                     <button
