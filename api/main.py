@@ -192,6 +192,20 @@ async def _scheduled_analysis_slot(job_id: str, symbol: str):
         await _scheduled_analysis_release(job_id, symbol)
 
 
+def _refresh_sector_db_sync():
+    """Synchronous sector DB refresh — runs in executor thread."""
+    try:
+        import time as _time
+        from tradingagents.dataflows.sector_db import get_sector_db
+        t0 = _time.time()
+        sdb = get_sector_db()
+        stats = sdb.refresh(include_industry=False)  # concepts only (~5 min)
+        elapsed = _time.time() - t0
+        _log(f"[Scheduler] Sector DB refreshed in {elapsed:.0f}s: {stats}")
+    except Exception as e:
+        logger.error(f"[Scheduler] Sector DB refresh failed: {e}")
+
+
 async def _scheduler_loop():
     """Background loop: check every minute for scheduled tasks to trigger.
 
@@ -204,6 +218,7 @@ async def _scheduler_loop():
     from zoneinfo import ZoneInfo
 
     _log("[Scheduler] Started.")
+    _sector_refresh_date: Optional[str] = None  # track daily sector refresh
     while True:
         await asyncio.sleep(60)
         try:
@@ -216,6 +231,20 @@ async def _scheduler_loop():
             time_val = now.hour * 60 + now.minute
             if 8 * 60 < time_val < 20 * 60:
                 continue
+
+            # ── Auto-refresh sector/concept DB (once per week, non-blocking) ──
+            if _sector_refresh_date != today:
+                _sector_refresh_date = today
+                try:
+                    from tradingagents.dataflows.sector_db import get_sector_db
+                    sdb = get_sector_db()
+                    if sdb.is_stale(max_age_days=7):
+                        _log("[Scheduler] Sector DB is stale, starting background refresh...")
+                        asyncio.get_event_loop().run_in_executor(
+                            _executor, _refresh_sector_db_sync
+                        )
+                except Exception as e:
+                    logger.warning(f"[Scheduler] Sector DB check failed: {e}")
 
             with get_db_ctx() as db:
                 tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
@@ -458,6 +487,16 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
+    # Auto-refresh sector/concept DB if stale or never initialized
+    try:
+        from tradingagents.dataflows.sector_db import get_sector_db
+        sdb = get_sector_db()
+        if sdb.is_stale(max_age_days=7):
+            _log(f"[Startup] Sector DB is stale (last: {sdb.get_last_refresh() or 'Never'}), "
+                 "scheduling background refresh...")
+            asyncio.get_event_loop().run_in_executor(_executor, _refresh_sector_db_sync)
+    except Exception as e:
+        logger.warning(f"[Startup] Sector DB check failed: {e}")
     _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
