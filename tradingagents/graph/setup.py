@@ -25,6 +25,7 @@ def _load_agent_factories() -> dict[str, Any]:
     from tradingagents.agents.analysts.news_analyst import create_news_analyst
     from tradingagents.agents.analysts.smart_money_analyst import create_smart_money_analyst
     from tradingagents.agents.analysts.social_media_analyst import create_social_media_analyst
+    from tradingagents.agents.analysts.volume_price_analyst import create_volume_price_analyst
     from tradingagents.agents.managers.research_manager import create_research_manager
     from tradingagents.agents.managers.risk_manager import create_risk_manager
     from tradingagents.agents.researchers.bear_researcher import create_bear_researcher
@@ -48,6 +49,7 @@ def _load_agent_factories() -> dict[str, Any]:
         "create_risk_manager": create_risk_manager,
         "create_smart_money_analyst": create_smart_money_analyst,
         "create_social_media_analyst": create_social_media_analyst,
+        "create_volume_price_analyst": create_volume_price_analyst,
         "create_trader": create_trader,
     }
 
@@ -146,7 +148,7 @@ class GraphSetup:
             done_nodes["smart_money"] = analyst_done_node
 
         if "volume_price" in selected_analysts:
-            analyst_nodes["volume_price"] = create_volume_price_analyst(
+            analyst_nodes["volume_price"] = factories["create_volume_price_analyst"](
                 self.quick_thinking_llm, self.data_collector
             )
             tool_nodes["volume_price"] = self.tool_nodes["volume_price"]
