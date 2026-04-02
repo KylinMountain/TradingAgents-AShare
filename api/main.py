@@ -455,6 +455,9 @@ async def lifespan(app: FastAPI):
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
     _log("Trade calendar pre-loaded.")
+    # Pre-load stock + ETF name map
+    await asyncio.to_thread(_load_cn_stock_map)
+    _log("Stock map pre-loaded on startup.")
     _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
@@ -562,7 +565,7 @@ _STOCK_MAP_TTL = 7 * 86400  # 7 days
 
 
 def _load_cn_stock_map() -> Dict[str, str]:
-    """Lazy-load and cache akshare A-share name→code mapping with 7-day TTL."""
+    """Lazy-load and cache stock + ETF name→code mapping via baostock (7-day TTL)."""
     global _cn_stock_map, _cn_stock_reverse_map, _cn_stock_map_loaded_at
     import time as _time
     now = _time.time()
@@ -574,20 +577,35 @@ def _load_cn_stock_map() -> Dict[str, str]:
     with _cn_stock_map_lock:
         if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
             return _cn_stock_map
+        result: Dict[str, str] = {}
         try:
-            import akshare as ak
-            df = ak.stock_info_a_code_name()
-            result: Dict[str, str] = {}
-            for _, row in df.iterrows():
-                name = str(row.get("name", "")).strip()
-                code = str(row.get("code", "")).strip()
-                if name and code:
-                    normalized = _normalize_symbol(code)
+            import baostock as bs
+            lg = bs.login()
+            try:
+                rs = bs.query_all_stock(day=datetime.now().strftime("%Y-%m-%d"))
+                while rs.next():
+                    row = rs.get_row_data()
+                    if len(row) < 3:
+                        continue
+                    bs_code = str(row[0]).strip()   # e.g. "sh.600519"
+                    name = str(row[2]).strip()
+                    if not bs_code or not name:
+                        continue
+                    parts = bs_code.split(".")
+                    if len(parts) != 2:
+                        continue
+                    market, code = parts[0].upper(), parts[1]
+                    if not code.isdigit() or len(code) != 6:
+                        continue
+                    suffix = "SH" if market == "SH" else "SZ" if market == "SZ" else "BJ"
+                    normalized = f"{code}.{suffix}"
                     result[name] = normalized
+            finally:
+                bs.logout()
             _cn_stock_map = result
             _cn_stock_reverse_map = {code: name for name, code in result.items()}
             _cn_stock_map_loaded_at = now
-            _log(f"[StockMap] Loaded {len(result)} A-share stocks.")
+            _log(f"[StockMap] Loaded {len(result)} stocks/ETFs via baostock.")
         except Exception as e:
             _log(f"[StockMap] Failed to load: {e}")
             if _cn_stock_map is None:
