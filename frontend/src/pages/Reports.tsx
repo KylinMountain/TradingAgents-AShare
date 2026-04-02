@@ -180,6 +180,8 @@ function exportReport(report: ReportDetail) {
 export default function Reports() {
     const { user } = useAuthStore()
     const [searchParams, setSearchParams] = useSearchParams()
+    const setSearchParamsRef = useRef(setSearchParams)
+    setSearchParamsRef.current = setSearchParams
     const PAGE_SIZE = 20
     const [searchQuery, setSearchQuery] = useState('')
     const [page, setPage] = useState(0)
@@ -313,7 +315,7 @@ export default function Reports() {
             }
 
             if (!silent) {
-                setSearchParams({ report: reportId })
+                setSearchParamsRef.current({ report: reportId })
                 setDetailProgress({
                     status: 'success',
                     progress: 100,
@@ -336,7 +338,7 @@ export default function Reports() {
                 setDetailLoading(false)
             }
         }
-    }, [setSearchParams])
+    }, [])
 
     const loadingReportIdRef = useRef<string | null>(null)
 
