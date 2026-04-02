@@ -40,7 +40,7 @@ tradingagents = "cli.main:app"
 tradingagents-api = "api.main:run"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "api*"]
 
 [dependency-groups]
 dev = [
