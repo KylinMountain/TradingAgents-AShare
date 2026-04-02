@@ -525,12 +525,6 @@ export default function Reports() {
     // ─── 列表视图 ────────────────────────────────────────────────────────────
     return (
         <div className="space-y-6">
-            <TaskProgressBanner
-                status={listProgress.status}
-                progress={listProgress.progress}
-                label={getTaskStatusLabel('reports', listProgress.status === 'idle' ? 'success' : listProgress.status)}
-                detail={listProgress.detail}
-            />
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">历史报告</h1>
