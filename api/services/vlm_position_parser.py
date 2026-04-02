@@ -12,17 +12,18 @@ from api.services.vlm_service import call_vlm
 
 logger = logging.getLogger(__name__)
 
-POSITION_PROMPT = """你是一个持仓截图解析助手。用户会上传券商 App 的持仓截图。
-请从图片中提取所有股票持仓信息，返回 JSON 数组，每个元素包含：
+POSITION_PROMPT = """你是一个股票截图解析助手。用户会上传券商 App 的截图（可能是自选股列表、持仓页面、或其他包含股票信息的页面）。
+请从图片中提取所有能识别到的 A 股股票信息，返回 JSON 数组，每个元素包含：
 - symbol: 股票代码（6位数字，如 "600519"）
 - name: 股票名称
-- current_position: 持仓数量（股）
+- current_position: 持仓数量（股），如果图中没有则为 null
 - average_cost: 成本价（元），如果图中没有则为 null
-- market_value: 市值（元），如果图中没有则为 null
+- market_value: 持仓市值（元），如果图中没有则为 null
 
-只返回 JSON 数组，不要有其他文字。如果图片中没有持仓信息，返回空数组 []。
+注意：流通市值不是持仓市值，如果只看到流通市值请忽略该字段。
+只返回 JSON 数组，不要有其他文字。如果图片中没有任何股票信息，返回空数组 []。
 
-请解析这张持仓截图。"""
+请解析这张截图中的股票信息。"""
 
 
 def parse_position_image(
