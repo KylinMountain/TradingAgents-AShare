@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
@@ -335,17 +335,6 @@ export default function Settings() {
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">系统设置</h1>
                 <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数与模型</p>
-            </div>
-
-            <div className="card space-y-3">
-                <div className="flex items-center gap-2">
-                    <User className="w-5 h-5 text-cyan-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">账户空间</h2>
-                </div>
-                <div className="text-sm text-slate-600 dark:text-slate-300">
-                    <div>当前登录：{user?.email || '-'}</div>
-                    <div className="mt-1 text-slate-500 dark:text-slate-400">报告历史、分析任务和模型配置仅当前账户可见。</div>
-                </div>
             </div>
 
             <div className="card space-y-4">
