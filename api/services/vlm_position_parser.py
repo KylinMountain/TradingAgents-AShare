@@ -3,7 +3,7 @@
 VLM configuration is server-side via environment variables:
   TA_VLM_API_KEY      — required, API key for the VLM provider
   TA_VLM_BASE_URL     — base URL (default: https://open.bigmodel.cn/api/paas/v4)
-  TA_VLM_MODEL        — model name (default: glm-4.6v-flashx)
+  TA_VLM_MODEL        — model name (default: glm-4.6v-flash)
   TA_VLM_PROVIDER     — "openai" (default) or "anthropic"
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _get_vlm_config() -> dict[str, str]:
         "provider": os.getenv("TA_VLM_PROVIDER", "openai").strip(),
         "api_key": api_key,
         "base_url": os.getenv("TA_VLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").strip(),
-        "model": os.getenv("TA_VLM_MODEL", "glm-4.6v-flashx").strip(),
+        "model": os.getenv("TA_VLM_MODEL", "glm-4.6v-flash").strip(),
     }
 
 
@@ -77,7 +77,7 @@ def _call_openai_compatible(base64_image: str, media_type: str, vlm_config: dict
     image_url = base64_image if raw_base64 else f"data:{media_type};base64,{base64_image}"
 
     response = client.chat.completions.create(
-        model=vlm_config.get("model", "glm-4.6v-flashx"),
+        model=vlm_config.get("model", "glm-4.6v-flash"),
         messages=[
             {"role": "user", "content": [
                 {"type": "text", "text": SYSTEM_PROMPT + "\n\n请解析这张持仓截图。"},
