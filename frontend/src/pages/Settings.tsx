@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
-import { buildQmtSyncSummary } from '@/utils/qmtSync'
+import type { PortfolioImportState, PortfolioPositionInput, RuntimeWarmupResult, UserToken } from '@/types'
 
 type ProviderPreset = {
     id: string
@@ -58,13 +57,10 @@ export default function Settings() {
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
-    const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
-    const [qmtLoading, setQmtLoading] = useState(false)
-    const [qmtSyncing, setQmtSyncing] = useState(false)
-    const [qmtPath, setQmtPath] = useState('')
-    const [qmtAccountId, setQmtAccountId] = useState('')
-    const [qmtAccountType, setQmtAccountType] = useState('STOCK')
-    const [qmtAutoApply, setQmtAutoApply] = useState(true)
+    const [portfolioImportState, setPortfolioImportState] = useState<PortfolioImportState | null>(null)
+    const [portfolioSyncing, setPortfolioSyncing] = useState(false)
+    const [portfolioAutoApply, setPortfolioAutoApply] = useState(true)
+    const [portfolioPositionsText, setPortfolioPositionsText] = useState('')
 
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -95,7 +91,7 @@ export default function Settings() {
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
-    const qmtSummary = buildQmtSyncSummary(qmtImportState)
+    const portfolioPositionCount = portfolioImportState?.summary?.positions ?? 0
 
     useEffect(() => {
         setWarmupResults([])
@@ -149,7 +145,7 @@ export default function Settings() {
 
         // Fetch tokens
         fetchTokens()
-        void fetchQmtImportState()
+        void fetchPortfolioImportState()
     }, [])
 
     const fetchTokens = async () => {
@@ -164,19 +160,12 @@ export default function Settings() {
         }
     }
 
-    const fetchQmtImportState = async () => {
-        setQmtLoading(true)
+    const fetchPortfolioImportState = async () => {
         try {
-            const state = await api.getQmtImportState()
-            setQmtImportState(state)
-            setQmtPath(state.qmt_path || '')
-            setQmtAccountId(state.account_id || '')
-            setQmtAccountType(state.account_type || 'STOCK')
-            setQmtAutoApply(state.auto_apply_scheduled)
+            const state = await api.getPortfolioImportState()
+            setPortfolioImportState(state)
         } catch (err) {
-            console.error('Failed to fetch QMT import state:', err)
-        } finally {
-            setQmtLoading(false)
+            console.error('Failed to fetch portfolio import state:', err)
         }
     }
 
@@ -241,26 +230,50 @@ export default function Settings() {
         setTimeout(() => setSaved(false), 2000)
     }
 
-    const hasAnyQmtInput = () => Boolean(qmtPath.trim() || qmtAccountId.trim())
-    const shouldSyncQmt = () => Boolean(qmtPath.trim() && qmtAccountId.trim())
-
-    const syncQmtImport = async (options?: { successMessage?: string }) => {
-        if (!qmtPath.trim() || !qmtAccountId.trim()) {
-            throw new Error('请填写 QMT userdata 路径和资金账号')
-        }
-        setQmtSyncing(true)
-        try {
-            const result = await api.syncQmtImport({
-                qmt_path: qmtPath.trim(),
-                account_id: qmtAccountId.trim(),
-                account_type: qmtAccountType,
-                auto_apply_scheduled: qmtAutoApply,
+    const parsePortfolioPositions = (text: string): PortfolioPositionInput[] => {
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+        const positions: PortfolioPositionInput[] = []
+        for (const line of lines) {
+            const parts = line.split(/[,\t，\s]+/).filter(Boolean)
+            if (!parts[0]) continue
+            const symbol = parts[0]
+            let nameIdx = -1
+            let numStart = 1
+            if (parts[1] && !/^[\d.]+$/.test(parts[1])) {
+                nameIdx = 1
+                numStart = 2
+            }
+            const nums = parts.slice(numStart).map(v => {
+                const n = parseFloat(v)
+                return isNaN(n) ? null : n
             })
-            setQmtImportState(result)
-            showSavedMessage(options?.successMessage || 'QMT 配置已保存')
+            positions.push({
+                symbol,
+                name: nameIdx >= 0 ? parts[nameIdx] : undefined,
+                current_position: nums[0] ?? null,
+                average_cost: nums[1] ?? null,
+                market_value: nums[2] ?? null,
+            })
+        }
+        return positions
+    }
+
+    const syncPortfolioImport = async (options?: { successMessage?: string }) => {
+        const positions = parsePortfolioPositions(portfolioPositionsText)
+        if (positions.length === 0) {
+            throw new Error('请输入至少一条持仓记录')
+        }
+        setPortfolioSyncing(true)
+        try {
+            const result = await api.syncPortfolioImport({
+                positions,
+                auto_apply_scheduled: portfolioAutoApply,
+            })
+            setPortfolioImportState(result)
+            showSavedMessage(options?.successMessage || '持仓已保存')
             return result
         } finally {
-            setQmtSyncing(false)
+            setPortfolioSyncing(false)
         }
     }
 
@@ -296,12 +309,9 @@ export default function Settings() {
     const handleSaveAll = async () => {
         setSaveAllSaving(true)
         try {
-            if (hasAnyQmtInput() && !shouldSyncQmt()) {
-                throw new Error('如需一并保存 QMT，请同时填写 QMT userdata 路径和资金账号')
-            }
             await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
-            if (shouldSyncQmt()) {
-                await syncQmtImport({ successMessage: '全部设置已保存' })
+            if (portfolioPositionsText.trim()) {
+                await syncPortfolioImport({ successMessage: '全部设置已保存' })
             } else {
                 showSavedMessage('全部设置已保存')
             }
@@ -382,21 +392,22 @@ export default function Settings() {
         }
     }
 
-    const handleSaveQmt = async () => {
+    const handleSavePortfolio = async () => {
         try {
-            await syncQmtImport({ successMessage: 'QMT 配置已保存' })
+            await syncPortfolioImport({ successMessage: '持仓已保存' })
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'QMT 同步失败')
+            alert(err instanceof Error ? err.message : '持仓保存失败')
         }
     }
 
-    const clearQmtImport = async () => {
-        if (!confirm('确定清空已同步的 QMT 持仓上下文吗？')) return
+    const clearPortfolioImport = async () => {
+        if (!confirm('确定清空已导入的持仓上下文吗？')) return
         try {
-            await api.clearQmtImport()
-            await fetchQmtImportState()
+            await api.clearPortfolioImport()
+            await fetchPortfolioImportState()
+            setPortfolioPositionsText('')
         } catch (err) {
-            alert(err instanceof Error ? err.message : '清空 QMT 持仓失败')
+            alert(err instanceof Error ? err.message : '清空持仓失败')
         }
     }
 
@@ -410,7 +421,7 @@ export default function Settings() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">系统设置</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数、模型与 QMT 持仓同步</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数、模型与持仓追踪</p>
             </div>
 
             <div className="card space-y-3">
@@ -424,121 +435,104 @@ export default function Settings() {
                 </div>
             </div>
 
-            <div className="card space-y-4">
-                <div className="flex items-center gap-2">
-                    <Database className="w-5 h-5 text-emerald-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">QMT / xtquant 持仓同步</h2>
-                    <div className="group relative">
+            <div className=”card space-y-4”>
+                <div className=”flex items-center gap-2”>
+                    <Database className=”w-5 h-5 text-emerald-500” />
+                    <h2 className=”text-lg font-semibold text-slate-900 dark:text-slate-100”>持仓追踪</h2>
+                    <div className=”group relative”>
                         <button
-                            type="button"
-                            aria-label="QMT Mini 获取说明"
-                            className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300"
+                            type=”button”
+                            aria-label=”持仓追踪说明”
+                            className=”flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300”
                         >
-                            <Info className="h-3 w-3" />
+                            <Info className=”h-3 w-3” />
                         </button>
-                        <div className="pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                            <div className="font-medium text-slate-900 dark:text-slate-100">如何获取 QMT Mini</div>
-                            <div className="mt-2">
-                                一般来说，如果你开通了量化交易，你应该会知道 QMT 是什么。
+                        <div className=”pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200”>
+                            <div className=”font-medium text-slate-900 dark:text-slate-100”>如何导入持仓</div>
+                            <div className=”mt-2”>
+                                每行输入一只股票，格式：<code className=”bg-slate-100 dark:bg-slate-800 px-1 rounded”>代码 名称 持仓 成本 市值</code>
                             </div>
-                            <div className="mt-2">
-                                如果你正在使用大 QMT，请在登录页勾选“独立交易”，进入的就是 QMT Mini。
+                            <div className=”mt-2”>
+                                支持用逗号、Tab 或空格分隔。股票代码支持 600519.SH 或纯 6 位数字。
                             </div>
-                            <div className="mt-2">
-                                如果你不知道这是什么，可以咨询你的券商客户经理开通量化交易。
-                            </div>
-                            <div className="mt-2 text-amber-600 dark:text-amber-300">
-                                部分券商使用 PTrade，本项目暂时还不支持。
+                            <div className=”mt-2”>
+                                导入后跟踪看板和定时分析会自动使用持仓上下文。
                             </div>
                         </div>
                     </div>
-                    <div className="ml-auto flex items-center gap-3">
-                        {(qmtLoading || qmtSyncing) && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+                    <div className=”ml-auto flex items-center gap-3”>
+                        {portfolioSyncing && <Loader2 className=”w-4 h-4 animate-spin text-slate-400” />}
                         <button
-                            type="button"
-                            onClick={handleSaveQmt}
-                            disabled={qmtSyncing || qmtLoading || saveAllSaving}
-                            className="btn-secondary inline-flex items-center gap-2"
+                            type=”button”
+                            onClick={handleSavePortfolio}
+                            disabled={portfolioSyncing || saveAllSaving}
+                            className=”btn-secondary inline-flex items-center gap-2”
                         >
-                            {qmtSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            {portfolioSyncing ? <Loader2 className=”w-4 h-4 animate-spin” /> : <Save className=”w-4 h-4” />}
                             保存
                         </button>
                     </div>
                 </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    在这里连接 QMT 的 `xtquant` 账户。同步成功后，主页面跟踪看板和定时分析会自动使用这里的最新持仓信息。
+                <p className=”text-sm text-slate-500 dark:text-slate-400”>
+                    在这里导入持仓信息。保存后跟踪看板和定时分析会自动使用最新持仓上下文。
                 </p>
 
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4">
-                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{qmtSummary.title}</div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{qmtSummary.detail}</div>
-                    {qmtImportState?.last_error && (
-                        <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                            最近一次同步错误：{qmtImportState.last_error}
-                        </div>
-                    )}
+                <div>
+                    <label className=”block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2”>持仓列表（每行一只）</label>
+                    <textarea
+                        value={portfolioPositionsText}
+                        onChange={e => setPortfolioPositionsText(e.target.value)}
+                        rows={6}
+                        className=”input w-full font-mono text-xs”
+                        placeholder={“600519.SH 贵州茅台 100 1800.5 180050\n000858 五粮液 200 150.3 30060\n300750 宁德时代 50 210 10500”}
+                    />
+                    <p className=”mt-1 text-xs text-slate-400 dark:text-slate-500”>
+                        格式：代码 [名称] [持仓数] [成本价] [市值]，用逗号/Tab/空格分隔
+                    </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">QMT userdata 路径</label>
-                        <input value={qmtPath} onChange={e => setQmtPath(e.target.value)} className="input w-full" placeholder="例如 D:\\QMT\\userdata_mini" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">资金账号</label>
-                        <input value={qmtAccountId} onChange={e => setQmtAccountId(e.target.value)} className="input w-full" placeholder="请输入 QMT 资金账号" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">账户类型</label>
-                        <select value={qmtAccountType} onChange={e => setQmtAccountType(e.target.value)} className="input w-full">
-                            <option value="STOCK">STOCK</option>
-                            <option value="CREDIT">CREDIT</option>
-                        </select>
-                    </div>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                    <input type="checkbox" checked={qmtAutoApply} onChange={e => setQmtAutoApply(e.target.checked)} />
-                    自动加入定时任务，并优先使用 QMT 持仓上下文
+                <label className=”flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300”>
+                    <input type=”checkbox” checked={portfolioAutoApply} onChange={e => setPortfolioAutoApply(e.target.checked)} />
+                    自动加入定时任务
                 </label>
 
-                <div className="flex flex-wrap gap-3">
-                    <button type="button" onClick={() => { void syncQmtImport() }} disabled={qmtSyncing || saveAllSaving} className="btn-primary inline-flex items-center gap-2">
-                        {qmtSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        连接并同步
+                <div className=”flex flex-wrap gap-3”>
+                    <button type=”button” onClick={() => { void handleSavePortfolio() }} disabled={portfolioSyncing || saveAllSaving} className=”btn-primary inline-flex items-center gap-2”>
+                        {portfolioSyncing ? <Loader2 className=”w-4 h-4 animate-spin” /> : <RefreshCw className=”w-4 h-4” />}
+                        保存持仓
                     </button>
-                    <button type="button" onClick={clearQmtImport} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                        <Trash2 className="w-4 h-4" />
-                        清空同步
+                    <button type=”button” onClick={clearPortfolioImport} className=”inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60”>
+                        <Trash2 className=”w-4 h-4” />
+                        清空持仓
                     </button>
                 </div>
 
-                {qmtImportState && (
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
-                        <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
-                            <span>持仓 {qmtImportState.summary.positions} 只</span>
-                            <span>{qmtImportState.last_synced_at ? `最近同步 ${qmtImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
+                {portfolioImportState && portfolioPositionCount > 0 && (
+                    <div className=”rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm”>
+                        <div className=”flex flex-wrap gap-3 text-slate-600 dark:text-slate-300”>
+                            <span>持仓 {portfolioPositionCount} 只</span>
+                            <span>{portfolioImportState.last_synced_at ? `最近同步 ${portfolioImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
                         </div>
-                        {!!qmtImportState.scheduled_sync && (
-                            <div className="flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300">
-                                <span>新增定时任务 {qmtImportState.scheduled_sync.created.length} 只</span>
-                                <span>已存在 {qmtImportState.scheduled_sync.existing.length} 只</span>
-                                {qmtImportState.scheduled_sync.skipped_limit.length > 0 && (
-                                    <span>超出上限未加入 {qmtImportState.scheduled_sync.skipped_limit.length} 只</span>
+                        {!!portfolioImportState.scheduled_sync && (
+                            <div className=”flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300”>
+                                <span>新增定时任务 {portfolioImportState.scheduled_sync.created.length} 只</span>
+                                <span>已存在 {portfolioImportState.scheduled_sync.existing.length} 只</span>
+                                {portfolioImportState.scheduled_sync.skipped_limit.length > 0 && (
+                                    <span>超出上限未加入 {portfolioImportState.scheduled_sync.skipped_limit.length} 只</span>
                                 )}
                             </div>
                         )}
-                        <div className="max-h-64 overflow-y-auto pr-1 space-y-2">
-                            {qmtImportState.positions.map(item => (
+                        <div className=”max-h-64 overflow-y-auto pr-1 space-y-2”>
+                            {portfolioImportState.positions.map(item => (
                                 <div
                                     key={item.symbol}
-                                    className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+                                    className=”flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400”
                                 >
-                                    <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
+                                    <span className=”font-medium text-slate-700 dark:text-slate-200”>{item.name}</span>
                                     <span>{item.symbol}</span>
                                     <span>持仓 {item.current_position ?? '-'}</span>
                                     <span>成本 {item.average_cost ?? '-'}</span>
-                                    <span>可用 {item.available_position ?? '-'}</span>
+                                    <span>市值 {item.market_value ?? '-'}</span>
                                 </div>
                             ))}
                         </div>
@@ -1029,7 +1023,7 @@ export default function Settings() {
             </div>
 
             <div className="flex items-center gap-4">
-                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving || qmtSyncing} className="btn-primary inline-flex items-center gap-2">
+                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving || portfolioSyncing} className="btn-primary inline-flex items-center gap-2">
                     {saveAllSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     保存全部
                 </button>

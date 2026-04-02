@@ -6,8 +6,8 @@ import {
     Database, Info, ArrowRight,
 } from 'lucide-react'
 import { api } from '@/services/api'
-import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report, QmtImportState } from '@/types'
-import { buildQmtSyncSummary } from '@/utils/qmtSync'
+import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report, PortfolioImportState } from '@/types'
+import { buildPortfolioSyncSummary } from '@/utils/portfolioSync'
 
 const HORIZON_LABELS: Record<string, string> = { short: '短线', medium: '中线' }
 const WATCHLIST_BATCH_SPLIT_RE = /[,\s，、；;]+/
@@ -63,7 +63,7 @@ export default function Portfolio() {
     const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
     const [scheduled, setScheduled] = useState<ScheduledAnalysis[]>([])
     const [latestReports, setLatestReports] = useState<Record<string, Report>>({})
-    const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
+    const [portfolioImportState, setPortfolioImportState] = useState<PortfolioImportState | null>(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [selectedScheduledIds, setSelectedScheduledIds] = useState<string[]>([])
@@ -94,7 +94,7 @@ export default function Portfolio() {
     const hasSelectedScheduled = selectedScheduledCount > 0
     const allScheduledSelected = scheduled.length > 0 && selectedScheduledCount === scheduled.length
     const isScheduledBatchBusy = scheduledBatchBusyAction !== null
-    const qmtSummary = buildQmtSyncSummary(qmtImportState)
+    const portfolioSummary = buildPortfolioSyncSummary(portfolioImportState)
 
     const fetchAll = async () => {
         setLoading(true)
@@ -103,7 +103,7 @@ export default function Portfolio() {
             const overview = await api.getPortfolioOverview()
             setWatchlist(overview.watchlist)
             setScheduled(overview.scheduled)
-            setQmtImportState(overview.qmt_import)
+            setPortfolioImportState(overview.portfolio_import)
             const reportMap: Record<string, Report> = {}
             for (const report of overview.latest_reports) {
                 reportMap[report.symbol] = report
@@ -450,22 +450,19 @@ export default function Portfolio() {
             )}
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">自选 & 定时分析</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">先同步 QMT 持仓，再为关注标的创建每日自动分析任务</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">先导入持仓，再为关注标的创建每日自动分析任务</p>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
                 <div className="card space-y-4">
                     <div className="flex items-center gap-2">
                         <Database className="w-5 h-5 text-emerald-500" />
-                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">1. 一键同步 QMT 持仓</h2>
+                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">1. 持仓追踪</h2>
                     </div>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        QMT 同步入口已经移动到设置页。这里保留当前同步状态，方便确认持仓是否已经导入成功。
-                    </p>
                     <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div>
-                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{qmtSummary.title}</p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{qmtSummary.detail}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{portfolioSummary.title}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{portfolioSummary.detail}</p>
                         </div>
                         <div className="flex flex-wrap gap-3">
                             <button
@@ -473,31 +470,18 @@ export default function Portfolio() {
                                 onClick={() => navigate('/settings')}
                                 className="btn-primary inline-flex items-center gap-2"
                             >
-                                去设置配置
+                                去设置导入
                                 <ArrowRight className="w-4 h-4" />
                             </button>
                             <div className="text-xs text-slate-500 dark:text-slate-400 self-center">
-                                需要修改账号、重新同步或清空 QMT 持仓时，也请前往设置页操作。
+                                前往设置页导入或修改持仓信息。
                             </div>
                         </div>
                     </div>
-                    {qmtImportState && (
+                    {portfolioImportState && (portfolioImportState.summary?.positions ?? 0) > 0 && (
                         <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
-                            <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
-                                <span>持仓 {qmtImportState.summary.positions} 只</span>
-                                <span>{qmtImportState.last_synced_at ? `最近同步 ${qmtImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
-                            </div>
-                            {!!qmtImportState.scheduled_sync && (
-                                <div className="flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300">
-                                    <span>新增定时任务 {qmtImportState.scheduled_sync.created.length} 只</span>
-                                    <span>已存在 {qmtImportState.scheduled_sync.existing.length} 只</span>
-                                    {qmtImportState.scheduled_sync.skipped_limit.length > 0 && (
-                                        <span>超出上限未加入 {qmtImportState.scheduled_sync.skipped_limit.length} 只</span>
-                                    )}
-                                </div>
-                            )}
-                            <div className="max-h-64 overflow-y-auto pr-1 space-y-2">
-                                {qmtImportState.positions.map(item => (
+                            <div className="max-h-48 overflow-y-auto pr-1 space-y-2">
+                                {portfolioImportState.positions.map(item => (
                                     <div
                                         key={item.symbol}
                                         className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
@@ -506,7 +490,6 @@ export default function Portfolio() {
                                         <span>{item.symbol}</span>
                                         <span>持仓 {item.current_position ?? '-'}</span>
                                         <span>成本 {item.average_cost ?? '-'}</span>
-                                        <span>可用 {item.available_position ?? '-'}</span>
                                     </div>
                                 ))}
                             </div>

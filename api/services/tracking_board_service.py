@@ -10,8 +10,7 @@ from typing import Any
 import requests
 from sqlalchemy.orm import Session
 
-from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, ReportDB
-from api.services.qmt_import_service import SOURCE_NAME
+from api.database import ImportedPortfolioPositionDB, ReportDB
 from tradingagents.dataflows.trade_calendar import cn_today_str, previous_cn_trading_day
 
 
@@ -27,11 +26,10 @@ _sina_quote_cache_ts: float = 0.0
 
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
-    config = db.query(QmtImportConfigDB).filter(QmtImportConfigDB.user_id == user_id).first()
     previous_trade_date = previous_cn_trading_day(cn_today_str())
-    rows = _list_qmt_position_rows(db, user_id)
+    rows = _list_imported_position_rows(db, user_id)
     symbols = [row.symbol for row in rows]
-    quotes = _fetch_live_quotes(symbols, prefer_qmt_only=bool(config and config.qmt_path))
+    quotes = _fetch_live_quotes(symbols)
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
 
     items: list[dict[str, Any]] = []
@@ -85,24 +83,17 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
         )
 
     return {
-        "broker": SOURCE_NAME,
-        "qmt_path": config.qmt_path if config else None,
-        "account_id": config.account_id if config else None,
-        "account_type": config.account_type if config else None,
-        "last_synced_at": config.last_synced_at.isoformat() if config and config.last_synced_at else None,
         "previous_trade_date": previous_trade_date,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS,
         "items": items,
     }
 
 
-def _list_qmt_position_rows(db: Session, user_id: str) -> list[ImportedPortfolioPositionDB]:
+def _list_imported_position_rows(db: Session, user_id: str) -> list[ImportedPortfolioPositionDB]:
+    """Return all imported positions for a user regardless of source."""
     return (
         db.query(ImportedPortfolioPositionDB)
-        .filter(
-            ImportedPortfolioPositionDB.user_id == user_id,
-            ImportedPortfolioPositionDB.source == SOURCE_NAME,
-        )
+        .filter(ImportedPortfolioPositionDB.user_id == user_id)
         .order_by(
             ImportedPortfolioPositionDB.market_value.desc(),
             ImportedPortfolioPositionDB.current_position.desc(),
@@ -218,21 +209,11 @@ def _clip_summary(text: str | None) -> str | None:
     return compact[:96]
 
 
-def _fetch_live_quotes(
-    symbols: list[str],
-    *,
-    prefer_qmt_only: bool = False,
-) -> dict[str, dict[str, Any]]:
+def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
     if not symbols:
         return {}
 
-    quotes = _fetch_qmt_quotes(symbols)
-    missing = [symbol for symbol in symbols if symbol not in quotes]
-    if not missing or prefer_qmt_only:
-        return quotes
-
-    fallback_quotes = _fetch_em_batch_quotes(missing)
-    quotes.update(fallback_quotes)
+    quotes = _fetch_em_batch_quotes(symbols)
     missing = [symbol for symbol in symbols if symbol not in quotes]
     if ENABLE_SINGLE_QUOTE_FALLBACK:
         for symbol in missing:
@@ -240,145 +221,6 @@ def _fetch_live_quotes(
             if quote:
                 quotes[symbol] = quote
     return quotes
-
-
-def _fetch_qmt_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
-    try:
-        import xtquant.xtdata as xtdata  # type: ignore
-    except Exception as exc:
-        logger.warning("[tracking-board] xtdata import failed: %s", exc)
-        return {}
-
-    normalized_symbols = [symbol.strip().upper() for symbol in symbols if symbol and symbol.strip()]
-    if not normalized_symbols:
-        return {}
-
-    try:
-        raw = xtdata.get_full_tick(normalized_symbols)
-    except Exception as exc:
-        logger.warning("[tracking-board] xtdata quote fetch failed for %s: %s", normalized_symbols, exc)
-        raw = {}
-
-    quotes: dict[str, dict[str, Any]] = {}
-    if isinstance(raw, dict):
-        for symbol in normalized_symbols:
-            tick = raw.get(symbol)
-            if not isinstance(tick, dict):
-                continue
-            quote = _build_qmt_quote_from_mapping(tick)
-            if quote:
-                quotes[symbol] = quote
-
-    if quotes:
-        return quotes
-
-    subscription_ids: list[int] = []
-    try:
-        for symbol in normalized_symbols:
-            try:
-                subscription_id = xtdata.subscribe_quote(symbol, period="tick", count=1)
-                if subscription_id is not None:
-                    subscription_ids.append(int(subscription_id))
-            except Exception as exc:
-                logger.warning("[tracking-board] xtdata subscribe_quote failed for %s: %s", symbol, exc)
-        if subscription_ids:
-            # Blocking sleep is acceptable here: the endpoint is sync def,
-            # so FastAPI runs it in a threadpool and won't block the event loop.
-            time.sleep(0.35)
-
-        try:
-            raw_frames = xtdata.get_market_data_ex(
-                field_list=["time", "lastPrice", "open", "high", "low", "lastClose", "amount", "volume"],
-                stock_list=normalized_symbols,
-                period="tick",
-                count=1,
-            )
-        except Exception as exc:
-            logger.warning("[tracking-board] xtdata tick frame fetch failed for %s: %s", normalized_symbols, exc)
-            return quotes
-
-        if not isinstance(raw_frames, dict):
-            return quotes
-
-        for symbol in normalized_symbols:
-            frame = raw_frames.get(symbol)
-            quote = _build_qmt_quote_from_frame(frame)
-            if quote:
-                quotes[symbol] = quote
-    finally:
-        unsubscribe = getattr(xtdata, "unsubscribe_quote", None)
-        if callable(unsubscribe):
-            for subscription_id in subscription_ids:
-                try:
-                    unsubscribe(subscription_id)
-                except Exception:
-                    pass
-
-    return quotes
-
-
-def _build_qmt_quote_from_mapping(tick: dict[str, Any]) -> dict[str, Any] | None:
-    last_price = _to_float(tick.get("lastPrice"))
-    previous_close = _to_float(tick.get("lastClose") or tick.get("lastSettlementPrice"))
-    change = _to_float(tick.get("change"))
-    if change is None and last_price is not None and previous_close is not None:
-        change = round(last_price - previous_close, 4)
-
-    change_pct = _to_float(tick.get("changePercent") or tick.get("changePct"))
-    if change_pct is None and change is not None and previous_close not in (None, 0):
-        change_pct = round((change / previous_close) * 100, 4)
-
-    quote_time = tick.get("timetag")
-    if not quote_time and tick.get("time") is not None:
-        quote_time = _to_iso_datetime(tick.get("time"))
-
-    if all(
-        value is None for value in (
-            last_price,
-            _to_float(tick.get("open")),
-            _to_float(tick.get("high")),
-            _to_float(tick.get("low")),
-        )
-    ):
-        return None
-
-    return {
-        "price": last_price,
-        "open": _to_float(tick.get("open")),
-        "change": change,
-        "change_pct": change_pct,
-        "high": _to_float(tick.get("high")),
-        "low": _to_float(tick.get("low")),
-        "previous_close": previous_close,
-        "volume": _to_float(tick.get("volume") or tick.get("pvolume")),
-        "amount": _to_float(tick.get("amount")),
-        "quote_time": str(quote_time) if quote_time else None,
-        "source": "qmt_xtdata",
-    }
-
-
-def _build_qmt_quote_from_frame(frame: Any) -> dict[str, Any] | None:
-    if frame is None or getattr(frame, "empty", True):
-        return None
-    try:
-        row = frame.iloc[-1]
-    except Exception:
-        return None
-
-    tick = row.to_dict() if hasattr(row, "to_dict") else dict(row)
-    return _build_qmt_quote_from_mapping(tick)
-
-
-def _to_iso_datetime(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    try:
-        timestamp = float(value)
-        if timestamp > 1e12:
-            timestamp /= 1000
-        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
-    except Exception:
-        return None
 
 
 def _fetch_em_batch_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:

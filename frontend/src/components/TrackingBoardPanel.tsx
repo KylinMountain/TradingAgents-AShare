@@ -108,17 +108,14 @@ export default function TrackingBoardPanel() {
                 <div>
                     <div className="flex items-center gap-2">
                         <Wallet className="h-5 w-5 text-emerald-500" />
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">QMT 跟踪看板</h2>
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">跟踪看板</h2>
                     </div>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        最新价优先使用 QMT / xtquant，简洁版聚焦展示当日 K 线与成本价标记。
+                        实时行情来自新浪财经，简洁版聚焦展示当日 K 线与成本价标记。
                     </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
-                        账户：{trackingBoard?.account_id || '--'}
-                    </span>
                     <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
                         自动刷新：{trackingRefreshSeconds}s
                     </span>
@@ -137,9 +134,9 @@ export default function TrackingBoardPanel() {
             ) : trackingItems.length === 0 ? (
                 <div className="py-10 text-center">
                     <Wallet className="mx-auto mb-3 h-12 w-12 text-slate-300 dark:text-slate-600" />
-                    <p className="text-slate-600 dark:text-slate-300">当前还没有可展示的 QMT 持仓</p>
+                    <p className="text-slate-600 dark:text-slate-300">当前还没有可展示的持仓</p>
                     <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">
-                        到设置页完成 QMT 同步后，这里会自动出现实时跟踪卡片。
+                        到设置页导入持仓后，这里会自动出现实时跟踪卡片。
                     </p>
                 </div>
             ) : viewMode === 'simple' ? (
@@ -431,13 +428,13 @@ function DetailedBoardView({
                 <BoardStatChip
                     label="持仓标的"
                     value={`${items.length} 只`}
-                    subValue={trackingBoard?.last_synced_at ? `QMT 同步于 ${formatDateTime(trackingBoard.last_synced_at)}` : '等待首次同步'}
+                    subValue={trackingBoard?.last_synced_at ? `同步于 ${formatDateTime(trackingBoard.last_synced_at)}` : '等待首次导入'}
                     tone="blue"
                 />
                 <BoardStatChip
                     label="动态市值"
                     value={formatMoney(liveMarketValueTotal)}
-                    subValue="优先使用 QMT 实盘价估算"
+                    subValue="基于实时行情估算"
                     tone="emerald"
                 />
                 <BoardStatChip
@@ -964,7 +961,7 @@ function formatFooterTime(value?: string | null): string {
 
 function formatQuoteSource(value?: string | null): string {
     if (!value) return '--'
-    return value.replace('qmt_', '').replace('xtdata', 'xtquant')
+    return value.replace('_hq', '').replace('_', ' ')
 }
 
 function formatNumber(value: number, digits = 2): string {

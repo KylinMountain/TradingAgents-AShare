@@ -243,7 +243,7 @@ function TrackingBoardSummary({
                 />
                 <MetaCard
                     label="数据来源"
-                    value="QMT / xtquant"
+                    value="新浪财经"
                     subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '同步后这里会显示摘要'}
                 />
             </div>

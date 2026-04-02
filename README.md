@@ -33,9 +33,9 @@
   <img src="assets/web/timer_analysis.png" width="80%" alt="定时分析"/>
 </div>
 
-### QMT 持仓同步与跟踪看板
+### 持仓追踪与跟踪看板
 
-支持接入 QMT / xtquant 持仓，自动同步账户持仓、成本价与仓位占比，并可一键将持仓标的补齐到定时分析列表。控制台会展示跟踪看板摘要，完整看板页支持查看实时价格、当日区间、持仓盈亏与上一交易日报告区间，方便盘中快速跟踪。
+支持导入持仓数据，自动记录持仓、成本价与仓位占比，并可一键将持仓标的补齐到定时分析列表。控制台会展示跟踪看板摘要，完整看板页支持查看实时价格、当日区间、持仓盈亏与上一交易日报告区间，方便盘中快速跟踪。
 
 ### 结构化研报管理
 
@@ -149,7 +149,7 @@ uv run python -m uvicorn api.main:app --port 8000
 | 获取结果 | `GET /v1/jobs/{job_id}/result` |
 | 历史检索 | `GET /v1/reports` |
 | 批量获取最新报告 | `POST /v1/reports/latest-by-symbols` |
-| QMT 持仓同步 | `GET/POST/DELETE /v1/portfolio/imports/qmt` |
+| 持仓导入 | `GET/POST/DELETE /v1/portfolio/imports` |
 | 跟踪看板摘要/明细 | `GET /v1/dashboard/tracking-board` |
 | 批量定时任务操作 | `PATCH /v1/scheduled/batch`、`POST /v1/scheduled/batch/delete`、`POST /v1/scheduled/batch/trigger` |
 | 模型 warmup | `POST /v1/config/warmup` |

@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioOverviewResponse, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -222,24 +222,23 @@ class ApiService {
         })
     }
 
-    async getQmtImportState(): Promise<QmtImportState> {
-        return this.request<QmtImportState>('/v1/portfolio/imports/qmt')
+    async getPortfolioImportState(): Promise<PortfolioImportState> {
+        return this.request<PortfolioImportState>('/v1/portfolio/imports')
     }
 
-    async syncQmtImport(data: {
-        qmt_path: string
-        account_id: string
-        account_type?: string
+    async syncPortfolioImport(data: {
+        positions: PortfolioPositionInput[]
+        source?: string
         auto_apply_scheduled: boolean
-    }): Promise<QmtImportState> {
-        return this.request<QmtImportState>('/v1/portfolio/imports/qmt', {
+    }): Promise<PortfolioImportState> {
+        return this.request<PortfolioImportState>('/v1/portfolio/imports', {
             method: 'POST',
             body: JSON.stringify(data),
         })
     }
 
-    async clearQmtImport(): Promise<void> {
-        await this.request('/v1/portfolio/imports/qmt', { method: 'DELETE' })
+    async clearPortfolioImport(): Promise<void> {
+        await this.request('/v1/portfolio/imports', { method: 'DELETE' })
     }
 
     async getDashboardTrackingBoard(): Promise<TrackingBoardResponse> {

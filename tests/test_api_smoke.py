@@ -17,7 +17,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, get_db_ctx
+from api.database import ImportedPortfolioPositionDB, get_db_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -169,27 +169,16 @@ class TestAnalyzeEndpoint:
         result = _wait_job(self.client, self.token, job_id)
         assert result["result"]["selected_analysts"] == ["market", "news"]
 
-    def test_dry_run_merges_imported_qmt_context_for_manual_analysis(self):
+    def test_dry_run_merges_imported_position_context_for_manual_analysis(self):
         current_user = self.client.get("/v1/auth/me", headers=self.headers).json()
         now = datetime.now(timezone.utc)
 
         with get_db_ctx() as db:
             db.add(
-                QmtImportConfigDB(
-                    id=uuid4().hex,
-                    user_id=current_user["id"],
-                    qmt_path="D:/QMT/userdata_mini",
-                    account_id="demo-account",
-                    account_type="STOCK",
-                    auto_apply_scheduled=False,
-                    last_synced_at=now,
-                )
-            )
-            db.add(
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=current_user["id"],
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="600519.SH",
                     security_name="贵州茅台",
                     current_position=300.0,
@@ -216,7 +205,7 @@ class TestAnalyzeEndpoint:
         assert user_context["current_position"] == pytest.approx(300.0)
         assert user_context["average_cost"] == pytest.approx(1680.5)
         assert user_context["current_position_pct"] == pytest.approx(42.5)
-        assert "QMT / xtquant 持仓同步" in (user_context.get("user_notes") or "")
+        assert "持仓导入" in (user_context.get("user_notes") or "")
 
 
 class TestChatCompletionsEndpoint:
@@ -587,8 +576,8 @@ class TestPortfolioOverviewEndpoint:
             )
         assert response.status_code == 201
 
-    def test_overview_returns_watchlist_scheduled_qmt_and_latest_reports(self):
-        from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, get_db_ctx
+    def test_overview_returns_watchlist_scheduled_portfolio_and_latest_reports(self):
+        from api.database import ImportedPortfolioPositionDB, get_db_ctx
 
         self._add_watchlist("600519.SH 300750.SZ")
         self._create_scheduled("600519.SH")
@@ -607,20 +596,10 @@ class TestPortfolioOverviewEndpoint:
         current_user = self.client.get("/v1/auth/me", headers=self.headers).json()
         with get_db_ctx() as db:
             db.add(
-                QmtImportConfigDB(
-                    id=uuid4().hex,
-                    user_id=current_user["id"],
-                    qmt_path="D:/QMT/userdata_mini",
-                    account_id="demo-account",
-                    account_type="STOCK",
-                    auto_apply_scheduled=True,
-                )
-            )
-            db.add(
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=current_user["id"],
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="600519.SH",
                     security_name="贵州茅台",
                     current_position=300.0,
@@ -641,7 +620,7 @@ class TestPortfolioOverviewEndpoint:
         assert body["scheduled"][0]["symbol"] == "600519.SH"
         assert body["scheduled"][0]["has_imported_context"] is True
         assert [item["symbol"] for item in body["latest_reports"]] == ["600519.SH", "300750.SZ"]
-        assert body["qmt_import"]["summary"]["positions"] == 1
+        assert body["portfolio_import"]["summary"]["positions"] == 1
 
 
 class TestScheduledBatchEndpoints:
@@ -737,7 +716,7 @@ class TestScheduledBatchEndpoints:
         assert kwargs == {"mark_schedule_run": False}
 
     def test_batch_trigger_endpoint_queues_selected_tasks_with_position_context(self):
-        from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, get_db_ctx
+        from api.database import ImportedPortfolioPositionDB, get_db_ctx
 
         first = self._create_scheduled("300750.SZ")
         second = self._create_scheduled("600519.SH")
@@ -745,20 +724,10 @@ class TestScheduledBatchEndpoints:
 
         with get_db_ctx() as db:
             db.add(
-                QmtImportConfigDB(
-                    id=uuid4().hex,
-                    user_id=current_user["id"],
-                    qmt_path="D:/QMT/userdata_mini",
-                    account_id="demo-account",
-                    account_type="STOCK",
-                    auto_apply_scheduled=True,
-                )
-            )
-            db.add(
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=current_user["id"],
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="600519.SH",
                     security_name="贵州茅台",
                     current_position=300.0,

@@ -3,10 +3,9 @@ import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-import pandas as pd
 import requests
 
-from api.database import ImportedPortfolioPositionDB, QmtImportConfigDB, ReportDB, UserDB, get_db_ctx, init_db
+from api.database import ImportedPortfolioPositionDB, ReportDB, UserDB, get_db_ctx, init_db
 from api.services import auth_service, report_service
 
 
@@ -32,7 +31,7 @@ def _auth_with_user(client: TestClient) -> tuple[str, str]:
 
 
 class TestDashboardTrackingApi:
-    def test_tracking_board_merges_qmt_positions_quotes_and_previous_trade_day_report(self, monkeypatch):
+    def test_tracking_board_merges_positions_quotes_and_previous_trade_day_report(self, monkeypatch):
         from api.main import app
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -41,22 +40,11 @@ class TestDashboardTrackingApi:
         now = datetime.now(timezone.utc)
 
         with get_db_ctx() as db:
-            db.add(
-                QmtImportConfigDB(
-                    id=uuid4().hex,
-                    user_id=user_id,
-                    qmt_path="D:/QMT/userdata_mini",
-                    account_id="demo-account",
-                    account_type="STOCK",
-                    auto_apply_scheduled=True,
-                    last_synced_at=now,
-                )
-            )
             db.add_all([
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=user_id,
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="600519.SH",
                     security_name="贵州茅台",
                     current_position=500.0,
@@ -71,7 +59,7 @@ class TestDashboardTrackingApi:
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=user_id,
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="300750.SZ",
                     security_name="宁德时代",
                     current_position=200.0,
@@ -150,8 +138,6 @@ class TestDashboardTrackingApi:
 
         assert response.status_code == 200
         body = response.json()
-        assert body["broker"] == "qmt_xtquant"
-        assert body["account_id"] == "demo-account"
         assert body["previous_trade_date"] == "2026-03-30"
         assert body["refresh_interval_seconds"] > 0
         assert len(body["items"]) == 2
@@ -188,21 +174,10 @@ class TestDashboardTrackingApi:
 
         with get_db_ctx() as db:
             db.add(
-                QmtImportConfigDB(
-                    id=uuid4().hex,
-                    user_id=user_id,
-                    qmt_path="D:/QMT/userdata_mini",
-                    account_id="demo-account",
-                    account_type="STOCK",
-                    auto_apply_scheduled=True,
-                    last_synced_at=now,
-                )
-            )
-            db.add(
                 ImportedPortfolioPositionDB(
                     id=uuid4().hex,
                     user_id=user_id,
-                    source="qmt_xtquant",
+                    source="manual",
                     symbol="601318.SH",
                     security_name="中国平安",
                     current_position=300.0,
@@ -240,8 +215,6 @@ def test_fetch_live_quotes_returns_empty_when_batch_request_times_out(monkeypatc
     from api.services import tracking_board_service
 
     monkeypatch.setattr(tracking_board_service, "ENABLE_SINGLE_QUOTE_FALLBACK", False)
-    monkeypatch.setattr(tracking_board_service, "_fetch_qmt_quotes", lambda symbols: {})
-
     def _timeout(*args, **kwargs):
         raise requests.ReadTimeout("timed out")
 
@@ -249,41 +222,6 @@ def test_fetch_live_quotes_returns_empty_when_batch_request_times_out(monkeypatc
 
     quotes = tracking_board_service._fetch_live_quotes(["600519.SH"])
     assert quotes == {}
-
-
-def test_build_qmt_quote_from_frame_uses_latest_tick_row():
-    from api.services import tracking_board_service
-
-    frame = pd.DataFrame(
-        [
-            {
-                "time": 1775026803000,
-                "lastPrice": 1459.44,
-                "open": 1462.0,
-                "high": 1470.0,
-                "low": 1451.2,
-                "lastClose": 1450.0,
-                "amount": 4256185000,
-                "volume": 29125,
-            }
-        ],
-        index=["20260401150003"],
-    )
-
-    quote = tracking_board_service._build_qmt_quote_from_frame(frame)
-
-    assert quote is not None
-    assert quote["price"] == 1459.44
-    assert quote["open"] == 1462.0
-    assert quote["high"] == 1470.0
-    assert quote["low"] == 1451.2
-    assert quote["previous_close"] == 1450.0
-    assert quote["change"] == 9.44
-    assert quote["change_pct"] == round((9.44 / 1450.0) * 100, 4)
-    assert quote["amount"] == 4256185000.0
-    assert quote["volume"] == 29125.0
-    assert quote["source"] == "qmt_xtdata"
-    assert quote["quote_time"] is not None
 
 
 def test_parse_sina_quote_line_extracts_expected_fields():

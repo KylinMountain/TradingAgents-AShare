@@ -39,8 +39,8 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, QmtImportConfigDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, tracking_board_service
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, init_db, get_db, get_db_ctx
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -905,7 +905,7 @@ class PortfolioOverviewResponse(BaseModel):
     watchlist: List[dict]
     scheduled: List[dict]
     latest_reports: List[ReportResponse]
-    qmt_import: Optional[dict] = None
+    portfolio_import: Optional[dict] = None
 
 
 class WatchlistAddRequest(BaseModel):
@@ -1032,11 +1032,20 @@ class WecomWebhookWarmupResponse(BaseModel):
     webhook_display: Optional[str] = None
 
 
-class QmtImportSyncRequest(BaseModel):
-    qmt_path: str = Field(..., description="QMT userdata 路径")
-    account_id: str = Field(..., description="QMT 资金账号")
-    account_type: str = Field("STOCK", description="账户类型，默认 STOCK")
-    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务，并优先使用 QMT 持仓上下文")
+class PortfolioPositionItem(BaseModel):
+    symbol: str = Field(..., description="股票代码，如 600519.SH 或 600519")
+    name: Optional[str] = Field(None, description="股票名称")
+    current_position: Optional[float] = Field(None, description="持仓数量")
+    available_position: Optional[float] = Field(None, description="可用数量")
+    average_cost: Optional[float] = Field(None, description="成本价")
+    market_value: Optional[float] = Field(None, description="市值")
+    current_position_pct: Optional[float] = Field(None, description="仓位占比 %")
+
+
+class PortfolioImportSyncRequest(BaseModel):
+    positions: List[PortfolioPositionItem] = Field(..., description="持仓列表")
+    source: str = Field("manual", description="持仓来源标识")
+    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务")
 
 
 class UserTokenResponse(BaseModel):
@@ -4006,7 +4015,7 @@ def search_stocks(
 
 def _annotate_scheduled_with_imported_context(items: List[dict], db: Session, user_id: str) -> List[dict]:
     imported_map: Dict[str, Dict[str, Any]] = {}
-    for item in qmt_import_service.list_imported_positions(db, user_id):
+    for item in portfolio_import_service.list_imported_positions(db, user_id):
         imported_map[item["symbol"]] = item
     for item in items:
         imported = imported_map.get(item["symbol"])
@@ -4036,47 +4045,13 @@ def _merge_imported_user_context(*contexts: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
-    qmt_context = qmt_import_service.build_scheduled_user_context(db, user_id, symbol)
-    return _merge_imported_user_context(qmt_context)
+    context = portfolio_import_service.build_scheduled_user_context(db, user_id, symbol)
+    return _merge_imported_user_context(context)
 
 
 def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
-    normalized_symbol = (symbol or "").strip().upper()
-    if not normalized_symbol:
-        return {}
-
-    # Prefer the normal scheduled-context behavior first. If auto_apply_scheduled is
-    # disabled, manual test runs should still carry imported holdings context.
-    scheduled_context = _build_imported_user_context(db, user_id, normalized_symbol)
-    if scheduled_context:
-        return scheduled_context
-
-    contexts: List[Dict[str, Any]] = []
-
-    qmt_row = (
-        db.query(ImportedPortfolioPositionDB)
-        .filter(
-            ImportedPortfolioPositionDB.user_id == user_id,
-            ImportedPortfolioPositionDB.source == "qmt_xtquant",
-            ImportedPortfolioPositionDB.symbol == normalized_symbol,
-        )
-        .first()
-    )
-    if qmt_row:
-        qmt_config = db.query(QmtImportConfigDB).filter(QmtImportConfigDB.user_id == user_id).first()
-        contexts.append({
-            "objective": "持有处理" if (qmt_row.current_position or 0) > 0 else "观察",
-            "current_position": qmt_row.current_position,
-            "current_position_pct": qmt_row.current_position_pct,
-            "average_cost": qmt_row.average_cost,
-            "user_notes": (
-                "来源：QMT / xtquant 持仓同步（手动测试）\n"
-                f"账户：{qmt_config.account_id if qmt_config else '-'}\n"
-                f"QMT 路径：{qmt_config.qmt_path if qmt_config else '-'}"
-            ),
-        })
-
-    return _merge_imported_user_context(*contexts)
+    """Build imported position context for manual/ad-hoc analysis runs."""
+    return _build_imported_user_context(db, user_id, symbol)
 
 
 def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List[dict]:
@@ -4086,39 +4061,38 @@ def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List
     return items
 
 
-@app.get("/v1/portfolio/imports/qmt")
-def get_qmt_import_state(
+@app.get("/v1/portfolio/imports")
+def get_portfolio_import_state(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    return qmt_import_service.get_import_state(db, current_user.id)
+    return portfolio_import_service.get_import_state(db, current_user.id)
 
 
-@app.post("/v1/portfolio/imports/qmt")
-def sync_qmt_import_state(
-    body: QmtImportSyncRequest,
+@app.post("/v1/portfolio/imports")
+def sync_portfolio_import(
+    body: PortfolioImportSyncRequest,
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
     try:
-        return qmt_import_service.sync_qmt_portfolio(
+        return portfolio_import_service.sync_positions(
             db=db,
             user_id=current_user.id,
-            qmt_path=body.qmt_path,
-            account_id=body.account_id,
-            account_type=body.account_type,
+            positions=[p.model_dump() for p in body.positions],
+            source=body.source,
             auto_apply_scheduled=body.auto_apply_scheduled,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-@app.delete("/v1/portfolio/imports/qmt", status_code=204)
-def clear_qmt_import_state(
+@app.delete("/v1/portfolio/imports", status_code=204)
+def clear_portfolio_import_state(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    qmt_import_service.clear_imported_portfolio(db, current_user.id)
+    portfolio_import_service.clear_imported_portfolio(db, current_user.id)
 
 
 @app.get("/v1/dashboard/tracking-board")
@@ -4264,13 +4238,13 @@ def get_portfolio_overview(
     for report in latest_reports:
         report.name = code_to_name.get(report.symbol, report.symbol)
 
-    qmt_import = qmt_import_service.get_import_state(db, current_user.id)
+    portfolio_import = portfolio_import_service.get_import_state(db, current_user.id)
 
     return {
         "watchlist": watchlist_items,
         "scheduled": scheduled_items,
         "latest_reports": latest_reports,
-        "qmt_import": qmt_import,
+        "portfolio_import": portfolio_import,
     }
 
 
