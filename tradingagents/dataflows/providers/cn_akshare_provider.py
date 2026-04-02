@@ -606,28 +606,31 @@ class CnAkshareProvider(BaseMarketDataProvider):
         if not code_to_original:
             return json.dumps({})
 
-        # Try Eastmoney via akshare (cached)
+        # Try Sina first (lightweight, rarely blocked)
         try:
-            now = _time.time()
-            if (
-                CnAkshareProvider._spot_cache is not None
-                and (now - CnAkshareProvider._spot_cache_ts) < CnAkshareProvider._SPOT_CACHE_TTL
-            ):
-                df = CnAkshareProvider._spot_cache
-            else:
-                with AKSHARE_CALL_LOCK:
-                    ak = self._ak()
-                    df = ak.stock_zh_a_spot_em()
-                CnAkshareProvider._spot_cache = df
-                CnAkshareProvider._spot_cache_ts = now
-
-            if df is not None and not df.empty:
-                return self._build_quotes_from_em(df, code_to_original)
+            result = self._fetch_quotes_sina(code_to_original)
+            if result and result != "{}":
+                return result
         except Exception as exc:
-            logger.debug("[realtime-quotes] Eastmoney failed, falling back to Sina: %s", exc)
+            logger.debug("[realtime-quotes] Sina failed, falling back to Eastmoney: %s", exc)
 
-        # Fallback: Sina Finance (lightweight, rarely blocked)
-        return self._fetch_quotes_sina(code_to_original)
+        # Fallback: Eastmoney via akshare (cached)
+        now = _time.time()
+        if (
+            CnAkshareProvider._spot_cache is not None
+            and (now - CnAkshareProvider._spot_cache_ts) < CnAkshareProvider._SPOT_CACHE_TTL
+        ):
+            df = CnAkshareProvider._spot_cache
+        else:
+            with AKSHARE_CALL_LOCK:
+                ak = self._ak()
+                df = ak.stock_zh_a_spot_em()
+            CnAkshareProvider._spot_cache = df
+            CnAkshareProvider._spot_cache_ts = now
+
+        if df is not None and not df.empty:
+            return self._build_quotes_from_em(df, code_to_original)
+        return json.dumps({})
 
     def _build_quotes_from_em(self, df: "pd.DataFrame", code_to_original: dict[str, str]) -> str:
         import json

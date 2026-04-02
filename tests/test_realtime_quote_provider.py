@@ -22,7 +22,9 @@ def test_akshare_get_realtime_quotes_returns_structured_json():
     })
 
     provider = CnAkshareProvider()
-    with patch.object(provider, "_ak") as mock_ak:
+    # Mock Sina to fail so it falls back to Eastmoney mock
+    with patch.object(provider, "_fetch_quotes_sina", return_value="{}"), \
+         patch.object(provider, "_ak") as mock_ak:
         mock_ak.return_value.stock_zh_a_spot_em.return_value = mock_df
         result = provider.get_realtime_quotes(["600519.SH", "000001.SZ"])
 
