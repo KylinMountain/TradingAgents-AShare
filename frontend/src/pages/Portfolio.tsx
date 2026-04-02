@@ -492,29 +492,44 @@ export default function Portfolio() {
                             <h2 className="font-semibold text-slate-900 dark:text-slate-100">添加自选</h2>
                         </div>
                         <div className="space-y-3" ref={dropdownRef}>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-4 w-4 h-4 text-slate-400" />
-                                <textarea
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
-                                    placeholder="支持单个搜索，也支持批量粘贴：600519 300750.SZ，贵州茅台 宁德时代"
-                                    className="input pl-9 pr-9 w-full min-h-[104px] resize-y"
-                                />
-                                {searchLoading && <Loader2 className="absolute right-3 top-4 w-4 h-4 animate-spin text-slate-400" />}
-                            </div>
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    输入单个标的时可搜索并点选；批量导入支持逗号、空格或换行分隔，且每项需为完整代码或完整名称。
-                                </p>
+                            <div className="relative flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                        onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
+                                        onKeyDown={e => e.key === 'Enter' && trimmedQuery && submitWatchlistInput()}
+                                        placeholder="搜索代码/名称，或批量粘贴：600519,贵州茅台,宁德时代"
+                                        className="input pl-9 pr-10 w-full"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => watchlistFileInputRef.current?.click()}
+                                        disabled={vlmParsing}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors disabled:opacity-40 dark:hover:bg-indigo-500/10"
+                                        title="上传截图批量添加"
+                                    >
+                                        {vlmParsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                                    </button>
+                                    <input
+                                        ref={watchlistFileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={handleWatchlistImageUpload}
+                                    />
+                                    {searchLoading && !vlmParsing && <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />}
+                                </div>
                                 <button
                                     type="button"
                                     onClick={submitWatchlistInput}
                                     disabled={!trimmedQuery || addingWatchlist}
-                                    className="btn-primary inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                                    className="btn-primary inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0"
                                 >
                                     {addingWatchlist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                                    {isBatchInput ? '批量添加' : '添加自选'}
+                                    {isBatchInput ? '批量添加' : '添加'}
                                 </button>
                             </div>
 
@@ -536,27 +551,6 @@ export default function Portfolio() {
                                     )}
                                 </div>
                             )}
-
-                            {/* VLM image upload for batch adding */}
-                            <div className="flex items-center gap-3 border-t border-slate-100 pt-3 dark:border-slate-700/50">
-                                <span className="text-xs text-slate-400">或</span>
-                                <button
-                                    type="button"
-                                    onClick={() => watchlistFileInputRef.current?.click()}
-                                    disabled={vlmParsing}
-                                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-500/10 dark:text-indigo-400 dark:hover:bg-indigo-500/20"
-                                >
-                                    {vlmParsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-                                    {vlmParsing ? '识别中...' : '上传截图批量添加'}
-                                </button>
-                                <input
-                                    ref={watchlistFileInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={handleWatchlistImageUpload}
-                                />
-                            </div>
 
                             {/* Search dropdown */}
                             {showDropdown && searchResults.length > 0 && (
