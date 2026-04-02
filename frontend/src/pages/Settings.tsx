@@ -471,21 +471,21 @@ export default function Settings() {
                             )}
                         </div>
                         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                            保存模型配置后，系统会在后台自动 warmup 当前模型；也可以直接在这里点击 warmup，默认发送“你好”并查看模型原始回复。
+                            保存模型配置后，系统会在后台自动测试连通性；也可以直接点击下方按钮，发送\u201c你好\u201d来验证模型是否正常响应。
                         </p>
                     </div>
 
                     <div className="md:col-span-2 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Warmup 测试</div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">连通性测试</div>
                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                     使用当前表单配置向模型发送“你好”，不会自动保存设置。
                                 </p>
                             </div>
                             <button onClick={handleWarmup} disabled={saving || modelSaving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
                                 {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
-                                {warmingUp ? '测试中...' : '立即 Warmup'}
+                                {warmingUp ? '测试中...' : '测试连接'}
                             </button>
                         </div>
 
