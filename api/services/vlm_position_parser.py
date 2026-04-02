@@ -74,10 +74,9 @@ def _call_openai_compatible(base64_image: str, media_type: str, vlm_config: dict
     response = client.chat.completions.create(
         model=vlm_config.get("model", "glm-4v-flash"),
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": [
+                {"type": "text", "text": SYSTEM_PROMPT + "\n\n请解析这张持仓截图。"},
                 {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{base64_image}"}},
-                {"type": "text", "text": "请解析这张持仓截图。"},
             ]},
         ],
         max_tokens=2000,
