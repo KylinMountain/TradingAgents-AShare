@@ -584,42 +584,18 @@ class CnAkshareProvider(BaseMarketDataProvider):
     _SPOT_CACHE_TTL: float = 8.0  # seconds
 
     def get_realtime_quotes(self, symbols: list[str]) -> str:
-        """Fetch real-time A-share quotes via akshare stock_zh_a_spot_em (Eastmoney)."""
+        """Fetch real-time A-share quotes. Tries Eastmoney first, falls back to Sina."""
         import json
         import time as _time
+        import logging
 
-        normalized = []
+        logger = logging.getLogger(__name__)
+
+        # Build normalized code → original symbol map
+        code_to_original: dict[str, str] = {}
         for s in symbols:
             if not s or not s.strip():
                 continue
-            try:
-                normalized.append(self._normalize_symbol(s))
-            except NotImplementedError:
-                continue
-        if not normalized:
-            return json.dumps({})
-
-        now = _time.time()
-        if (
-            CnAkshareProvider._spot_cache is not None
-            and (now - CnAkshareProvider._spot_cache_ts) < CnAkshareProvider._SPOT_CACHE_TTL
-        ):
-            df = CnAkshareProvider._spot_cache
-        else:
-            with AKSHARE_CALL_LOCK:
-                ak = self._ak()
-                df = ak.stock_zh_a_spot_em()
-            CnAkshareProvider._spot_cache = df
-            CnAkshareProvider._spot_cache_ts = now
-
-        if df is None or df.empty:
-            return json.dumps({})
-
-        df = df[df["代码"].isin(normalized)]
-
-        # Build reverse map: normalized code -> original symbol
-        code_to_original: dict[str, str] = {}
-        for s in symbols:
             try:
                 code = self._normalize_symbol(s)
             except NotImplementedError:
@@ -627,18 +603,46 @@ class CnAkshareProvider(BaseMarketDataProvider):
             if code and code not in code_to_original:
                 code_to_original[code] = s.strip().upper()
 
+        if not code_to_original:
+            return json.dumps({})
+
+        # Try Eastmoney via akshare (cached)
+        try:
+            now = _time.time()
+            if (
+                CnAkshareProvider._spot_cache is not None
+                and (now - CnAkshareProvider._spot_cache_ts) < CnAkshareProvider._SPOT_CACHE_TTL
+            ):
+                df = CnAkshareProvider._spot_cache
+            else:
+                with AKSHARE_CALL_LOCK:
+                    ak = self._ak()
+                    df = ak.stock_zh_a_spot_em()
+                CnAkshareProvider._spot_cache = df
+                CnAkshareProvider._spot_cache_ts = now
+
+            if df is not None and not df.empty:
+                return self._build_quotes_from_em(df, code_to_original)
+        except Exception as exc:
+            logger.debug("[realtime-quotes] Eastmoney failed, falling back to Sina: %s", exc)
+
+        # Fallback: Sina Finance (lightweight, rarely blocked)
+        return self._fetch_quotes_sina(code_to_original)
+
+    def _build_quotes_from_em(self, df: "pd.DataFrame", code_to_original: dict[str, str]) -> str:
+        import json
+        normalized = list(code_to_original.keys())
+        df = df[df["代码"].isin(normalized)]
         result: dict[str, dict] = {}
         for _, row in df.iterrows():
             code = str(row.get("代码", ""))
             original = code_to_original.get(code)
             if not original:
                 continue
-
             price = self._safe_float(row.get("最新价"))
             prev_close = self._safe_float(row.get("昨收"))
             change = round(price - prev_close, 4) if price is not None and prev_close else None
             change_pct = round(change / prev_close * 100, 4) if change is not None and prev_close else None
-
             result[original] = {
                 "price": price,
                 "open": self._safe_float(row.get("今开")),
@@ -649,9 +653,66 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 "change_pct": change_pct,
                 "volume": self._safe_float(row.get("成交量")),
                 "amount": self._safe_float(row.get("成交额")),
-                "source": "eastmoney_spot",
             }
+        return json.dumps(result, ensure_ascii=False)
 
+    def _fetch_quotes_sina(self, code_to_original: dict[str, str]) -> str:
+        """Fetch quotes from Sina Finance hq.sinajs.cn as fallback."""
+        import json
+        import requests as _requests
+
+        sina_codes = []
+        sina_to_original: dict[str, str] = {}
+        for code, original in code_to_original.items():
+            prefix = "sh" if code.startswith(("5", "6", "9")) else "sz"
+            sina_code = f"{prefix}{code}"
+            sina_codes.append(sina_code)
+            sina_to_original[sina_code] = original
+
+        if not sina_codes:
+            return json.dumps({})
+
+        try:
+            resp = _requests.get(
+                "https://hq.sinajs.cn/list=" + ",".join(sina_codes),
+                headers={"Referer": "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0"},
+                timeout=5,
+            )
+            resp.encoding = "gbk"
+        except Exception:
+            return json.dumps({})
+
+        result: dict[str, dict] = {}
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if not line or '="' not in line:
+                continue
+            try:
+                var_part, data_part = line.split('="', 1)
+                sina_code = var_part.split("_")[-1]
+                fields = data_part.rstrip('";').split(",")
+                if len(fields) < 10:
+                    continue
+                original = sina_to_original.get(sina_code)
+                if not original:
+                    continue
+                price = self._safe_float(fields[3])
+                prev_close = self._safe_float(fields[2])
+                change = round(price - prev_close, 4) if price is not None and prev_close else None
+                change_pct = round(change / prev_close * 100, 4) if change is not None and prev_close else None
+                result[original] = {
+                    "price": price,
+                    "open": self._safe_float(fields[1]),
+                    "high": self._safe_float(fields[4]),
+                    "low": self._safe_float(fields[5]),
+                    "previous_close": prev_close,
+                    "change": change,
+                    "change_pct": change_pct,
+                    "volume": self._safe_float(fields[8]),
+                    "amount": self._safe_float(fields[9]),
+                }
+            except (ValueError, IndexError):
+                continue
         return json.dumps(result, ensure_ascii=False)
 
     @staticmethod
