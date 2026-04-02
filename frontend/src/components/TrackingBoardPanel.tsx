@@ -229,7 +229,7 @@ export default function TrackingBoardPanel() {
                         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">跟踪看板</h2>
                     </div>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        实时行情来自新浪财经，简洁版聚焦展示当日 K 线与成本价标记。
+                        实时行情来自东方财富，简洁版聚焦展示当日 K 线与成本价标记。
                     </p>
                 </div>
 
