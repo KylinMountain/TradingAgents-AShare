@@ -242,9 +242,9 @@ function TrackingBoardSummary({
                     subValue={trackingBoard?.previous_trade_date ? `上一交易日 ${trackingBoard.previous_trade_date}` : '暂无交易日信息'}
                 />
                 <MetaCard
-                    label="数据来源"
-                    value="东方财富"
-                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '同步后这里会显示摘要'}
+                    label="状态"
+                    value={itemCount > 0 ? '已就绪' : '待导入'}
+                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '前往跟踪看板导入持仓'}
                 />
             </div>
         </div>
