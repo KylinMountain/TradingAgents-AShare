@@ -588,7 +588,14 @@ class CnAkshareProvider(BaseMarketDataProvider):
         import json
         import time as _time
 
-        normalized = [self._normalize_symbol(s) for s in symbols if s and s.strip()]
+        normalized = []
+        for s in symbols:
+            if not s or not s.strip():
+                continue
+            try:
+                normalized.append(self._normalize_symbol(s))
+            except NotImplementedError:
+                continue
         if not normalized:
             return json.dumps({})
 
@@ -613,7 +620,10 @@ class CnAkshareProvider(BaseMarketDataProvider):
         # Build reverse map: normalized code -> original symbol
         code_to_original: dict[str, str] = {}
         for s in symbols:
-            code = self._normalize_symbol(s)
+            try:
+                code = self._normalize_symbol(s)
+            except NotImplementedError:
+                continue
             if code and code not in code_to_original:
                 code_to_original[code] = s.strip().upper()
 
