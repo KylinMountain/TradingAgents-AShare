@@ -358,11 +358,6 @@ export interface ReportListResponse {
     reports: Report[]
 }
 
-export interface ReportBatchDeleteResponse {
-    deleted_ids: string[]
-    missing_ids: string[]
-}
-
 export interface AnnouncementItem {
     title: string
     detail: string

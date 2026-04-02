@@ -578,6 +578,82 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 f"cn_akshare is temporarily unavailable for insider transactions: {'; '.join(errors)}"
             )
 
+    # TTL cache for stock_zh_a_spot_em to avoid hammering Eastmoney under concurrent load
+    _spot_cache: "pd.DataFrame | None" = None
+    _spot_cache_ts: float = 0.0
+    _SPOT_CACHE_TTL: float = 8.0  # seconds
+
+    def get_realtime_quotes(self, symbols: list[str]) -> str:
+        """Fetch real-time A-share quotes via akshare stock_zh_a_spot_em (Eastmoney)."""
+        import json
+        import time as _time
+
+        normalized = [self._normalize_symbol(s) for s in symbols if s and s.strip()]
+        if not normalized:
+            return json.dumps({})
+
+        now = _time.time()
+        if (
+            CnAkshareProvider._spot_cache is not None
+            and (now - CnAkshareProvider._spot_cache_ts) < CnAkshareProvider._SPOT_CACHE_TTL
+        ):
+            df = CnAkshareProvider._spot_cache
+        else:
+            with AKSHARE_CALL_LOCK:
+                ak = self._ak()
+                df = ak.stock_zh_a_spot_em()
+            CnAkshareProvider._spot_cache = df
+            CnAkshareProvider._spot_cache_ts = now
+
+        if df is None or df.empty:
+            return json.dumps({})
+
+        df = df[df["代码"].isin(normalized)]
+
+        # Build reverse map: normalized code -> original symbol
+        code_to_original: dict[str, str] = {}
+        for s in symbols:
+            code = self._normalize_symbol(s)
+            if code and code not in code_to_original:
+                code_to_original[code] = s.strip().upper()
+
+        result: dict[str, dict] = {}
+        for _, row in df.iterrows():
+            code = str(row.get("代码", ""))
+            original = code_to_original.get(code)
+            if not original:
+                continue
+
+            price = self._safe_float(row.get("最新价"))
+            prev_close = self._safe_float(row.get("昨收"))
+            change = round(price - prev_close, 4) if price is not None and prev_close else None
+            change_pct = round(change / prev_close * 100, 4) if change is not None and prev_close else None
+
+            result[original] = {
+                "price": price,
+                "open": self._safe_float(row.get("今开")),
+                "high": self._safe_float(row.get("最高")),
+                "low": self._safe_float(row.get("最低")),
+                "previous_close": prev_close,
+                "change": change,
+                "change_pct": change_pct,
+                "volume": self._safe_float(row.get("成交量")),
+                "amount": self._safe_float(row.get("成交额")),
+                "source": "eastmoney_spot",
+            }
+
+        return json.dumps(result, ensure_ascii=False)
+
+    @staticmethod
+    def _safe_float(val) -> float | None:
+        if val is None:
+            return None
+        try:
+            f = float(val)
+            return f if not pd.isna(f) else None
+        except (ValueError, TypeError):
+            return None
+
     def get_board_fund_flow(self) -> str:
         """获取行业板块资金流向排名。"""
         try:

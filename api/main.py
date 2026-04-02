@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, status, BackgroundTasks
+from fastapi import FastAPI, File, HTTPException, Depends, Query, Request, UploadFile, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -4093,6 +4093,32 @@ def clear_portfolio_import_state(
     db: Session = Depends(get_db),
 ):
     portfolio_import_service.clear_imported_portfolio(db, current_user.id)
+
+
+@app.post("/v1/portfolio/parse-image")
+async def parse_position_image_endpoint(
+    file: UploadFile = File(...),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Parse a broker position screenshot using server-side VLM."""
+    from api.services.vlm_position_parser import parse_position_image
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "只支持图片文件")
+
+    image_bytes = await file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(400, "图片不能超过 10MB")
+
+    try:
+        positions = await asyncio.to_thread(parse_position_image, image_bytes, file.content_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.warning("[parse-image] VLM parsing failed: %s", exc)
+        raise HTTPException(500, "图片解析失败，请稍后重试") from exc
+
+    return {"positions": positions}
 
 
 @app.get("/v1/dashboard/tracking-board")

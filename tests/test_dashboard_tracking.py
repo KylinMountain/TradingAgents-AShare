@@ -1,9 +1,7 @@
 from datetime import datetime, timezone
-import time
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-import requests
 
 from api.database import ImportedPortfolioPositionDB, ReportDB, UserDB, get_db_ctx, init_db
 from api.services import auth_service, report_service
@@ -211,36 +209,42 @@ class TestDashboardTrackingApi:
         assert item["analysis"] is None
 
 
-def test_fetch_live_quotes_returns_empty_when_batch_request_times_out(monkeypatch):
+def test_fetch_live_quotes_returns_empty_when_route_to_vendor_fails(monkeypatch):
     from api.services import tracking_board_service
 
-    monkeypatch.setattr(tracking_board_service, "ENABLE_SINGLE_QUOTE_FALLBACK", False)
-    def _timeout(*args, **kwargs):
-        raise requests.ReadTimeout("timed out")
+    def _fail(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr("api.services.tracking_board_service.requests.get", _timeout)
+    monkeypatch.setattr("api.services.tracking_board_service.route_to_vendor", _fail)
 
     quotes = tracking_board_service._fetch_live_quotes(["600519.SH"])
     assert quotes == {}
 
 
-def test_parse_sina_quote_line_extracts_expected_fields():
+def test_fetch_live_quotes_returns_parsed_quotes(monkeypatch):
+    import json
     from api.services import tracking_board_service
 
-    line = (
-        'var hq_str_sh600519="贵州茅台,1464.490,1450.000,1459.440,1469.990,1452.880,1459.440,1459.800,2912514,'
-        '4256185472.000,124,1459.440,200,1459.380,600,1459.370,400,1459.360,100,1459.290,300,1459.800,'
-        '400,1459.820,100,1459.980,300,1459.990,200,1460.000,2026-04-01,15:00:03,00,";'
+    fake_result = {
+        "600519.SH": {
+            "price": 1800.0,
+            "open": 1790.0,
+            "high": 1810.0,
+            "low": 1785.0,
+            "previous_close": 1795.0,
+            "change": 5.0,
+            "change_pct": 0.2786,
+            "volume": 50000,
+            "amount": 90000000,
+        }
+    }
+
+    monkeypatch.setattr(
+        "api.services.tracking_board_service.route_to_vendor",
+        lambda *args, **kwargs: json.dumps(fake_result),
     )
 
-    symbol, quote = tracking_board_service._parse_sina_quote_line(line)
-
-    assert symbol == "sh600519"
-    assert quote is not None
-    assert quote["price"] == 1459.44
-    assert quote["open"] == 1464.49
-    assert quote["high"] == 1469.99
-    assert quote["low"] == 1452.88
-    assert quote["previous_close"] == 1450.0
-    assert quote["change"] == 9.44
-    assert quote["source"] == "sina_hq"
+    quotes = tracking_board_service._fetch_live_quotes(["600519.SH"])
+    assert "600519.SH" in quotes
+    assert quotes["600519.SH"]["price"] == 1800.0
+    assert quotes["600519.SH"]["change_pct"] == 0.2786

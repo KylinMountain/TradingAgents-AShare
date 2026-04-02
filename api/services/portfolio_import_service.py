@@ -75,6 +75,9 @@ def sync_positions(
             if p["current_position_pct"] is None and p["market_value"] and p["market_value"] > 0:
                 p["current_position_pct"] = round((p["market_value"] / total_mv) * 100, 4)
 
+    if not cleaned:
+        raise ValueError("没有有效的持仓记录，请检查输入格式")
+
     # Replace snapshot for this source
     db.query(ImportedPortfolioPositionDB).filter(
         ImportedPortfolioPositionDB.user_id == user_id,

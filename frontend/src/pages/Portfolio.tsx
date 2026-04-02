@@ -3,11 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import {
     Briefcase, Plus, Trash2, TrendingUp, Activity, Search,
     Clock, AlertTriangle, CheckCircle2, XCircle, Loader2, Timer,
-    Database, Info, ArrowRight,
+    Database, ImagePlus, Info,
 } from 'lucide-react'
 import { api } from '@/services/api'
-import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report, PortfolioImportState } from '@/types'
-import { buildPortfolioSyncSummary } from '@/utils/portfolioSync'
+import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report } from '@/types'
 
 const HORIZON_LABELS: Record<string, string> = { short: '短线', medium: '中线' }
 const WATCHLIST_BATCH_SPLIT_RE = /[,\s，、；;]+/
@@ -63,7 +62,6 @@ export default function Portfolio() {
     const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
     const [scheduled, setScheduled] = useState<ScheduledAnalysis[]>([])
     const [latestReports, setLatestReports] = useState<Record<string, Report>>({})
-    const [portfolioImportState, setPortfolioImportState] = useState<PortfolioImportState | null>(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState<string | null>(null)
     const [selectedScheduledIds, setSelectedScheduledIds] = useState<string[]>([])
@@ -78,6 +76,8 @@ export default function Portfolio() {
     const [searchLoading, setSearchLoading] = useState(false)
     const [showDropdown, setShowDropdown] = useState(false)
     const [addingWatchlist, setAddingWatchlist] = useState(false)
+    const [vlmParsing, setVlmParsing] = useState(false)
+    const watchlistFileInputRef = useRef<HTMLInputElement>(null)
     const [watchlistFeedback, setWatchlistFeedback] = useState<{
         tone: 'success' | 'warning' | 'error'
         message: string
@@ -94,7 +94,6 @@ export default function Portfolio() {
     const hasSelectedScheduled = selectedScheduledCount > 0
     const allScheduledSelected = scheduled.length > 0 && selectedScheduledCount === scheduled.length
     const isScheduledBatchBusy = scheduledBatchBusyAction !== null
-    const portfolioSummary = buildPortfolioSyncSummary(portfolioImportState)
 
     const fetchAll = async () => {
         setLoading(true)
@@ -103,7 +102,6 @@ export default function Portfolio() {
             const overview = await api.getPortfolioOverview()
             setWatchlist(overview.watchlist)
             setScheduled(overview.scheduled)
-            setPortfolioImportState(overview.portfolio_import)
             const reportMap: Record<string, Report> = {}
             for (const report of overview.latest_reports) {
                 reportMap[report.symbol] = report
@@ -219,6 +217,37 @@ export default function Portfolio() {
             alert(e instanceof Error ? e.message : '批量添加失败')
         } finally {
             setAddingWatchlist(false)
+        }
+    }
+
+    const handleWatchlistImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        e.target.value = ''
+
+        setVlmParsing(true)
+        setWatchlistFeedback(null)
+        try {
+            const result = await api.parsePositionImage(file)
+            if (result.positions.length === 0) {
+                setWatchlistFeedback({ tone: 'error', message: '未从截图中识别到股票信息', details: [] })
+                return
+            }
+            const symbols = result.positions.map(p => p.symbol).join(',')
+            setSearchQuery(symbols)
+            setWatchlistFeedback({
+                tone: 'success',
+                message: `已识别 ${result.positions.length} 只股票，请点击"批量添加"确认`,
+                details: result.positions.map(p => `${p.symbol} ${p.name || ''}`).slice(0, 10),
+            })
+        } catch (err) {
+            setWatchlistFeedback({
+                tone: 'error',
+                message: err instanceof Error ? err.message : '图片解析失败',
+                details: [],
+            })
+        } finally {
+            setVlmParsing(false)
         }
     }
 
@@ -450,52 +479,7 @@ export default function Portfolio() {
             )}
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">自选 & 定时分析</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">先导入持仓，再为关注标的创建每日自动分析任务</p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6">
-                <div className="card space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Database className="w-5 h-5 text-emerald-500" />
-                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">1. 持仓追踪</h2>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
-                        <div>
-                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{portfolioSummary.title}</p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{portfolioSummary.detail}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                type="button"
-                                onClick={() => navigate('/settings')}
-                                className="btn-primary inline-flex items-center gap-2"
-                            >
-                                去设置导入
-                                <ArrowRight className="w-4 h-4" />
-                            </button>
-                            <div className="text-xs text-slate-500 dark:text-slate-400 self-center">
-                                前往设置页导入或修改持仓信息。
-                            </div>
-                        </div>
-                    </div>
-                    {portfolioImportState && (portfolioImportState.summary?.positions ?? 0) > 0 && (
-                        <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
-                            <div className="max-h-48 overflow-y-auto pr-1 space-y-2">
-                                {portfolioImportState.positions.map(item => (
-                                    <div
-                                        key={item.symbol}
-                                        className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
-                                    >
-                                        <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
-                                        <span>{item.symbol}</span>
-                                        <span>持仓 {item.current_position ?? '-'}</span>
-                                        <span>成本 {item.average_cost ?? '-'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">为关注标的创建每日自动分析任务</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -552,6 +536,27 @@ export default function Portfolio() {
                                     )}
                                 </div>
                             )}
+
+                            {/* VLM image upload for batch adding */}
+                            <div className="flex items-center gap-3 border-t border-slate-100 pt-3 dark:border-slate-700/50">
+                                <span className="text-xs text-slate-400">或</span>
+                                <button
+                                    type="button"
+                                    onClick={() => watchlistFileInputRef.current?.click()}
+                                    disabled={vlmParsing}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-500/10 dark:text-indigo-400 dark:hover:bg-indigo-500/20"
+                                >
+                                    {vlmParsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                                    {vlmParsing ? '识别中...' : '上传截图批量添加'}
+                                </button>
+                                <input
+                                    ref={watchlistFileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleWatchlistImageUpload}
+                                />
+                            </div>
 
                             {/* Search dropdown */}
                             {showDropdown && searchResults.length > 0 && (
@@ -643,7 +648,7 @@ export default function Portfolio() {
                 <div className="card">
                     <div className="flex items-center gap-2 mb-4">
                         <Clock className="w-5 h-5 text-emerald-500" />
-                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">2. 创建定时分析 ({scheduled.length}/10)</h2>
+                        <h2 className="font-semibold text-slate-900 dark:text-slate-100">定时分析 ({scheduled.length}/10)</h2>
                     </div>
                     <p className="text-xs text-slate-400 mb-4">每个交易日在设定时间自动执行（允许 20:00~次日 08:00）</p>
 

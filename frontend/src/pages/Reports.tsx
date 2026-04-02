@@ -1,5 +1,5 @@
 import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3 } from 'lucide-react'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TaskProgressBanner from '@/components/TaskProgressBanner'
 import { api } from '@/services/api'
@@ -190,11 +190,9 @@ export default function Reports() {
     const [detailLoading, setDetailLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
-    const [batchDeleting, setBatchDeleting] = useState(false)
     const [symbolHistory, setSymbolHistory] = useState<Report[]>([])
     const [listProgress, setListProgress] = useState<ProgressState>(IDLE_PROGRESS)
     const [detailProgress, setDetailProgress] = useState<ProgressState>(IDLE_PROGRESS)
-    const [selectedReportIds, setSelectedReportIds] = useState<string[]>([])
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -270,7 +268,6 @@ export default function Reports() {
         try {
             await api.deleteReport(reportId)
             setReports(prev => prev.filter(r => r.id !== reportId))
-            setSelectedReportIds(prev => prev.filter(id => id !== reportId))
             setTotal(prev => {
                 const newTotal = prev - 1
                 // Go to prev page if current page is now empty
@@ -281,47 +278,6 @@ export default function Reports() {
             alert(err instanceof Error ? err.message : '删除失败')
         } finally {
             setDeleting(null)
-        }
-    }
-
-    const toggleSelectReport = (reportId: string) => {
-        setSelectedReportIds(prev => prev.includes(reportId)
-            ? prev.filter(id => id !== reportId)
-            : [...prev, reportId])
-    }
-
-    const toggleSelectAllFiltered = () => {
-        if (allFilteredSelected) {
-            setSelectedReportIds(prev => prev.filter(id => !filteredReportIds.includes(id)))
-            return
-        }
-        setSelectedReportIds(prev => Array.from(new Set([...prev, ...filteredReportIds])))
-    }
-
-    const handleBatchDelete = async () => {
-        if (!hasSelectedReports) {
-            alert('请先勾选要批量删除的报告')
-            return
-        }
-        if (!confirm(`确定要删除选中的 ${selectedCount} 份报告吗？`)) return
-
-        setBatchDeleting(true)
-        try {
-            const response = await api.deleteReportsBatch(selectedReportIds)
-            const deletedIdSet = new Set(response.deleted_ids)
-            setReports(prev => prev.filter(report => !deletedIdSet.has(report.id)))
-            setSelectedReportIds([])
-            setTotal(prev => Math.max(0, prev - response.deleted_ids.length))
-            if (response.deleted_ids.length > 0 && reports.length === response.deleted_ids.length && page > 0) {
-                setPage(prev => prev - 1)
-            }
-            if (response.missing_ids.length > 0) {
-                alert(`已删除 ${response.deleted_ids.length} 份报告，另有 ${response.missing_ids.length} 份不存在或已被删除。`)
-            }
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '批量删除失败')
-        } finally {
-            setBatchDeleting(false)
         }
     }
 
@@ -398,17 +354,7 @@ export default function Reports() {
         const q = searchQuery.toLowerCase()
         return r.symbol.toLowerCase().includes(q) || (r.name?.toLowerCase().includes(q) ?? false)
     })
-    const filteredReportIds = useMemo(() => filteredReports.map(report => report.id), [filteredReports])
-    const selectedReportIdSet = useMemo(() => new Set(selectedReportIds), [selectedReportIds])
-    const selectedCount = selectedReportIds.length
-    const hasSelectedReports = selectedCount > 0
-    const allFilteredSelected = filteredReportIds.length > 0 && filteredReportIds.every(id => selectedReportIdSet.has(id))
     const hasActiveReport = reports.some(report => report.status === 'pending' || report.status === 'running')
-
-    useEffect(() => {
-        const currentPageIds = new Set(reports.map(report => report.id))
-        setSelectedReportIds(prev => prev.filter(id => currentPageIds.has(id)))
-    }, [reports])
 
     useEffect(() => {
         if (loading || detailLoading || selectedReport || !hasActiveReport) return
@@ -608,45 +554,6 @@ export default function Reports() {
                         />
                     </div>
 
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                        <div className="flex flex-wrap items-center gap-3">
-                            <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
-                                <input
-                                    type="checkbox"
-                                    checked={allFilteredSelected}
-                                    onChange={toggleSelectAllFiltered}
-                                    disabled={filteredReports.length === 0 || batchDeleting}
-                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                全选当前页
-                            </label>
-                            <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                                已选 {selectedCount} 份
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() => setSelectedReportIds([])}
-                                disabled={!hasSelectedReports || batchDeleting}
-                                className="text-xs text-slate-500 transition-colors hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:text-slate-200"
-                            >
-                                清空选择
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => void handleBatchDelete()}
-                                disabled={!hasSelectedReports || batchDeleting}
-                                className="ml-auto inline-flex items-center gap-2 rounded-xl bg-rose-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                {batchDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                批量删除
-                            </button>
-                        </div>
-                        {!hasSelectedReports && (
-                            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                                勾选报告后，可以对当前页结果进行批量删除。
-                            </p>
-                        )}
-                    </div>
                 </div>
             </div>
 
@@ -680,16 +587,6 @@ export default function Reports() {
                         <table className="w-full">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    <th className="py-3 px-4 text-left">
-                                        <input
-                                            type="checkbox"
-                                            checked={allFilteredSelected}
-                                            onChange={toggleSelectAllFiltered}
-                                            disabled={filteredReports.length === 0 || batchDeleting}
-                                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                            aria-label="全选当前页报告"
-                                        />
-                                    </th>
                                     {['股票', '分析日期', '决策建议', '置信度', '目标价/止损价', '生成时间', '操作'].map(h => (
                                         <th key={h} className={`py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400 ${h === '操作' ? 'text-right' : 'text-left'}`}>
                                             {h}
@@ -702,23 +599,9 @@ export default function Reports() {
                                     return (
                                         <tr
                                             key={report.id}
-                                            className={`transition-colors cursor-pointer ${selectedReportIdSet.has(report.id)
-                                                ? 'bg-blue-50/60 dark:bg-blue-500/10'
-                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                                            }`}
+                                            className="transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
                                             onClick={() => handleSelectReport(report)}
                                         >
-                                            <td className="py-3 px-4">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedReportIdSet.has(report.id)}
-                                                    onChange={() => toggleSelectReport(report.id)}
-                                                    onClick={e => e.stopPropagation()}
-                                                    disabled={batchDeleting}
-                                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                    aria-label={`选择报告 ${report.name || report.symbol}`}
-                                                />
-                                            </td>
                                             <td className="py-3 px-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
@@ -769,7 +652,7 @@ export default function Reports() {
                                                     <button
                                                         className="p-2 text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
                                                         onClick={e => handleDelete(e, report.id)}
-                                                        disabled={deleting === report.id || batchDeleting}
+                                                        disabled={deleting === report.id}
                                                         title="删除"
                                                     >
                                                         {deleting === report.id

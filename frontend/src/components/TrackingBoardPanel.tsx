@@ -1,19 +1,25 @@
 import {
     ArrowDownRight,
     ArrowUpRight,
+    ChevronDown,
+    ChevronUp,
+    ImagePlus,
     Loader2,
     RefreshCw,
+    Save,
     ShieldAlert,
     Target,
+    Trash2,
     TrendingUp,
+    Upload,
     Wallet,
 } from 'lucide-react'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { TrackingBoardItem, TrackingBoardResponse } from '@/types'
+import type { PortfolioPositionInput, TrackingBoardItem, TrackingBoardResponse } from '@/types'
 
 const CLAMP_TWO_LINES_STYLE: CSSProperties = {
     display: '-webkit-box',
@@ -39,6 +45,13 @@ export default function TrackingBoardPanel() {
             return 'simple'
         }
     })
+    const [showImportSection, setShowImportSection] = useState(false)
+    const [positionText, setPositionText] = useState('')
+    const [importSaving, setImportSaving] = useState(false)
+    const [importClearing, setImportClearing] = useState(false)
+    const [importFeedback, setImportFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+    const [vlmParsing, setVlmParsing] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const navigate = useNavigate()
 
     const trackingItems = trackingBoard?.items || []
@@ -102,6 +115,111 @@ export default function TrackingBoardPanel() {
         }
     }, [trackingRefreshSeconds, user?.id])
 
+    const refreshBoard = useCallback(async () => {
+        try {
+            const response = await api.getDashboardTrackingBoard()
+            setTrackingBoard(response)
+            setTrackingError(null)
+        } catch { /* silent */ }
+    }, [])
+
+    const parsePositionLines = useCallback((text: string): PortfolioPositionInput[] => {
+        const positions: PortfolioPositionInput[] = []
+        for (const raw of text.split('\n')) {
+            const line = raw.trim()
+            if (!line) continue
+            const parts = line.split(/[\s\t]+/)
+            if (parts.length < 1) continue
+            const symbol = parts[0].replace(/\.(SZ|SH|BJ)$/i, '')
+            if (!/^\d{6}$/.test(symbol)) continue
+            const name = parts.length > 1 && !/^\d/.test(parts[1]) ? parts[1] : undefined
+            const numericParts = parts.slice(1).filter(p => /^[\d.]+$/.test(p))
+            positions.push({
+                symbol,
+                name,
+                current_position: numericParts[0] ? Number(numericParts[0]) : undefined,
+                average_cost: numericParts[1] ? Number(numericParts[1]) : undefined,
+                market_value: numericParts[2] ? Number(numericParts[2]) : undefined,
+            })
+        }
+        return positions
+    }, [])
+
+    const handleSavePositions = useCallback(async () => {
+        const positions = parsePositionLines(positionText)
+        if (positions.length === 0) {
+            setImportFeedback({ tone: 'error', message: '未解析到有效持仓，请检查格式' })
+            return
+        }
+        setImportSaving(true)
+        setImportFeedback(null)
+        try {
+            await api.syncPortfolioImport({ positions, auto_apply_scheduled: true })
+            setImportFeedback({ tone: 'success', message: `已保存 ${positions.length} 只持仓` })
+            setPositionText('')
+            setShowImportSection(false)
+            await refreshBoard()
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '保存失败' })
+        } finally {
+            setImportSaving(false)
+        }
+    }, [positionText, parsePositionLines, refreshBoard])
+
+    const handleClearPositions = useCallback(async () => {
+        if (!confirm('确定清空所有已导入的持仓吗？')) return
+        setImportClearing(true)
+        setImportFeedback(null)
+        try {
+            await api.clearPortfolioImport()
+            setImportFeedback({ tone: 'success', message: '已清空持仓' })
+            setPositionText('')
+            await refreshBoard()
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '清空失败' })
+        } finally {
+            setImportClearing(false)
+        }
+    }, [refreshBoard])
+
+    const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        // Reset so same file can be re-selected
+        e.target.value = ''
+
+        setVlmParsing(true)
+        setImportFeedback(null)
+        try {
+            const result = await api.parsePositionImage(file)
+            if (result.positions.length === 0) {
+                setImportFeedback({ tone: 'error', message: '未从截图中识别到持仓信息' })
+                return
+            }
+            // Populate textarea for user review
+            const lines = result.positions.map(p => {
+                const parts = [p.symbol, p.name || '']
+                if (p.current_position != null) parts.push(String(p.current_position))
+                if (p.average_cost != null) parts.push(String(p.average_cost))
+                if (p.market_value != null) parts.push(String(p.market_value))
+                return parts.join(' ')
+            })
+            setPositionText(lines.join('\n'))
+            setImportFeedback({ tone: 'success', message: `已从截图识别 ${result.positions.length} 只持仓，请确认后保存` })
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '图片解析失败' })
+        } finally {
+            setVlmParsing(false)
+        }
+    }, [])
+
+    // Auto-expand import section when no items
+    useEffect(() => {
+        if (!trackingLoading && trackingItems.length === 0) {
+            setShowImportSection(true)
+        }
+    }, [trackingLoading, trackingItems.length])
+
     return (
         <div className="card overflow-hidden">
             <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 dark:border-slate-700 lg:flex-row lg:items-end lg:justify-between">
@@ -126,6 +244,79 @@ export default function TrackingBoardPanel() {
                 </div>
             </div>
 
+            {/* Import / Manage section */}
+            <div className="border-b border-slate-200 dark:border-slate-700">
+                <button
+                    type="button"
+                    onClick={() => setShowImportSection(v => !v)}
+                    className="flex w-full items-center gap-2 px-1 py-3 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+                >
+                    <Upload className="h-4 w-4" />
+                    导入 / 管理持仓
+                    {showImportSection ? <ChevronUp className="ml-auto h-4 w-4" /> : <ChevronDown className="ml-auto h-4 w-4" />}
+                </button>
+
+                {showImportSection && (
+                    <div className="space-y-3 pb-4">
+                        <textarea
+                            value={positionText}
+                            onChange={e => setPositionText(e.target.value)}
+                            placeholder={'每行一只股票，格式：代码 名称 持仓数 成本价 市值\n例如：600519 贵州茅台 100 1800 180000'}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 min-h-[100px] resize-y"
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleSavePositions}
+                                disabled={importSaving || !positionText.trim()}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {importSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                保存持仓
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={vlmParsing}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {vlmParsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                                {vlmParsing ? '识别中...' : '上传持仓截图'}
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageUpload}
+                            />
+
+                            <button
+                                type="button"
+                                onClick={handleClearPositions}
+                                disabled={importClearing}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {importClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                清空持仓
+                            </button>
+                        </div>
+
+                        {importFeedback && (
+                            <div className={`rounded-xl border px-3 py-2.5 text-xs ${
+                                importFeedback.tone === 'success'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                    : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300'
+                            }`}>
+                                {importFeedback.message}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {trackingLoading && !trackingBoard ? (
                 <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -136,7 +327,7 @@ export default function TrackingBoardPanel() {
                     <Wallet className="mx-auto mb-3 h-12 w-12 text-slate-300 dark:text-slate-600" />
                     <p className="text-slate-600 dark:text-slate-300">当前还没有可展示的持仓</p>
                     <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">
-                        到设置页导入持仓后，这里会自动出现实时跟踪卡片。
+                        在上方导入持仓后，这里会自动出现实时跟踪卡片。
                     </p>
                 </div>
             ) : viewMode === 'simple' ? (
@@ -149,7 +340,6 @@ export default function TrackingBoardPanel() {
             ) : (
                 <DetailedBoardView
                     items={trackingItems}
-                    trackingBoard={trackingBoard}
                     trackingRefreshing={trackingRefreshing}
                     trackingError={trackingError}
                     liveMarketValueTotal={liveMarketValueTotal}
@@ -405,7 +595,6 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
 
 function DetailedBoardView({
     items,
-    trackingBoard,
     trackingRefreshing,
     trackingError,
     liveMarketValueTotal,
@@ -414,7 +603,6 @@ function DetailedBoardView({
     onOpenReport,
 }: {
     items: TrackingBoardItem[]
-    trackingBoard: TrackingBoardResponse | null
     trackingRefreshing: boolean
     trackingError: string | null
     liveMarketValueTotal: number
@@ -428,7 +616,7 @@ function DetailedBoardView({
                 <BoardStatChip
                     label="持仓标的"
                     value={`${items.length} 只`}
-                    subValue={trackingBoard?.last_synced_at ? `同步于 ${formatDateTime(trackingBoard.last_synced_at)}` : '等待首次导入'}
+                    subValue={items.length > 0 ? `共 ${items.length} 只标的` : '等待首次导入'}
                     tone="blue"
                 />
                 <BoardStatChip

@@ -229,7 +229,7 @@ function TrackingBoardSummary({
                 <MetaCard
                     label="跟踪标的"
                     value={`${itemCount} 只`}
-                    subValue={trackingBoard?.account_id ? `账户 ${trackingBoard.account_id}` : '尚未读取到账户信息'}
+                    subValue={itemCount > 0 ? `共 ${itemCount} 只标的` : '尚未导入持仓'}
                 />
                 <MetaCard
                     label="价格覆盖"

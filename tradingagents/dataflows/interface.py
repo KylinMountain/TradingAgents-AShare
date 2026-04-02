@@ -31,6 +31,10 @@ TOOLS_CATEGORIES = {
             "get_insider_transactions",
         ],
     },
+    "realtime_data": {
+        "description": "Real-time market quotes",
+        "tools": ["get_realtime_quotes"],
+    },
     "cn_market_data": {
         "description": "China A-share market sentiment and fund flow data",
         "tools": [

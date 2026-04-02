@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { PortfolioImportState, PortfolioPositionInput, RuntimeWarmupResult, UserToken } from '@/types'
+import type { RuntimeWarmupResult, UserToken } from '@/types'
 
 type ProviderPreset = {
     id: string
@@ -57,11 +57,6 @@ export default function Settings() {
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
-    const [portfolioImportState, setPortfolioImportState] = useState<PortfolioImportState | null>(null)
-    const [portfolioSyncing, setPortfolioSyncing] = useState(false)
-    const [portfolioAutoApply, setPortfolioAutoApply] = useState(true)
-    const [portfolioPositionsText, setPortfolioPositionsText] = useState('')
-
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
     const [modelSaving, setModelSaving] = useState(false)
@@ -91,8 +86,6 @@ export default function Settings() {
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
-    const portfolioPositionCount = portfolioImportState?.summary?.positions ?? 0
-
     useEffect(() => {
         setWarmupResults([])
         setWarmupError(null)
@@ -145,7 +138,6 @@ export default function Settings() {
 
         // Fetch tokens
         fetchTokens()
-        void fetchPortfolioImportState()
     }, [])
 
     const fetchTokens = async () => {
@@ -157,15 +149,6 @@ export default function Settings() {
             console.error('Failed to fetch tokens:', err)
         } finally {
             setTokensLoading(false)
-        }
-    }
-
-    const fetchPortfolioImportState = async () => {
-        try {
-            const state = await api.getPortfolioImportState()
-            setPortfolioImportState(state)
-        } catch (err) {
-            console.error('Failed to fetch portfolio import state:', err)
         }
     }
 
@@ -230,53 +213,6 @@ export default function Settings() {
         setTimeout(() => setSaved(false), 2000)
     }
 
-    const parsePortfolioPositions = (text: string): PortfolioPositionInput[] => {
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-        const positions: PortfolioPositionInput[] = []
-        for (const line of lines) {
-            const parts = line.split(/[,\t，\s]+/).filter(Boolean)
-            if (!parts[0]) continue
-            const symbol = parts[0]
-            let nameIdx = -1
-            let numStart = 1
-            if (parts[1] && !/^[\d.]+$/.test(parts[1])) {
-                nameIdx = 1
-                numStart = 2
-            }
-            const nums = parts.slice(numStart).map(v => {
-                const n = parseFloat(v)
-                return isNaN(n) ? null : n
-            })
-            positions.push({
-                symbol,
-                name: nameIdx >= 0 ? parts[nameIdx] : undefined,
-                current_position: nums[0] ?? null,
-                average_cost: nums[1] ?? null,
-                market_value: nums[2] ?? null,
-            })
-        }
-        return positions
-    }
-
-    const syncPortfolioImport = async (options?: { successMessage?: string }) => {
-        const positions = parsePortfolioPositions(portfolioPositionsText)
-        if (positions.length === 0) {
-            throw new Error('请输入至少一条持仓记录')
-        }
-        setPortfolioSyncing(true)
-        try {
-            const result = await api.syncPortfolioImport({
-                positions,
-                auto_apply_scheduled: portfolioAutoApply,
-            })
-            setPortfolioImportState(result)
-            showSavedMessage(options?.successMessage || '持仓已保存')
-            return result
-        } finally {
-            setPortfolioSyncing(false)
-        }
-    }
-
     const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string; includeEmail?: boolean; includeWecom?: boolean }) => {
         persistLocalSettings()
         const { forceWarmup = false, successMessage = '设置已保存', includeEmail = true, includeWecom = false } = options || {}
@@ -310,11 +246,7 @@ export default function Settings() {
         setSaveAllSaving(true)
         try {
             await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
-            if (portfolioPositionsText.trim()) {
-                await syncPortfolioImport({ successMessage: '全部设置已保存' })
-            } else {
-                showSavedMessage('全部设置已保存')
-            }
+            showSavedMessage('全部设置已保存')
         } catch (err) {
             alert(err instanceof Error ? err.message : '保存全部设置失败')
         } finally {
@@ -392,25 +324,6 @@ export default function Settings() {
         }
     }
 
-    const handleSavePortfolio = async () => {
-        try {
-            await syncPortfolioImport({ successMessage: '持仓已保存' })
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '持仓保存失败')
-        }
-    }
-
-    const clearPortfolioImport = async () => {
-        if (!confirm('确定清空已导入的持仓上下文吗？')) return
-        try {
-            await api.clearPortfolioImport()
-            await fetchPortfolioImportState()
-            setPortfolioPositionsText('')
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '清空持仓失败')
-        }
-    }
-
     const toggleAnalyst = (analyst: string) => {
         setDefaultAnalysts(prev =>
             prev.includes(analyst) ? prev.filter(a => a !== analyst) : [...prev, analyst]
@@ -421,7 +334,7 @@ export default function Settings() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">系统设置</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数、模型与持仓追踪</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数与模型</p>
             </div>
 
             <div className="card space-y-3">
@@ -433,111 +346,6 @@ export default function Settings() {
                     <div>当前登录：{user?.email || '-'}</div>
                     <div className="mt-1 text-slate-500 dark:text-slate-400">报告历史、分析任务和模型配置仅当前账户可见。</div>
                 </div>
-            </div>
-
-            <div className=”card space-y-4”>
-                <div className=”flex items-center gap-2”>
-                    <Database className=”w-5 h-5 text-emerald-500” />
-                    <h2 className=”text-lg font-semibold text-slate-900 dark:text-slate-100”>持仓追踪</h2>
-                    <div className=”group relative”>
-                        <button
-                            type=”button”
-                            aria-label=”持仓追踪说明”
-                            className=”flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300”
-                        >
-                            <Info className=”h-3 w-3” />
-                        </button>
-                        <div className=”pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200”>
-                            <div className=”font-medium text-slate-900 dark:text-slate-100”>如何导入持仓</div>
-                            <div className=”mt-2”>
-                                每行输入一只股票，格式：<code className=”bg-slate-100 dark:bg-slate-800 px-1 rounded”>代码 名称 持仓 成本 市值</code>
-                            </div>
-                            <div className=”mt-2”>
-                                支持用逗号、Tab 或空格分隔。股票代码支持 600519.SH 或纯 6 位数字。
-                            </div>
-                            <div className=”mt-2”>
-                                导入后跟踪看板和定时分析会自动使用持仓上下文。
-                            </div>
-                        </div>
-                    </div>
-                    <div className=”ml-auto flex items-center gap-3”>
-                        {portfolioSyncing && <Loader2 className=”w-4 h-4 animate-spin text-slate-400” />}
-                        <button
-                            type=”button”
-                            onClick={handleSavePortfolio}
-                            disabled={portfolioSyncing || saveAllSaving}
-                            className=”btn-secondary inline-flex items-center gap-2”
-                        >
-                            {portfolioSyncing ? <Loader2 className=”w-4 h-4 animate-spin” /> : <Save className=”w-4 h-4” />}
-                            保存
-                        </button>
-                    </div>
-                </div>
-                <p className=”text-sm text-slate-500 dark:text-slate-400”>
-                    在这里导入持仓信息。保存后跟踪看板和定时分析会自动使用最新持仓上下文。
-                </p>
-
-                <div>
-                    <label className=”block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2”>持仓列表（每行一只）</label>
-                    <textarea
-                        value={portfolioPositionsText}
-                        onChange={e => setPortfolioPositionsText(e.target.value)}
-                        rows={6}
-                        className=”input w-full font-mono text-xs”
-                        placeholder={“600519.SH 贵州茅台 100 1800.5 180050\n000858 五粮液 200 150.3 30060\n300750 宁德时代 50 210 10500”}
-                    />
-                    <p className=”mt-1 text-xs text-slate-400 dark:text-slate-500”>
-                        格式：代码 [名称] [持仓数] [成本价] [市值]，用逗号/Tab/空格分隔
-                    </p>
-                </div>
-
-                <label className=”flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300”>
-                    <input type=”checkbox” checked={portfolioAutoApply} onChange={e => setPortfolioAutoApply(e.target.checked)} />
-                    自动加入定时任务
-                </label>
-
-                <div className=”flex flex-wrap gap-3”>
-                    <button type=”button” onClick={() => { void handleSavePortfolio() }} disabled={portfolioSyncing || saveAllSaving} className=”btn-primary inline-flex items-center gap-2”>
-                        {portfolioSyncing ? <Loader2 className=”w-4 h-4 animate-spin” /> : <RefreshCw className=”w-4 h-4” />}
-                        保存持仓
-                    </button>
-                    <button type=”button” onClick={clearPortfolioImport} className=”inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60”>
-                        <Trash2 className=”w-4 h-4” />
-                        清空持仓
-                    </button>
-                </div>
-
-                {portfolioImportState && portfolioPositionCount > 0 && (
-                    <div className=”rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm”>
-                        <div className=”flex flex-wrap gap-3 text-slate-600 dark:text-slate-300”>
-                            <span>持仓 {portfolioPositionCount} 只</span>
-                            <span>{portfolioImportState.last_synced_at ? `最近同步 ${portfolioImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
-                        </div>
-                        {!!portfolioImportState.scheduled_sync && (
-                            <div className=”flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300”>
-                                <span>新增定时任务 {portfolioImportState.scheduled_sync.created.length} 只</span>
-                                <span>已存在 {portfolioImportState.scheduled_sync.existing.length} 只</span>
-                                {portfolioImportState.scheduled_sync.skipped_limit.length > 0 && (
-                                    <span>超出上限未加入 {portfolioImportState.scheduled_sync.skipped_limit.length} 只</span>
-                                )}
-                            </div>
-                        )}
-                        <div className=”max-h-64 overflow-y-auto pr-1 space-y-2”>
-                            {portfolioImportState.positions.map(item => (
-                                <div
-                                    key={item.symbol}
-                                    className=”flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400”
-                                >
-                                    <span className=”font-medium text-slate-700 dark:text-slate-200”>{item.name}</span>
-                                    <span>{item.symbol}</span>
-                                    <span>持仓 {item.current_position ?? '-'}</span>
-                                    <span>成本 {item.average_cost ?? '-'}</span>
-                                    <span>市值 {item.market_value ?? '-'}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
 
             <div className="card space-y-4">
@@ -1023,7 +831,7 @@ export default function Settings() {
             </div>
 
             <div className="flex items-center gap-4">
-                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving || portfolioSyncing} className="btn-primary inline-flex items-center gap-2">
+                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving} className="btn-primary inline-flex items-center gap-2">
                     {saveAllSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     保存全部
                 </button>

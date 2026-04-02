@@ -1,28 +1,19 @@
 from __future__ import annotations
 
+import json
 import logging
-import os
 import re
-import time
-from datetime import datetime, timezone
 from typing import Any
 
-import requests
 from sqlalchemy.orm import Session
 
 from api.database import ImportedPortfolioPositionDB, ReportDB
+from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.trade_calendar import cn_today_str, previous_cn_trading_day
 
 
 REFRESH_INTERVAL_SECONDS = 20
-QUOTE_REQUEST_TIMEOUT_SECONDS = max(0.5, float(os.getenv("TA_TRACKING_QUOTE_TIMEOUT_SECONDS", "2.5")))
-ENABLE_SINGLE_QUOTE_FALLBACK = os.getenv("TA_TRACKING_ENABLE_XQ_FALLBACK", "").strip().lower() in ("1", "true", "yes", "on")
-_SINA_QUOTE_CACHE_TTL = 8  # seconds – avoid hammering Sina on concurrent requests
 logger = logging.getLogger(__name__)
-
-# Simple TTL cache for Sina batch quotes to avoid IP bans under concurrent load.
-_sina_quote_cache: dict[str, dict[str, Any]] = {}
-_sina_quote_cache_ts: float = 0.0
 
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
@@ -212,156 +203,12 @@ def _clip_summary(text: str | None) -> str | None:
 def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
     if not symbols:
         return {}
-
-    quotes = _fetch_em_batch_quotes(symbols)
-    missing = [symbol for symbol in symbols if symbol not in quotes]
-    if ENABLE_SINGLE_QUOTE_FALLBACK:
-        for symbol in missing:
-            quote = _fetch_sina_single_quote(symbol)
-            if quote:
-                quotes[symbol] = quote
-    return quotes
-
-
-def _fetch_em_batch_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
-    global _sina_quote_cache, _sina_quote_cache_ts
-
-    normalized = [s.strip().upper() for s in symbols if s and s.strip()]
-    if not normalized:
-        return {}
-
-    # Return cached results if still fresh
-    now = time.time()
-    if (now - _sina_quote_cache_ts) < _SINA_QUOTE_CACHE_TTL and _sina_quote_cache:
-        cached = {s: _sina_quote_cache[s] for s in normalized if s in _sina_quote_cache}
-        if len(cached) == len(normalized):
-            return cached
-
-    sina_symbols = [_to_sina_symbol(s) for s in normalized if _to_sina_symbol(s)]
-    if not sina_symbols:
-        return {}
     try:
-        response = requests.get(
-            "https://hq.sinajs.cn/list=" + ",".join(sina_symbols),
-            timeout=QUOTE_REQUEST_TIMEOUT_SECONDS,
-            headers={
-                "Referer": "https://finance.sina.com.cn/",
-                "User-Agent": "Mozilla/5.0",
-            },
-        )
-        response.raise_for_status()
-        response.encoding = "gbk"
+        result_json = route_to_vendor("get_realtime_quotes", symbols)
+        return json.loads(result_json)
     except Exception as exc:
-        logger.warning("[tracking-board] Batch quote fetch failed for %s: %s", normalized, exc)
+        logger.warning("[tracking-board] realtime quote fetch failed: %s", exc)
         return {}
-
-    symbol_by_sina = {
-        _to_sina_symbol(s): s
-        for s in normalized
-        if _to_sina_symbol(s)
-    }
-    quotes: dict[str, dict[str, Any]] = {}
-    for line in response.text.splitlines():
-        symbol, quote = _parse_sina_quote_line(line)
-        if not symbol or not quote:
-            continue
-        target_symbol = symbol_by_sina.get(symbol)
-        if not target_symbol:
-            continue
-        quotes[target_symbol] = quote
-
-    # Update cache
-    _sina_quote_cache.update(quotes)
-    _sina_quote_cache_ts = time.time()
-    return quotes
-
-
-def _fetch_sina_single_quote(symbol: str) -> dict[str, Any] | None:
-    """Fetch a single symbol's quote via Sina as a last-resort fallback."""
-    return _fetch_em_batch_quotes([symbol]).get(str(symbol or "").strip().upper())
-
-
-def _parse_sina_quote_line(line: str) -> tuple[str | None, dict[str, Any] | None]:
-    match = re.match(r'^var hq_str_(?P<symbol>[^=]+)="(?P<body>.*)";$', str(line or "").strip())
-    if not match:
-        return None, None
-
-    raw_symbol = match.group("symbol").strip().lower()
-    fields = match.group("body").split(",")
-    if len(fields) < 10 or not any(field.strip() for field in fields):
-        return raw_symbol, None
-
-    date_part = fields[30].strip() if len(fields) > 30 else ""
-    time_part = fields[31].strip() if len(fields) > 31 else ""
-    quote_time = None
-    if date_part and time_part:
-        try:
-            quote_time = datetime.strptime(f"{date_part} {time_part}", "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=timezone.utc
-            ).isoformat()
-        except Exception:
-            quote_time = None
-
-    price = _to_float(fields[3] if len(fields) > 3 else None)
-    open_price = _to_float(fields[1] if len(fields) > 1 else None)
-    previous_close = _to_float(fields[2] if len(fields) > 2 else None)
-    high = _to_float(fields[4] if len(fields) > 4 else None)
-    low = _to_float(fields[5] if len(fields) > 5 else None)
-    volume = _to_float(fields[8] if len(fields) > 8 else None)
-    amount = _to_float(fields[9] if len(fields) > 9 else None)
-    if all(value is None for value in (price, open_price, previous_close, high, low)):
-        return raw_symbol, None
-
-    change = (
-        round(price - previous_close, 4)
-        if price is not None and previous_close is not None
-        else None
-    )
-    change_pct = (
-        round((change / previous_close) * 100, 4)
-        if change is not None and previous_close not in (None, 0)
-        else None
-    )
-
-    return raw_symbol, {
-        "price": price,
-        "open": open_price,
-        "change": change,
-        "change_pct": change_pct,
-        "high": high,
-        "low": low,
-        "previous_close": previous_close,
-        "volume": volume,
-        "amount": amount,
-        "quote_time": quote_time,
-        "source": "sina_hq",
-    }
-
-
-def _extract_code(symbol: str) -> str:
-    return str(symbol or "").split(".", 1)[0].strip().zfill(6)
-
-
-def _to_sina_symbol(symbol: str) -> str | None:
-    code = _extract_code(symbol)
-    upper_symbol = str(symbol or "").upper()
-    if not code:
-        return None
-    if upper_symbol.endswith(".BJ"):
-        return f"bj{code}"
-    if code.startswith(("5", "6", "9")):
-        return f"sh{code}"
-    return f"sz{code}"
-
-
-def _to_xq_symbol(symbol: str) -> str:
-    code = _extract_code(symbol)
-    upper_symbol = str(symbol or "").upper()
-    if upper_symbol.endswith(".BJ"):
-        return f"BJ{code}"
-    if code.startswith(("5", "6", "9")):
-        return f"SH{code}"
-    return f"SZ{code}"
 
 
 def _to_float(value: Any) -> float | None:
