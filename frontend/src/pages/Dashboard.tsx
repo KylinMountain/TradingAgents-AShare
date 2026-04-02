@@ -218,10 +218,9 @@ function TrackingBoardSummary({
                 <button
                     type="button"
                     onClick={onOpen}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
                 >
-                    查看完整看板
-                    <ArrowRight className="h-4 w-4" />
+                    查看完整看板 <ArrowRight className="h-3.5 w-3.5" />
                 </button>
             </div>
 
@@ -229,7 +228,7 @@ function TrackingBoardSummary({
                 <MetaCard
                     label="跟踪标的"
                     value={`${itemCount} 只`}
-                    subValue={trackingBoard?.account_id ? `账户 ${trackingBoard.account_id}` : '尚未读取到账户信息'}
+                    subValue={itemCount > 0 ? `共 ${itemCount} 只标的` : '尚未导入持仓'}
                 />
                 <MetaCard
                     label="价格覆盖"
@@ -242,9 +241,9 @@ function TrackingBoardSummary({
                     subValue={trackingBoard?.previous_trade_date ? `上一交易日 ${trackingBoard.previous_trade_date}` : '暂无交易日信息'}
                 />
                 <MetaCard
-                    label="数据来源"
-                    value="QMT / xtquant"
-                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '同步后这里会显示摘要'}
+                    label="状态"
+                    value={itemCount > 0 ? '已就绪' : '待导入'}
+                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '前往跟踪看板导入持仓'}
                 />
             </div>
         </div>

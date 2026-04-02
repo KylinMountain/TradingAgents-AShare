@@ -26,9 +26,11 @@ dependencies = [
     "akshare>=1.16.80",
     "baostock>=0.8.9",
     "fastapi>=0.116.1",
+    "python-multipart>=0.0.18",
     "uvicorn>=0.35.0",
     "sqlalchemy>=2.0.48",
-    "python-jose[cryptography]>=3.5.0",
+    "PyJWT>=2.11.0",
+    "cryptography>=45.0.3",
     "json-repair>=0.44.0",
     "markdown>=3.7",
 ]

@@ -11,7 +11,8 @@ from typing import Optional
 from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
 from sqlalchemy.orm import Session
 
 from api.database import EmailVerificationCodeDB, UserDB, UserLLMConfigDB

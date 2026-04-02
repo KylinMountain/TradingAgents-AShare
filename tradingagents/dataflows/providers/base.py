@@ -56,3 +56,11 @@ class BaseMarketDataProvider(ABC):
     def get_insider_transactions(self, symbol: str) -> str:
         raise NotImplementedError
 
+    def get_realtime_quotes(self, symbols: list[str]) -> str:
+        """Return real-time quotes for a list of symbols as a JSON string.
+
+        Keys are original symbols (e.g. "600519.SH"), values are dicts with:
+        price, open, high, low, previous_close, change, change_pct, volume, amount.
+        """
+        raise NotImplementedError
+

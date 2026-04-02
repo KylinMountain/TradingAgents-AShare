@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, status, BackgroundTasks
+from fastapi import FastAPI, File, HTTPException, Depends, Query, Request, UploadFile, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -39,8 +39,8 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, QmtImportConfigDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, report_service, token_service, watchlist_service, scheduled_service, qmt_import_service, tracking_board_service
+from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, init_db, get_db, get_db_ctx
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -455,6 +455,9 @@ async def lifespan(app: FastAPI):
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
     _log("Trade calendar pre-loaded.")
+    # Pre-load stock + ETF name map
+    await asyncio.to_thread(_load_cn_stock_map)
+    _log("Stock map pre-loaded on startup.")
     _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
@@ -562,7 +565,11 @@ _STOCK_MAP_TTL = 7 * 86400  # 7 days
 
 
 def _load_cn_stock_map() -> Dict[str, str]:
-    """Lazy-load and cache akshare A-share name→code mapping with 7-day TTL."""
+    """Lazy-load and cache A-share stock + ETF/fund name→code mapping (7-day TTL).
+
+    Uses akshare stock_info_a_code_name (static list, no anti-crawl) for A-shares,
+    plus fund_name_em for ETFs/funds.
+    """
     global _cn_stock_map, _cn_stock_reverse_map, _cn_stock_map_loaded_at
     import time as _time
     now = _time.time()
@@ -574,20 +581,37 @@ def _load_cn_stock_map() -> Dict[str, str]:
     with _cn_stock_map_lock:
         if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
             return _cn_stock_map
+        result: Dict[str, str] = {}
         try:
             import akshare as ak
+            # A-share stocks (static list, no anti-crawl issue)
             df = ak.stock_info_a_code_name()
-            result: Dict[str, str] = {}
             for _, row in df.iterrows():
                 name = str(row.get("name", "")).strip()
                 code = str(row.get("code", "")).strip()
                 if name and code:
-                    normalized = _normalize_symbol(code)
-                    result[name] = normalized
+                    result[name] = _normalize_symbol(code)
+            stock_count = len(result)
+            # ETF / funds
+            fund_count = 0
+            try:
+                fund_df = ak.fund_name_em()
+                existing_codes = set(result.values())
+                for _, row in fund_df.iterrows():
+                    code = str(row.get("基金代码", "")).strip()
+                    name = str(row.get("基金简称", "")).strip()
+                    if name and code and len(code) == 6 and code.isdigit():
+                        normalized = _normalize_symbol(code)
+                        if normalized not in existing_codes:
+                            result[name] = normalized
+                            existing_codes.add(normalized)
+                fund_count = len(result) - stock_count
+            except Exception as fe:
+                _log(f"[StockMap] ETF/fund load skipped: {fe}")
             _cn_stock_map = result
             _cn_stock_reverse_map = {code: name for name, code in result.items()}
             _cn_stock_map_loaded_at = now
-            _log(f"[StockMap] Loaded {len(result)} A-share stocks.")
+            _log(f"[StockMap] Loaded {stock_count} stocks + {fund_count} ETFs/funds = {len(result)} total.")
         except Exception as e:
             _log(f"[StockMap] Failed to load: {e}")
             if _cn_stock_map is None:
@@ -666,19 +690,21 @@ FIXED_TEAMS = {
         "Fundamentals Analyst",
         "Macro Analyst",
         "Smart Money Analyst",
+        "Volume Price Analyst",
     ],
     "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
     "Trading Team": ["Trader"],
     "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
     "Portfolio Management": ["Portfolio Manager"],
 }
-ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
 ANALYST_AGENT_NAMES = {
     "market": "Market Analyst",
     "social": "Social Analyst",
     "news": "News Analyst",
     "fundamentals": "Fundamentals Analyst",
     "macro": "Macro Analyst",
+    "volume_price": "Volume Price Analyst",
     "smart_money": "Smart Money Analyst",
     "bull": "Bull Researcher",
     "bear": "Bear Researcher",
@@ -905,7 +931,7 @@ class PortfolioOverviewResponse(BaseModel):
     watchlist: List[dict]
     scheduled: List[dict]
     latest_reports: List[ReportResponse]
-    qmt_import: Optional[dict] = None
+    portfolio_import: Optional[dict] = None
 
 
 class WatchlistAddRequest(BaseModel):
@@ -1032,11 +1058,20 @@ class WecomWebhookWarmupResponse(BaseModel):
     webhook_display: Optional[str] = None
 
 
-class QmtImportSyncRequest(BaseModel):
-    qmt_path: str = Field(..., description="QMT userdata 路径")
-    account_id: str = Field(..., description="QMT 资金账号")
-    account_type: str = Field("STOCK", description="账户类型，默认 STOCK")
-    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务，并优先使用 QMT 持仓上下文")
+class PortfolioPositionItem(BaseModel):
+    symbol: str = Field(..., description="股票代码，如 600519.SH 或 600519")
+    name: Optional[str] = Field(None, description="股票名称")
+    current_position: Optional[float] = Field(None, description="持仓数量")
+    available_position: Optional[float] = Field(None, description="可用数量")
+    average_cost: Optional[float] = Field(None, description="成本价")
+    market_value: Optional[float] = Field(None, description="市值")
+    current_position_pct: Optional[float] = Field(None, description="仓位占比 %")
+
+
+class PortfolioImportSyncRequest(BaseModel):
+    positions: List[PortfolioPositionItem] = Field(..., description="持仓列表")
+    source: str = Field("manual", description="持仓来源标识")
+    auto_apply_scheduled: bool = Field(True, description="是否自动将持仓股票加入定时任务")
 
 
 class UserTokenResponse(BaseModel):
@@ -4006,7 +4041,7 @@ def search_stocks(
 
 def _annotate_scheduled_with_imported_context(items: List[dict], db: Session, user_id: str) -> List[dict]:
     imported_map: Dict[str, Dict[str, Any]] = {}
-    for item in qmt_import_service.list_imported_positions(db, user_id):
+    for item in portfolio_import_service.list_imported_positions(db, user_id):
         imported_map[item["symbol"]] = item
     for item in items:
         imported = imported_map.get(item["symbol"])
@@ -4036,47 +4071,13 @@ def _merge_imported_user_context(*contexts: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
-    qmt_context = qmt_import_service.build_scheduled_user_context(db, user_id, symbol)
-    return _merge_imported_user_context(qmt_context)
+    context = portfolio_import_service.build_scheduled_user_context(db, user_id, symbol)
+    return _merge_imported_user_context(context)
 
 
 def _build_manual_imported_user_context(db: Session, user_id: str, symbol: str) -> Dict[str, Any]:
-    normalized_symbol = (symbol or "").strip().upper()
-    if not normalized_symbol:
-        return {}
-
-    # Prefer the normal scheduled-context behavior first. If auto_apply_scheduled is
-    # disabled, manual test runs should still carry imported holdings context.
-    scheduled_context = _build_imported_user_context(db, user_id, normalized_symbol)
-    if scheduled_context:
-        return scheduled_context
-
-    contexts: List[Dict[str, Any]] = []
-
-    qmt_row = (
-        db.query(ImportedPortfolioPositionDB)
-        .filter(
-            ImportedPortfolioPositionDB.user_id == user_id,
-            ImportedPortfolioPositionDB.source == "qmt_xtquant",
-            ImportedPortfolioPositionDB.symbol == normalized_symbol,
-        )
-        .first()
-    )
-    if qmt_row:
-        qmt_config = db.query(QmtImportConfigDB).filter(QmtImportConfigDB.user_id == user_id).first()
-        contexts.append({
-            "objective": "持有处理" if (qmt_row.current_position or 0) > 0 else "观察",
-            "current_position": qmt_row.current_position,
-            "current_position_pct": qmt_row.current_position_pct,
-            "average_cost": qmt_row.average_cost,
-            "user_notes": (
-                "来源：QMT / xtquant 持仓同步（手动测试）\n"
-                f"账户：{qmt_config.account_id if qmt_config else '-'}\n"
-                f"QMT 路径：{qmt_config.qmt_path if qmt_config else '-'}"
-            ),
-        })
-
-    return _merge_imported_user_context(*contexts)
+    """Build imported position context for manual/ad-hoc analysis runs."""
+    return _build_imported_user_context(db, user_id, symbol)
 
 
 def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List[dict]:
@@ -4086,39 +4087,64 @@ def _attach_stock_names(items: List[dict], code_to_name: Dict[str, str]) -> List
     return items
 
 
-@app.get("/v1/portfolio/imports/qmt")
-def get_qmt_import_state(
+@app.get("/v1/portfolio/imports")
+def get_portfolio_import_state(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    return qmt_import_service.get_import_state(db, current_user.id)
+    return portfolio_import_service.get_import_state(db, current_user.id)
 
 
-@app.post("/v1/portfolio/imports/qmt")
-def sync_qmt_import_state(
-    body: QmtImportSyncRequest,
+@app.post("/v1/portfolio/imports")
+def sync_portfolio_import(
+    body: PortfolioImportSyncRequest,
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
     try:
-        return qmt_import_service.sync_qmt_portfolio(
+        return portfolio_import_service.sync_positions(
             db=db,
             user_id=current_user.id,
-            qmt_path=body.qmt_path,
-            account_id=body.account_id,
-            account_type=body.account_type,
+            positions=[p.model_dump() for p in body.positions],
+            source=body.source,
             auto_apply_scheduled=body.auto_apply_scheduled,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-@app.delete("/v1/portfolio/imports/qmt", status_code=204)
-def clear_qmt_import_state(
+@app.delete("/v1/portfolio/imports", status_code=204)
+def clear_portfolio_import_state(
     current_user: UserDB = Depends(_require_api_user),
     db: Session = Depends(get_db),
 ):
-    qmt_import_service.clear_imported_portfolio(db, current_user.id)
+    portfolio_import_service.clear_imported_portfolio(db, current_user.id)
+
+
+@app.post("/v1/portfolio/parse-image")
+async def parse_position_image_endpoint(
+    file: UploadFile = File(...),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Parse a broker position screenshot using server-side VLM."""
+    from api.services.vlm_position_parser import parse_position_image
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "只支持图片文件")
+
+    image_bytes = await file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(400, "图片不能超过 10MB")
+
+    try:
+        positions = await asyncio.to_thread(parse_position_image, image_bytes, file.content_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.warning("[parse-image] VLM parsing failed: %s", exc)
+        raise HTTPException(500, "图片解析失败，请稍后重试") from exc
+
+    return {"positions": positions}
 
 
 @app.get("/v1/dashboard/tracking-board")
@@ -4264,13 +4290,13 @@ def get_portfolio_overview(
     for report in latest_reports:
         report.name = code_to_name.get(report.symbol, report.symbol)
 
-    qmt_import = qmt_import_service.get_import_state(db, current_user.id)
+    portfolio_import = portfolio_import_service.get_import_state(db, current_user.id)
 
     return {
         "watchlist": watchlist_items,
         "scheduled": scheduled_items,
         "latest_reports": latest_reports,
-        "qmt_import": qmt_import,
+        "portfolio_import": portfolio_import,
     }
 
 

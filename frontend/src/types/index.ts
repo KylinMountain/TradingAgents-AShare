@@ -358,11 +358,6 @@ export interface ReportListResponse {
     reports: Report[]
 }
 
-export interface ReportBatchDeleteResponse {
-    deleted_ids: string[]
-    missing_ids: string[]
-}
-
 export interface AnnouncementItem {
     title: string
     detail: string
@@ -485,11 +480,7 @@ export interface ImportedScheduledSyncSummary {
     skipped_limit: string[]
 }
 
-export interface QmtImportState {
-    broker: string
-    qmt_path?: string | null
-    account_id?: string | null
-    account_type?: string | null
+export interface PortfolioImportState {
     auto_apply_scheduled: boolean
     last_synced_at?: string | null
     last_error?: string | null
@@ -500,11 +491,21 @@ export interface QmtImportState {
     positions: ImportedPortfolioPosition[]
 }
 
+export interface PortfolioPositionInput {
+    symbol: string
+    name?: string
+    current_position?: number | null
+    available_position?: number | null
+    average_cost?: number | null
+    market_value?: number | null
+    current_position_pct?: number | null
+}
+
 export interface PortfolioOverviewResponse {
     watchlist: WatchlistItem[]
     scheduled: ScheduledAnalysis[]
     latest_reports: Report[]
-    qmt_import: QmtImportState | null
+    portfolio_import: PortfolioImportState | null
 }
 
 export interface TrackingBoardAnalysis {
@@ -547,11 +548,6 @@ export interface TrackingBoardItem {
 }
 
 export interface TrackingBoardResponse {
-    broker: string
-    qmt_path?: string | null
-    account_id?: string | null
-    account_type?: string | null
-    last_synced_at?: string | null
     previous_trade_date: string
     refresh_interval_seconds: number
     items: TrackingBoardItem[]
