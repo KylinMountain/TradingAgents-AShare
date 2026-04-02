@@ -390,7 +390,7 @@ function SimpleBoardView({
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1180px]">
-                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500">
+                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>标的</div>
                         <div>当日 K 线</div>
                         <div>最新价</div>
@@ -409,7 +409,7 @@ function SimpleBoardView({
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between dark:border-slate-700 dark:text-slate-400">
                 <div className="flex items-center gap-2">
                     <span className={`inline-flex h-2.5 w-2.5 rounded-full ${trackingError ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                     <span>{trackingError ? `最近刷新异常：${trackingError}` : '实时监控中'}</span>
@@ -429,17 +429,17 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
         : 'bg-rose-500'
     const holdingChangePct = item.floating_pnl_pct ?? null
     const priceColor = priceChangePct == null
-        ? 'text-slate-800'
+        ? 'text-slate-800 dark:text-slate-200'
         : isUp
-            ? 'text-rose-600'
-            : 'text-emerald-600'
+            ? 'text-rose-600 dark:text-rose-400'
+            : 'text-emerald-600 dark:text-emerald-400'
     const rangeAlert = getModelRangeAlert(item)
 
     return (
-        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0">
+        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0 dark:border-slate-700">
             <div className="min-w-0">
-                <div className="truncate text-[18px] font-semibold text-slate-900">{item.name}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                <div className="truncate text-[18px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
                     <span>{item.symbol}</span>
                     <span>成本 {formatPlainPrice(item.average_cost)}</span>
                     <span>持仓 {formatShares(item.current_position)}</span>
@@ -455,10 +455,10 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="self-center">
                 <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[18px] font-semibold ${
                     priceChangePct == null
-                        ? 'bg-slate-100 text-slate-400'
+                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
-                            ? 'bg-rose-50 text-rose-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
                 }`}>
                     {formatSignedPercent(priceChangePct)}
                 </span>
@@ -470,9 +470,9 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                     <SimpleRangeTrack item={item} />
                     <span className="w-14 text-sm text-slate-400">{formatPlainPrice(item.day_high)}</span>
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="inline-flex items-center gap-1">
-                        <span className="h-2.5 w-0.5 rounded-full bg-slate-700" />
+                        <span className="h-2.5 w-0.5 rounded-full bg-slate-700 dark:bg-slate-300" />
                         现价 {formatPlainPrice(item.live_price)}
                     </span>
                     <span className="inline-flex items-center gap-1">
@@ -480,7 +480,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                         成本 {formatPlainPrice(item.average_cost)}
                     </span>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         <span>模型低位 {formatPlainPrice(item.analysis?.low_price)}</span>
                         <span>模型高位 {formatPlainPrice(item.analysis?.high_price)}</span>
@@ -496,18 +496,18 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="self-center">
                 <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[16px] font-semibold ${
                     holdingChangePct == null
-                        ? 'bg-slate-100 text-slate-400'
+                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : holdingChangePct >= 0
-                            ? 'bg-rose-50 text-rose-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
                 }`}>
                     {formatSignedPercent(holdingChangePct)}
                 </span>
             </div>
 
-            <div className="self-center space-y-1 text-[15px] text-slate-700">
+            <div className="self-center space-y-1 text-[15px] text-slate-700 dark:text-slate-200">
                 <div>{formatVolume(item.volume)}</div>
-                <div className="text-[14px] text-slate-500">{formatAmount(item.amount)}</div>
+                <div className="text-[14px] text-slate-500 dark:text-slate-400">{formatAmount(item.amount)}</div>
             </div>
         </div>
     )
@@ -521,7 +521,7 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
 
     if (open == null || close == null || high == null || low == null) {
         return (
-            <div className="flex h-[56px] items-center text-sm text-slate-400">
+            <div className="flex h-[56px] items-center text-sm text-slate-400 dark:text-slate-500">
                 暂无数据
             </div>
         )
@@ -554,7 +554,7 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
     return (
         <div className="flex items-center gap-3">
             <svg width="44" height="48" viewBox="0 0 44 48" className="shrink-0 overflow-visible">
-                <rect x="0.5" y="0.5" width="43" height="47" rx="11.5" fill="#f8fafc" stroke="#e2e8f0" />
+                <rect x="0.5" y="0.5" width="43" height="47" rx="11.5" className="fill-slate-50 stroke-slate-200 dark:fill-slate-800 dark:stroke-slate-700" />
                 {previousCloseY != null && (
                     <line
                         x1="8"
@@ -578,9 +578,9 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
                     strokeWidth="1.5"
                 />
             </svg>
-            <div className="space-y-1 text-[11px] text-slate-500">
+            <div className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
                 <div>开 {formatPlainPrice(open)}</div>
-                <div className={isUp ? 'text-rose-600' : 'text-emerald-600'}>现 {formatPlainPrice(close)}</div>
+                <div className={isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>现 {formatPlainPrice(close)}</div>
             </div>
         </div>
     )
@@ -910,7 +910,7 @@ function SimpleRangeTrack({ item }: { item: TrackingBoardItem }) {
 
     return (
         <div className="relative h-6 flex-1">
-            <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300" />
+            <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
             {costProgress != null && (
                 <div
                     className={`absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full shadow-sm ${costToneClass}`}
@@ -919,7 +919,7 @@ function SimpleRangeTrack({ item }: { item: TrackingBoardItem }) {
             )}
             {liveProgress != null && (
                 <div
-                    className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-700 shadow-sm"
+                    className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-700 shadow-sm dark:bg-slate-200"
                     style={{ left: `calc(${liveProgress}% - 3px)` }}
                 />
             )}
