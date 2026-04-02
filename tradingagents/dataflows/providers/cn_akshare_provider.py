@@ -656,6 +656,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 "change_pct": change_pct,
                 "volume": self._safe_float(row.get("成交量")),
                 "amount": self._safe_float(row.get("成交额")),
+                "source": "eastmoney",
             }
         return json.dumps(result, ensure_ascii=False)
 
@@ -667,7 +668,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
         sina_codes = []
         sina_to_original: dict[str, str] = {}
         for code, original in code_to_original.items():
-            prefix = "sh" if code.startswith(("5", "6", "9")) else "sz"
+            prefix = "sh" if code.startswith(("5", "6", "9")) else "bj" if code.startswith(("4", "8")) else "sz"
             sina_code = f"{prefix}{code}"
             sina_codes.append(sina_code)
             sina_to_original[sina_code] = original
@@ -703,6 +704,10 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 prev_close = self._safe_float(fields[2])
                 change = round(price - prev_close, 4) if price is not None and prev_close else None
                 change_pct = round(change / prev_close * 100, 4) if change is not None and prev_close else None
+                # Sina fields[30]=date, fields[31]=time
+                quote_time = None
+                if len(fields) > 31 and fields[30] and fields[31]:
+                    quote_time = f"{fields[30]} {fields[31]}"
                 result[original] = {
                     "price": price,
                     "open": self._safe_float(fields[1]),
@@ -713,6 +718,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     "change_pct": change_pct,
                     "volume": self._safe_float(fields[8]),
                     "amount": self._safe_float(fields[9]),
+                    "quote_time": quote_time,
+                    "source": "sina",
                 }
             except (ValueError, IndexError):
                 continue
