@@ -646,9 +646,8 @@ export default function Portfolio() {
                     </div>
                     <p className="text-xs text-slate-400 mb-4">每个交易日在设定时间自动执行（允许 20:00~次日 08:00）</p>
 
-                    {/* Compact batch toolbar — only visible when items are selected */}
-                    {hasSelectedScheduled && (
-                        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-blue-200/80 bg-blue-50/60 px-3 py-2 dark:border-blue-500/20 dark:bg-blue-500/5">
+                    {scheduled.length > 0 && (
+                        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/30">
                             <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200">
                                 <input
                                     type="checkbox"
@@ -657,84 +656,80 @@ export default function Portfolio() {
                                     disabled={isScheduledBatchBusy}
                                     className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
-                                全选
+                                {hasSelectedScheduled ? `已选 ${selectedScheduledCount} 项` : '全选'}
                             </label>
-                            <span className="text-xs text-slate-500 dark:text-slate-400">已选 {selectedScheduledCount} 项</span>
-                            <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
 
-                            <HorizonSwitch
-                                value={batchHorizon}
-                                compact
-                                disabled={isScheduledBatchBusy}
-                                onChange={horizon => {
-                                    setBatchHorizon(horizon)
-                                    void applyBatchScheduledUpdate(`horizon-${horizon}`, { horizon }, '批量切换周期失败')
-                                }}
-                            />
+                            {hasSelectedScheduled && (
+                                <>
+                                    <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+                                    <HorizonSwitch
+                                        value={batchHorizon}
+                                        compact
+                                        disabled={isScheduledBatchBusy}
+                                        onChange={horizon => {
+                                            setBatchHorizon(horizon)
+                                            void applyBatchScheduledUpdate(`horizon-${horizon}`, { horizon }, '批量切换周期失败')
+                                        }}
+                                    />
+                                    <div className="inline-flex items-center gap-1">
+                                        <input
+                                            type="time"
+                                            value={batchTriggerTime}
+                                            onChange={e => setBatchTriggerTime(e.target.value)}
+                                            disabled={isScheduledBatchBusy}
+                                            className="h-8 w-[96px] rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => void applyBatchScheduledUpdate('time', { trigger_time: batchTriggerTime }, '批量修改时间失败')}
+                                            disabled={isScheduledBatchBusy}
+                                            className="h-8 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                        >
+                                            {scheduledBatchBusyAction === 'time' ? <Loader2 className="h-3 w-3 animate-spin" /> : '应用'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
 
-                            <div className="inline-flex items-center gap-1">
-                                <input
-                                    type="time"
-                                    value={batchTriggerTime}
-                                    onChange={e => setBatchTriggerTime(e.target.value)}
-                                    disabled={isScheduledBatchBusy}
-                                    className="h-8 w-[96px] rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => void applyBatchScheduledUpdate('time', { trigger_time: batchTriggerTime }, '批量修改时间失败')}
-                                    disabled={isScheduledBatchBusy}
-                                    className="h-8 rounded-lg bg-slate-800 px-2.5 text-[11px] font-medium text-white hover:bg-slate-700 disabled:opacity-40 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-white"
-                                >
-                                    {scheduledBatchBusyAction === 'time' ? <Loader2 className="h-3 w-3 animate-spin" /> : '应用'}
-                                </button>
+                            <div className="ml-auto inline-flex items-center gap-1.5">
+                                {hasSelectedScheduled && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => void triggerScheduledTest()}
+                                            disabled={isScheduledBatchBusy}
+                                            title={SCHEDULED_TEST_TOOLTIP}
+                                            className="h-7 rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                        >
+                                            {scheduledBatchBusyAction === 'trigger-test' ? <Loader2 className="h-3 w-3 animate-spin" /> : '测试'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void applyBatchScheduledUpdate('enable', { is_active: true }, '批量启用失败')}
+                                            disabled={isScheduledBatchBusy}
+                                            className="h-7 rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                        >
+                                            {scheduledBatchBusyAction === 'enable' ? <Loader2 className="h-3 w-3 animate-spin" /> : '启用'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void applyBatchScheduledUpdate('disable', { is_active: false }, '批量停用失败')}
+                                            disabled={isScheduledBatchBusy}
+                                            className="h-7 rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                        >
+                                            {scheduledBatchBusyAction === 'disable' ? <Loader2 className="h-3 w-3 animate-spin" /> : '停用'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void applyBatchScheduledDelete()}
+                                            disabled={isScheduledBatchBusy}
+                                            className="h-7 rounded-md border border-slate-300 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                        >
+                                            {scheduledBatchBusyAction === 'delete' ? <Loader2 className="h-3 w-3 animate-spin" /> : '删除'}
+                                        </button>
+                                    </>
+                                )}
                             </div>
-
-                            <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
-
-                            <div className="inline-flex items-center gap-1.5">
-                                <button
-                                    type="button"
-                                    onClick={() => void triggerScheduledTest()}
-                                    disabled={isScheduledBatchBusy}
-                                    title={SCHEDULED_TEST_TOOLTIP}
-                                    className="h-8 rounded-lg bg-sky-600 px-2.5 text-[11px] font-medium text-white hover:bg-sky-700 disabled:opacity-40"
-                                >
-                                    {scheduledBatchBusyAction === 'trigger-test' ? <Loader2 className="h-3 w-3 animate-spin" /> : '测试'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void applyBatchScheduledUpdate('enable', { is_active: true }, '批量启用失败')}
-                                    disabled={isScheduledBatchBusy}
-                                    className="h-8 rounded-lg bg-emerald-500 px-2.5 text-[11px] font-medium text-white hover:bg-emerald-600 disabled:opacity-40"
-                                >
-                                    {scheduledBatchBusyAction === 'enable' ? <Loader2 className="h-3 w-3 animate-spin" /> : '启用'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void applyBatchScheduledUpdate('disable', { is_active: false }, '批量停用失败')}
-                                    disabled={isScheduledBatchBusy}
-                                    className="h-8 rounded-lg bg-amber-500 px-2.5 text-[11px] font-medium text-white hover:bg-amber-600 disabled:opacity-40"
-                                >
-                                    {scheduledBatchBusyAction === 'disable' ? <Loader2 className="h-3 w-3 animate-spin" /> : '停用'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => void applyBatchScheduledDelete()}
-                                    disabled={isScheduledBatchBusy}
-                                    className="h-8 rounded-lg bg-rose-500 px-2.5 text-[11px] font-medium text-white hover:bg-rose-600 disabled:opacity-40"
-                                >
-                                    {scheduledBatchBusyAction === 'delete' ? <Loader2 className="h-3 w-3 animate-spin" /> : '删除'}
-                                </button>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={() => setSelectedScheduledIds([])}
-                                className="ml-auto text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                            >
-                                取消
-                            </button>
                         </div>
                     )}
 
