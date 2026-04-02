@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
@@ -591,6 +591,18 @@ export default function Settings() {
                         />
                     </div>
                 </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                        自定义分析提示
+                    </label>
+                    <textarea
+                        value={customPrompt}
+                        onChange={e => setCustomPrompt(e.target.value)}
+                        className="input w-full min-h-[80px] resize-y"
+                        placeholder="例如：更关注估值安全边际、政策催化与机构资金行为。"
+                    />
+                </div>
             </div>
 
             <div className="card space-y-4">
@@ -777,24 +789,6 @@ export default function Settings() {
                             {wecomWarmupError}
                         </div>
                     )}
-                </div>
-            </div>
-
-            <div className="card space-y-4">
-                <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-cyan-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">自定义分析提示</h2>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                        附加提示词
-                    </label>
-                    <textarea
-                        value={customPrompt}
-                        onChange={e => setCustomPrompt(e.target.value)}
-                        className="input w-full min-h-[120px] resize-y"
-                        placeholder="例如：更关注估值安全边际、政策催化与机构资金行为。"
-                    />
                 </div>
             </div>
 
