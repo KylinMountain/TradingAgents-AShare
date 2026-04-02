@@ -701,59 +701,56 @@ export default function Settings() {
                     <div className="flex items-center justify-between">
                         <div>
                             <div className="text-sm font-medium text-slate-700 dark:text-slate-200">企业微信 Webhook</div>
-                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">定时分析完成时向机器人推送摘要</div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                                定时分析完成时向机器人推送摘要
+                                {storedWebhookDisplay && <span className="ml-2 font-mono">({storedWebhookDisplay})</span>}
+                            </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={handleWecomWarmup}
-                                disabled={configLoading || saving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
-                                className="btn-secondary inline-flex items-center gap-1.5 text-xs"
-                            >
-                                {wecomWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
-                                {wecomWarmingUp ? '发送中...' : '测试连接'}
-                            </button>
-                            {hasStoredWebhook && (
-                                <button
-                                    type="button"
-                                    onClick={handleClearWebhook}
-                                    disabled={saving || saveAllSaving}
-                                    className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 disabled:opacity-50"
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                    清除
-                                </button>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
-                                disabled={configLoading}
-                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                                    wecomReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
-                                }`}
-                            >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="relative">
-                        <Webhook className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                            type="text"
-                            value={wecomWebhook}
-                            onChange={e => setWecomWebhook(e.target.value)}
-                            className="input w-full pl-10"
-                            placeholder={hasStoredWebhook ? '已保存，留空则保持不变' : 'Webhook 地址'}
+                        <button
+                            type="button"
+                            onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
                             disabled={configLoading}
-                        />
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                wecomReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
                     </div>
 
-                    {storedWebhookDisplay && (
-                        <div className="text-xs text-slate-500 dark:text-slate-400 break-all">
-                            已保存：<span className="font-mono">{storedWebhookDisplay}</span>
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <Webhook className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                value={wecomWebhook}
+                                onChange={e => setWecomWebhook(e.target.value)}
+                                className="input w-full pl-10"
+                                placeholder={hasStoredWebhook ? '已保存，留空则保持不变' : 'Webhook 地址'}
+                                disabled={configLoading}
+                            />
                         </div>
-                    )}
+                        <button
+                            type="button"
+                            onClick={handleWecomWarmup}
+                            disabled={configLoading || saving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
+                            className="btn-secondary inline-flex items-center gap-1.5 text-xs shrink-0"
+                        >
+                            {wecomWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+                            {wecomWarmingUp ? '发送中...' : '测试连接'}
+                        </button>
+                        {hasStoredWebhook && (
+                            <button
+                                type="button"
+                                onClick={handleClearWebhook}
+                                disabled={saving || saveAllSaving}
+                                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 disabled:opacity-50 shrink-0"
+                            >
+                                <Trash2 className="w-3 h-3" />
+                                清除
+                            </button>
+                        )}
+                    </div>
 
                     {wecomWarmupMessage && (
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
