@@ -340,25 +340,21 @@ export default function Reports() {
         }
     }, [])
 
-    const loadingReportIdRef = useRef<string | null>(null)
-
     const handleSelectReport = async (report: Pick<Report, 'id' | 'symbol'>) => {
-        if (loadingReportIdRef.current === report.id || selectedReport?.id === report.id) return
         try {
-            loadingReportIdRef.current = report.id
             await loadReportDetail(report.id)
-        } catch {} finally {
-            loadingReportIdRef.current = null
-        }
+        } catch {}
     }
 
+    // Only on mount: restore report from URL
+    const initialReportId = useRef(searchParams.get('report'))
     useEffect(() => {
-        const reportId = searchParams.get('report')
-        if (!reportId || selectedReport?.id === reportId || loadingReportIdRef.current === reportId) return
-        loadingReportIdRef.current = reportId
-        loadReportDetail(reportId, { preserveHistory: true })
-            .finally(() => { loadingReportIdRef.current = null })
-    }, [loadReportDetail, searchParams, selectedReport?.id])
+        const reportId = initialReportId.current
+        if (reportId) {
+            void loadReportDetail(reportId, { preserveHistory: true })
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const filteredReports = reports.filter(r => {
         const q = searchQuery.toLowerCase()
