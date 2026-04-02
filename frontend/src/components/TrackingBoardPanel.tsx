@@ -1,19 +1,25 @@
 import {
     ArrowDownRight,
     ArrowUpRight,
+    ChevronDown,
+    ChevronUp,
+    ImagePlus,
     Loader2,
     RefreshCw,
+    Save,
     ShieldAlert,
     Target,
+    Trash2,
     TrendingUp,
+    Upload,
     Wallet,
 } from 'lucide-react'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { TrackingBoardItem, TrackingBoardResponse } from '@/types'
+import type { PortfolioPositionInput, TrackingBoardItem, TrackingBoardResponse } from '@/types'
 
 const CLAMP_TWO_LINES_STYLE: CSSProperties = {
     display: '-webkit-box',
@@ -39,6 +45,13 @@ export default function TrackingBoardPanel() {
             return 'simple'
         }
     })
+    const [showImportSection, setShowImportSection] = useState(false)
+    const [positionText, setPositionText] = useState('')
+    const [importSaving, setImportSaving] = useState(false)
+    const [importClearing, setImportClearing] = useState(false)
+    const [importFeedback, setImportFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+    const [vlmParsing, setVlmParsing] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const navigate = useNavigate()
 
     const trackingItems = trackingBoard?.items || []
@@ -102,23 +115,118 @@ export default function TrackingBoardPanel() {
         }
     }, [trackingRefreshSeconds, user?.id])
 
-    return (
-        <div className="card overflow-hidden">
-            <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 dark:border-slate-700 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                    <div className="flex items-center gap-2">
-                        <Wallet className="h-5 w-5 text-emerald-500" />
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">QMT 跟踪看板</h2>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                        最新价优先使用 QMT / xtquant，简洁版聚焦展示当日 K 线与成本价标记。
-                    </p>
-                </div>
+    const refreshBoard = useCallback(async () => {
+        try {
+            const response = await api.getDashboardTrackingBoard()
+            setTrackingBoard(response)
+            setTrackingError(null)
+        } catch { /* silent */ }
+    }, [])
 
+    const parsePositionLines = useCallback((text: string): PortfolioPositionInput[] => {
+        const positions: PortfolioPositionInput[] = []
+        for (const raw of text.split('\n')) {
+            const line = raw.trim()
+            if (!line) continue
+            const parts = line.split(/[\s\t]+/)
+            if (parts.length < 1) continue
+            const symbol = parts[0].replace(/\.(SZ|SH|BJ)$/i, '')
+            if (!/^\d{6}$/.test(symbol)) continue
+            const name = parts.length > 1 && !/^\d/.test(parts[1]) ? parts[1] : undefined
+            const numericParts = parts.slice(1).filter(p => /^[\d.]+$/.test(p))
+            positions.push({
+                symbol,
+                name,
+                current_position: numericParts[0] ? Number(numericParts[0]) : undefined,
+                average_cost: numericParts[1] ? Number(numericParts[1]) : undefined,
+                market_value: numericParts[2] ? Number(numericParts[2]) : undefined,
+            })
+        }
+        return positions
+    }, [])
+
+    const handleSavePositions = useCallback(async () => {
+        const positions = parsePositionLines(positionText)
+        if (positions.length === 0) {
+            setImportFeedback({ tone: 'error', message: '未解析到有效持仓，请检查格式' })
+            return
+        }
+        setImportSaving(true)
+        setImportFeedback(null)
+        try {
+            await api.syncPortfolioImport({ positions, auto_apply_scheduled: true })
+            setImportFeedback({ tone: 'success', message: `已保存 ${positions.length} 只持仓` })
+            setPositionText('')
+            setShowImportSection(false)
+            await refreshBoard()
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '保存失败' })
+        } finally {
+            setImportSaving(false)
+        }
+    }, [positionText, parsePositionLines, refreshBoard])
+
+    const handleClearPositions = useCallback(async () => {
+        if (!confirm('确定清空所有已导入的持仓吗？')) return
+        setImportClearing(true)
+        setImportFeedback(null)
+        try {
+            await api.clearPortfolioImport()
+            setImportFeedback({ tone: 'success', message: '已清空持仓' })
+            setPositionText('')
+            await refreshBoard()
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '清空失败' })
+        } finally {
+            setImportClearing(false)
+        }
+    }, [refreshBoard])
+
+    const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        // Reset so same file can be re-selected
+        e.target.value = ''
+
+        setVlmParsing(true)
+        setImportFeedback(null)
+        try {
+            const result = await api.parsePositionImage(file)
+            if (result.positions.length === 0) {
+                setImportFeedback({ tone: 'error', message: '未从截图中识别到持仓信息' })
+                return
+            }
+            // Populate textarea for user review
+            const lines = result.positions.map(p => {
+                const parts = [p.symbol, p.name || '']
+                if (p.current_position != null) parts.push(String(p.current_position))
+                if (p.average_cost != null) parts.push(String(p.average_cost))
+                if (p.market_value != null) parts.push(String(p.market_value))
+                return parts.join(' ')
+            })
+            setPositionText(lines.join('\n'))
+            setImportFeedback({ tone: 'success', message: `已从截图识别 ${result.positions.length} 只持仓，请确认后保存` })
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '图片解析失败' })
+        } finally {
+            setVlmParsing(false)
+        }
+    }, [])
+
+    // Auto-expand import section when no items
+    useEffect(() => {
+        if (!trackingLoading && trackingItems.length === 0) {
+            setShowImportSection(true)
+        }
+    }, [trackingLoading, trackingItems.length])
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">跟踪看板</h1>
+                </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
-                        账户：{trackingBoard?.account_id || '--'}
-                    </span>
                     <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
                         自动刷新：{trackingRefreshSeconds}s
                     </span>
@@ -129,6 +237,79 @@ export default function TrackingBoardPanel() {
                 </div>
             </div>
 
+            {/* Import / Manage section */}
+            <div className="border-b border-slate-200 dark:border-slate-700">
+                <button
+                    type="button"
+                    onClick={() => setShowImportSection(v => !v)}
+                    className="flex w-full items-center gap-2 px-1 py-3 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+                >
+                    <Upload className="h-4 w-4" />
+                    导入 / 管理持仓
+                    {showImportSection ? <ChevronUp className="ml-auto h-4 w-4" /> : <ChevronDown className="ml-auto h-4 w-4" />}
+                </button>
+
+                {showImportSection && (
+                    <div className="space-y-3 pb-4">
+                        <textarea
+                            value={positionText}
+                            onChange={e => setPositionText(e.target.value)}
+                            placeholder={'每行一只股票，格式：代码 名称 持仓数 成本价 市值\n例如：600519 贵州茅台 100 1800 180000'}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 min-h-[100px] resize-y"
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleSavePositions}
+                                disabled={importSaving || !positionText.trim()}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {importSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                                保存持仓
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={vlmParsing}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {vlmParsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                                {vlmParsing ? '识别中...' : '上传持仓截图'}
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageUpload}
+                            />
+
+                            <button
+                                type="button"
+                                onClick={handleClearPositions}
+                                disabled={importClearing}
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {importClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                清空持仓
+                            </button>
+                        </div>
+
+                        {importFeedback && (
+                            <div className={`rounded-xl border px-3 py-2.5 text-xs ${
+                                importFeedback.tone === 'success'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                    : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-300'
+                            }`}>
+                                {importFeedback.message}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
             {trackingLoading && !trackingBoard ? (
                 <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -137,9 +318,9 @@ export default function TrackingBoardPanel() {
             ) : trackingItems.length === 0 ? (
                 <div className="py-10 text-center">
                     <Wallet className="mx-auto mb-3 h-12 w-12 text-slate-300 dark:text-slate-600" />
-                    <p className="text-slate-600 dark:text-slate-300">当前还没有可展示的 QMT 持仓</p>
+                    <p className="text-slate-600 dark:text-slate-300">当前还没有可展示的持仓</p>
                     <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">
-                        到设置页完成 QMT 同步后，这里会自动出现实时跟踪卡片。
+                        在上方导入持仓后，这里会自动出现实时跟踪卡片。
                     </p>
                 </div>
             ) : viewMode === 'simple' ? (
@@ -152,7 +333,6 @@ export default function TrackingBoardPanel() {
             ) : (
                 <DetailedBoardView
                     items={trackingItems}
-                    trackingBoard={trackingBoard}
                     trackingRefreshing={trackingRefreshing}
                     trackingError={trackingError}
                     liveMarketValueTotal={liveMarketValueTotal}
@@ -207,10 +387,10 @@ function SimpleBoardView({
     lastQuoteTime: string | null
 }) {
     return (
-        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1180px]">
-                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500">
+                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>标的</div>
                         <div>当日 K 线</div>
                         <div>最新价</div>
@@ -229,7 +409,7 @@ function SimpleBoardView({
                 </div>
             </div>
 
-            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between dark:border-slate-700 dark:text-slate-400">
                 <div className="flex items-center gap-2">
                     <span className={`inline-flex h-2.5 w-2.5 rounded-full ${trackingError ? 'bg-amber-400' : 'bg-emerald-400'}`} />
                     <span>{trackingError ? `最近刷新异常：${trackingError}` : '实时监控中'}</span>
@@ -249,17 +429,17 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
         : 'bg-rose-500'
     const holdingChangePct = item.floating_pnl_pct ?? null
     const priceColor = priceChangePct == null
-        ? 'text-slate-800'
+        ? 'text-slate-800 dark:text-slate-200'
         : isUp
-            ? 'text-rose-600'
-            : 'text-emerald-600'
+            ? 'text-rose-600 dark:text-rose-400'
+            : 'text-emerald-600 dark:text-emerald-400'
     const rangeAlert = getModelRangeAlert(item)
 
     return (
-        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0">
+        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0 dark:border-slate-700">
             <div className="min-w-0">
-                <div className="truncate text-[18px] font-semibold text-slate-900">{item.name}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+                <div className="truncate text-[18px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
                     <span>{item.symbol}</span>
                     <span>成本 {formatPlainPrice(item.average_cost)}</span>
                     <span>持仓 {formatShares(item.current_position)}</span>
@@ -275,10 +455,10 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="self-center">
                 <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[18px] font-semibold ${
                     priceChangePct == null
-                        ? 'bg-slate-100 text-slate-400'
+                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
-                            ? 'bg-rose-50 text-rose-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
                 }`}>
                     {formatSignedPercent(priceChangePct)}
                 </span>
@@ -290,9 +470,9 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                     <SimpleRangeTrack item={item} />
                     <span className="w-14 text-sm text-slate-400">{formatPlainPrice(item.day_high)}</span>
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="inline-flex items-center gap-1">
-                        <span className="h-2.5 w-0.5 rounded-full bg-slate-700" />
+                        <span className="h-2.5 w-0.5 rounded-full bg-slate-700 dark:bg-slate-300" />
                         现价 {formatPlainPrice(item.live_price)}
                     </span>
                     <span className="inline-flex items-center gap-1">
@@ -300,7 +480,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                         成本 {formatPlainPrice(item.average_cost)}
                     </span>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         <span>模型低位 {formatPlainPrice(item.analysis?.low_price)}</span>
                         <span>模型高位 {formatPlainPrice(item.analysis?.high_price)}</span>
@@ -316,18 +496,18 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="self-center">
                 <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[16px] font-semibold ${
                     holdingChangePct == null
-                        ? 'bg-slate-100 text-slate-400'
+                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : holdingChangePct >= 0
-                            ? 'bg-rose-50 text-rose-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
                 }`}>
                     {formatSignedPercent(holdingChangePct)}
                 </span>
             </div>
 
-            <div className="self-center space-y-1 text-[15px] text-slate-700">
+            <div className="self-center space-y-1 text-[15px] text-slate-700 dark:text-slate-200">
                 <div>{formatVolume(item.volume)}</div>
-                <div className="text-[14px] text-slate-500">{formatAmount(item.amount)}</div>
+                <div className="text-[14px] text-slate-500 dark:text-slate-400">{formatAmount(item.amount)}</div>
             </div>
         </div>
     )
@@ -341,7 +521,7 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
 
     if (open == null || close == null || high == null || low == null) {
         return (
-            <div className="flex h-[56px] items-center text-sm text-slate-400">
+            <div className="flex h-[56px] items-center text-sm text-slate-400 dark:text-slate-500">
                 暂无数据
             </div>
         )
@@ -374,7 +554,7 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
     return (
         <div className="flex items-center gap-3">
             <svg width="44" height="48" viewBox="0 0 44 48" className="shrink-0 overflow-visible">
-                <rect x="0.5" y="0.5" width="43" height="47" rx="11.5" fill="#f8fafc" stroke="#e2e8f0" />
+                <rect x="0.5" y="0.5" width="43" height="47" rx="11.5" className="fill-slate-50 stroke-slate-200 dark:fill-slate-800 dark:stroke-slate-700" />
                 {previousCloseY != null && (
                     <line
                         x1="8"
@@ -398,9 +578,9 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
                     strokeWidth="1.5"
                 />
             </svg>
-            <div className="space-y-1 text-[11px] text-slate-500">
+            <div className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
                 <div>开 {formatPlainPrice(open)}</div>
-                <div className={isUp ? 'text-rose-600' : 'text-emerald-600'}>现 {formatPlainPrice(close)}</div>
+                <div className={isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>现 {formatPlainPrice(close)}</div>
             </div>
         </div>
     )
@@ -408,7 +588,6 @@ function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
 
 function DetailedBoardView({
     items,
-    trackingBoard,
     trackingRefreshing,
     trackingError,
     liveMarketValueTotal,
@@ -417,7 +596,6 @@ function DetailedBoardView({
     onOpenReport,
 }: {
     items: TrackingBoardItem[]
-    trackingBoard: TrackingBoardResponse | null
     trackingRefreshing: boolean
     trackingError: string | null
     liveMarketValueTotal: number
@@ -431,13 +609,13 @@ function DetailedBoardView({
                 <BoardStatChip
                     label="持仓标的"
                     value={`${items.length} 只`}
-                    subValue={trackingBoard?.last_synced_at ? `QMT 同步于 ${formatDateTime(trackingBoard.last_synced_at)}` : '等待首次同步'}
+                    subValue={items.length > 0 ? `共 ${items.length} 只标的` : '等待首次导入'}
                     tone="blue"
                 />
                 <BoardStatChip
                     label="动态市值"
                     value={formatMoney(liveMarketValueTotal)}
-                    subValue="优先使用 QMT 实盘价估算"
+                    subValue="基于实时行情估算"
                     tone="emerald"
                 />
                 <BoardStatChip
@@ -732,7 +910,7 @@ function SimpleRangeTrack({ item }: { item: TrackingBoardItem }) {
 
     return (
         <div className="relative h-6 flex-1">
-            <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300" />
+            <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
             {costProgress != null && (
                 <div
                     className={`absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full shadow-sm ${costToneClass}`}
@@ -741,7 +919,7 @@ function SimpleRangeTrack({ item }: { item: TrackingBoardItem }) {
             )}
             {liveProgress != null && (
                 <div
-                    className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-700 shadow-sm"
+                    className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-700 shadow-sm dark:bg-slate-200"
                     style={{ left: `calc(${liveProgress}% - 3px)` }}
                 />
             )}
@@ -964,7 +1142,7 @@ function formatFooterTime(value?: string | null): string {
 
 function formatQuoteSource(value?: string | null): string {
     if (!value) return '--'
-    return value.replace('qmt_', '').replace('xtdata', 'xtquant')
+    return value.replace('_hq', '').replace('_', ' ')
 }
 
 function formatNumber(value: number, digits = 2): string {

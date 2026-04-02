@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, MessageSquare, User, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, RefreshCw, Info, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { QmtImportState, RuntimeWarmupResult, UserToken } from '@/types'
-import { buildQmtSyncSummary } from '@/utils/qmtSync'
+import type { RuntimeWarmupResult, UserToken } from '@/types'
 
 type ProviderPreset = {
     id: string
@@ -58,17 +57,8 @@ export default function Settings() {
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
-    const [qmtImportState, setQmtImportState] = useState<QmtImportState | null>(null)
-    const [qmtLoading, setQmtLoading] = useState(false)
-    const [qmtSyncing, setQmtSyncing] = useState(false)
-    const [qmtPath, setQmtPath] = useState('')
-    const [qmtAccountId, setQmtAccountId] = useState('')
-    const [qmtAccountType, setQmtAccountType] = useState('STOCK')
-    const [qmtAutoApply, setQmtAutoApply] = useState(true)
-
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
-    const [modelSaving, setModelSaving] = useState(false)
     const [saveAllSaving, setSaveAllSaving] = useState(false)
     const [warmingUp, setWarmingUp] = useState(false)
     const [saved, setSaved] = useState(false)
@@ -95,8 +85,6 @@ export default function Settings() {
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
-    const qmtSummary = buildQmtSyncSummary(qmtImportState)
-
     useEffect(() => {
         setWarmupResults([])
         setWarmupError(null)
@@ -149,7 +137,6 @@ export default function Settings() {
 
         // Fetch tokens
         fetchTokens()
-        void fetchQmtImportState()
     }, [])
 
     const fetchTokens = async () => {
@@ -161,22 +148,6 @@ export default function Settings() {
             console.error('Failed to fetch tokens:', err)
         } finally {
             setTokensLoading(false)
-        }
-    }
-
-    const fetchQmtImportState = async () => {
-        setQmtLoading(true)
-        try {
-            const state = await api.getQmtImportState()
-            setQmtImportState(state)
-            setQmtPath(state.qmt_path || '')
-            setQmtAccountId(state.account_id || '')
-            setQmtAccountType(state.account_type || 'STOCK')
-            setQmtAutoApply(state.auto_apply_scheduled)
-        } catch (err) {
-            console.error('Failed to fetch QMT import state:', err)
-        } finally {
-            setQmtLoading(false)
         }
     }
 
@@ -241,29 +212,6 @@ export default function Settings() {
         setTimeout(() => setSaved(false), 2000)
     }
 
-    const hasAnyQmtInput = () => Boolean(qmtPath.trim() || qmtAccountId.trim())
-    const shouldSyncQmt = () => Boolean(qmtPath.trim() && qmtAccountId.trim())
-
-    const syncQmtImport = async (options?: { successMessage?: string }) => {
-        if (!qmtPath.trim() || !qmtAccountId.trim()) {
-            throw new Error('请填写 QMT userdata 路径和资金账号')
-        }
-        setQmtSyncing(true)
-        try {
-            const result = await api.syncQmtImport({
-                qmt_path: qmtPath.trim(),
-                account_id: qmtAccountId.trim(),
-                account_type: qmtAccountType,
-                auto_apply_scheduled: qmtAutoApply,
-            })
-            setQmtImportState(result)
-            showSavedMessage(options?.successMessage || 'QMT 配置已保存')
-            return result
-        } finally {
-            setQmtSyncing(false)
-        }
-    }
-
     const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string; includeEmail?: boolean; includeWecom?: boolean }) => {
         persistLocalSettings()
         const { forceWarmup = false, successMessage = '设置已保存', includeEmail = true, includeWecom = false } = options || {}
@@ -282,29 +230,11 @@ export default function Settings() {
         return response
     }
 
-    const handleSaveModel = async () => {
-        setModelSaving(true)
-        try {
-            await submitConfig({ includeEmail: false, includeWecom: false, successMessage: '模型配置已保存' })
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '保存模型配置失败')
-        } finally {
-            setModelSaving(false)
-        }
-    }
-
     const handleSaveAll = async () => {
         setSaveAllSaving(true)
         try {
-            if (hasAnyQmtInput() && !shouldSyncQmt()) {
-                throw new Error('如需一并保存 QMT，请同时填写 QMT userdata 路径和资金账号')
-            }
             await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
-            if (shouldSyncQmt()) {
-                await syncQmtImport({ successMessage: '全部设置已保存' })
-            } else {
-                showSavedMessage('全部设置已保存')
-            }
+            showSavedMessage('全部设置已保存')
         } catch (err) {
             alert(err instanceof Error ? err.message : '保存全部设置失败')
         } finally {
@@ -382,24 +312,6 @@ export default function Settings() {
         }
     }
 
-    const handleSaveQmt = async () => {
-        try {
-            await syncQmtImport({ successMessage: 'QMT 配置已保存' })
-        } catch (err) {
-            alert(err instanceof Error ? err.message : 'QMT 同步失败')
-        }
-    }
-
-    const clearQmtImport = async () => {
-        if (!confirm('确定清空已同步的 QMT 持仓上下文吗？')) return
-        try {
-            await api.clearQmtImport()
-            await fetchQmtImportState()
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '清空 QMT 持仓失败')
-        }
-    }
-
     const toggleAnalyst = (analyst: string) => {
         setDefaultAnalysts(prev =>
             prev.includes(analyst) ? prev.filter(a => a !== analyst) : [...prev, analyst]
@@ -410,158 +322,14 @@ export default function Settings() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">系统设置</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数、模型与 QMT 持仓同步</p>
-            </div>
-
-            <div className="card space-y-3">
-                <div className="flex items-center gap-2">
-                    <User className="w-5 h-5 text-cyan-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">账户空间</h2>
-                </div>
-                <div className="text-sm text-slate-600 dark:text-slate-300">
-                    <div>当前登录：{user?.email || '-'}</div>
-                    <div className="mt-1 text-slate-500 dark:text-slate-400">报告历史、分析任务和模型配置仅当前账户可见。</div>
-                </div>
-            </div>
-
-            <div className="card space-y-4">
-                <div className="flex items-center gap-2">
-                    <Database className="w-5 h-5 text-emerald-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">QMT / xtquant 持仓同步</h2>
-                    <div className="group relative">
-                        <button
-                            type="button"
-                            aria-label="QMT Mini 获取说明"
-                            className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition-colors hover:border-sky-300 hover:text-sky-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:border-sky-500/40 dark:hover:text-sky-300"
-                        >
-                            <Info className="h-3 w-3" />
-                        </button>
-                        <div className="pointer-events-none absolute left-0 top-7 z-20 w-[360px] rounded-2xl border border-slate-200 bg-white p-4 text-left text-xs leading-6 text-slate-600 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                            <div className="font-medium text-slate-900 dark:text-slate-100">如何获取 QMT Mini</div>
-                            <div className="mt-2">
-                                一般来说，如果你开通了量化交易，你应该会知道 QMT 是什么。
-                            </div>
-                            <div className="mt-2">
-                                如果你正在使用大 QMT，请在登录页勾选“独立交易”，进入的就是 QMT Mini。
-                            </div>
-                            <div className="mt-2">
-                                如果你不知道这是什么，可以咨询你的券商客户经理开通量化交易。
-                            </div>
-                            <div className="mt-2 text-amber-600 dark:text-amber-300">
-                                部分券商使用 PTrade，本项目暂时还不支持。
-                            </div>
-                        </div>
-                    </div>
-                    <div className="ml-auto flex items-center gap-3">
-                        {(qmtLoading || qmtSyncing) && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-                        <button
-                            type="button"
-                            onClick={handleSaveQmt}
-                            disabled={qmtSyncing || qmtLoading || saveAllSaving}
-                            className="btn-secondary inline-flex items-center gap-2"
-                        >
-                            {qmtSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            保存
-                        </button>
-                    </div>
-                </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    在这里连接 QMT 的 `xtquant` 账户。同步成功后，主页面跟踪看板和定时分析会自动使用这里的最新持仓信息。
-                </p>
-
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4">
-                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{qmtSummary.title}</div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{qmtSummary.detail}</div>
-                    {qmtImportState?.last_error && (
-                        <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                            最近一次同步错误：{qmtImportState.last_error}
-                        </div>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">QMT userdata 路径</label>
-                        <input value={qmtPath} onChange={e => setQmtPath(e.target.value)} className="input w-full" placeholder="例如 D:\\QMT\\userdata_mini" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">资金账号</label>
-                        <input value={qmtAccountId} onChange={e => setQmtAccountId(e.target.value)} className="input w-full" placeholder="请输入 QMT 资金账号" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">账户类型</label>
-                        <select value={qmtAccountType} onChange={e => setQmtAccountType(e.target.value)} className="input w-full">
-                            <option value="STOCK">STOCK</option>
-                            <option value="CREDIT">CREDIT</option>
-                        </select>
-                    </div>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                    <input type="checkbox" checked={qmtAutoApply} onChange={e => setQmtAutoApply(e.target.checked)} />
-                    自动加入定时任务，并优先使用 QMT 持仓上下文
-                </label>
-
-                <div className="flex flex-wrap gap-3">
-                    <button type="button" onClick={() => { void syncQmtImport() }} disabled={qmtSyncing || saveAllSaving} className="btn-primary inline-flex items-center gap-2">
-                        {qmtSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                        连接并同步
-                    </button>
-                    <button type="button" onClick={clearQmtImport} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                        <Trash2 className="w-4 h-4" />
-                        清空同步
-                    </button>
-                </div>
-
-                {qmtImportState && (
-                    <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-2 text-sm">
-                        <div className="flex flex-wrap gap-3 text-slate-600 dark:text-slate-300">
-                            <span>持仓 {qmtImportState.summary.positions} 只</span>
-                            <span>{qmtImportState.last_synced_at ? `最近同步 ${qmtImportState.last_synced_at.slice(0, 19).replace('T', ' ')}` : '尚未同步'}</span>
-                        </div>
-                        {!!qmtImportState.scheduled_sync && (
-                            <div className="flex flex-wrap gap-3 text-xs text-indigo-600 dark:text-indigo-300">
-                                <span>新增定时任务 {qmtImportState.scheduled_sync.created.length} 只</span>
-                                <span>已存在 {qmtImportState.scheduled_sync.existing.length} 只</span>
-                                {qmtImportState.scheduled_sync.skipped_limit.length > 0 && (
-                                    <span>超出上限未加入 {qmtImportState.scheduled_sync.skipped_limit.length} 只</span>
-                                )}
-                            </div>
-                        )}
-                        <div className="max-h-64 overflow-y-auto pr-1 space-y-2">
-                            {qmtImportState.positions.map(item => (
-                                <div
-                                    key={item.symbol}
-                                    className="flex flex-wrap gap-3 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-950/30 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
-                                >
-                                    <span className="font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
-                                    <span>{item.symbol}</span>
-                                    <span>持仓 {item.current_position ?? '-'}</span>
-                                    <span>成本 {item.average_cost ?? '-'}</span>
-                                    <span>可用 {item.available_position ?? '-'}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                <p className="text-slate-500 dark:text-slate-400 mt-1">配置当前账户的分析参数与模型</p>
             </div>
 
             <div className="card space-y-4">
                 <div className="flex items-center gap-2">
                     <Database className="w-5 h-5 text-purple-500" />
                     <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">模型接入</h2>
-                    <div className="ml-auto flex items-center gap-3">
-                        {configLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-                        <button
-                            type="button"
-                            onClick={handleSaveModel}
-                            disabled={configLoading || modelSaving || saveAllSaving}
-                            className="btn-secondary inline-flex items-center gap-2"
-                        >
-                            {modelSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            保存
-                        </button>
-                    </div>
+                    {configLoading && <Loader2 className="ml-auto w-4 h-4 animate-spin text-slate-400" />}
                 </div>
 
                 {configError && (
@@ -671,7 +439,7 @@ export default function Settings() {
                                 <button
                                     type="button"
                                     onClick={handleClearApiKey}
-                                    disabled={saving || modelSaving || saveAllSaving}
+                                    disabled={saving || saveAllSaving}
                                     className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
                                 >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -680,51 +448,21 @@ export default function Settings() {
                             )}
                         </div>
                         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                            保存模型配置后，系统会在后台自动 warmup 当前模型；也可以直接在这里点击 warmup，默认发送“你好”并查看模型原始回复。
+                            保存模型配置后，系统会在后台自动测试连通性；也可以直接点击下方按钮，发送\u201c你好\u201d来验证模型是否正常响应。
                         </p>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            辩论轮数上限
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={5}
-                            value={maxDebateRounds}
-                            onChange={e => setMaxDebateRounds(Number(e.target.value))}
-                            className="input w-full"
-                            disabled={configLoading}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            风险讨论轮数上限
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={5}
-                            value={maxRiskRounds}
-                            onChange={e => setMaxRiskRounds(Number(e.target.value))}
-                            className="input w-full"
-                            disabled={configLoading}
-                        />
                     </div>
 
                     <div className="md:col-span-2 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Warmup 测试</div>
+                                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">连通性测试</div>
                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                     使用当前表单配置向模型发送“你好”，不会自动保存设置。
                                 </p>
                             </div>
-                            <button onClick={handleWarmup} disabled={saving || modelSaving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
+                            <button onClick={handleWarmup} disabled={saving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
                                 {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
-                                {warmingUp ? '测试中...' : '立即 Warmup'}
+                                {warmingUp ? '测试中...' : '测试连接'}
                             </button>
                         </div>
 
@@ -799,6 +537,49 @@ export default function Settings() {
                             )
                         })}
                     </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            辩论轮数上限
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={maxDebateRounds}
+                            onChange={e => setMaxDebateRounds(Number(e.target.value))}
+                            className="input w-full"
+                            disabled={configLoading}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            风险讨论轮数上限
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={maxRiskRounds}
+                            onChange={e => setMaxRiskRounds(Number(e.target.value))}
+                            className="input w-full"
+                            disabled={configLoading}
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                        自定义分析提示
+                    </label>
+                    <textarea
+                        value={customPrompt}
+                        onChange={e => setCustomPrompt(e.target.value)}
+                        className="input w-full min-h-[80px] resize-y"
+                        placeholder="例如：更关注估值安全边际、政策催化与机构资金行为。"
+                    />
                 </div>
             </div>
 
@@ -890,147 +671,103 @@ export default function Settings() {
                 )}
             </div>
 
-            <div className="card space-y-3">
-                <div className="flex items-center gap-2">
-                    <Mail className="w-5 h-5 text-blue-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">邮件报告推送</h2>
-                </div>
-                <div className="flex items-center justify-between">
-                    <div>
-                        <div className="text-sm text-slate-600 dark:text-slate-300">定时分析完成时自动发送报告到邮箱</div>
-                        <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">发送至 {user?.email || '-'}</div>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setEmailReportEnabled(!emailReportEnabled)}
-                        disabled={configLoading}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            emailReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
-                        }`}
-                    >
-                        <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                emailReportEnabled ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                        />
-                    </button>
-                </div>
-                <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                        企业微信机器人 Webhook 地址
-                    </label>
-                    <div className="relative">
-                        <Webhook className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                            type="text"
-                            value={wecomWebhook}
-                            onChange={e => setWecomWebhook(e.target.value)}
-                            className="input w-full pl-10"
-                            placeholder={
-                                hasStoredWebhook
-                                    ? '已保存，留空则保持不变'
-                                    : '可选：粘贴完整 webhook 地址，例如 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
-                            }
-                            disabled={configLoading}
-                        />
-                    </div>
-                    <div className="mt-3 space-y-3">
-                        {storedWebhookDisplay && (
-                            <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-300">
-                                当前已保存：<span className="font-mono break-all">{storedWebhookDisplay}</span>
-                            </div>
-                        )}
-
-                        <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-700/80 dark:bg-slate-900/40">
-                            <div>
-                                <div className="text-sm text-slate-600 dark:text-slate-300">是否发送到 Webhook</div>
-                                <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                                    定时分析完成后，按这个开关决定是否向企业微信机器人推送摘要。
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
-                                disabled={configLoading}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                    wecomReportEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
-                                }`}
-                            >
-                                <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'
-                                    }`}
-                                />
-                            </button>
-                        </div>
-
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-xs text-slate-500 dark:text-slate-400">
-                                支持直接填写完整地址，例如 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`。测试发送优先使用当前输入，留空时会使用已保存的地址。
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleWecomWarmup}
-                                    disabled={configLoading || saving || modelSaving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
-                                    className="btn-secondary inline-flex items-center gap-2"
-                                >
-                                    {wecomWarmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
-                                    {wecomWarmingUp ? '发送中...' : 'Webhook Warmup'}
-                                </button>
-                                {hasStoredWebhook && (
-                                    <button
-                                        type="button"
-                                        onClick={handleClearWebhook}
-                                        disabled={saving || modelSaving || saveAllSaving}
-                                        className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        清除机器人
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {wecomWarmupMessage && (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
-                                {wecomWarmupMessage}
-                            </div>
-                        )}
-
-                        {wecomWarmupError && (
-                            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
-                                {wecomWarmupError}
-                            </div>
-                        )}
-
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                            当前保存设置时会一起保存这个 webhook 和发送开关；为了安全，页面只展示脱敏后的已保存地址。
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <div className="card space-y-4">
                 <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-cyan-500" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">自定义分析提示</h2>
+                    <Mail className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">报告推送</h2>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                        附加提示词
-                    </label>
-                    <textarea
-                        value={customPrompt}
-                        onChange={e => setCustomPrompt(e.target.value)}
-                        className="input w-full min-h-[120px] resize-y"
-                        placeholder="例如：更关注估值安全边际、政策催化与机构资金行为。"
-                    />
+
+                {/* 邮件推送 */}
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 dark:border-slate-700/80 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">邮件推送</div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">定时分析完成时发送至 {user?.email || '-'}</div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setEmailReportEnabled(!emailReportEnabled)}
+                            disabled={configLoading}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                emailReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${emailReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* 企业微信 Webhook */}
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 space-y-3 dark:border-slate-700/80 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">企业微信 Webhook</div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                                定时分析完成时向机器人推送摘要
+                                {storedWebhookDisplay && <span className="ml-2 font-mono">({storedWebhookDisplay})</span>}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
+                            disabled={configLoading}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                wecomReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <Webhook className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                value={wecomWebhook}
+                                onChange={e => setWecomWebhook(e.target.value)}
+                                className="input w-full pl-10"
+                                placeholder={hasStoredWebhook ? '已保存，留空则保持不变' : 'Webhook 地址'}
+                                disabled={configLoading}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleWecomWarmup}
+                            disabled={configLoading || saving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
+                            className="btn-secondary inline-flex items-center gap-1.5 text-xs shrink-0"
+                        >
+                            {wecomWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+                            {wecomWarmingUp ? '发送中...' : '测试连接'}
+                        </button>
+                        {hasStoredWebhook && (
+                            <button
+                                type="button"
+                                onClick={handleClearWebhook}
+                                disabled={saving || saveAllSaving}
+                                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 disabled:opacity-50 shrink-0"
+                            >
+                                <Trash2 className="w-3 h-3" />
+                                清除
+                            </button>
+                        )}
+                    </div>
+
+                    {wecomWarmupMessage && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            {wecomWarmupMessage}
+                        </div>
+                    )}
+                    {wecomWarmupError && (
+                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+                            {wecomWarmupError}
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="flex items-center gap-4">
-                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving || qmtSyncing} className="btn-primary inline-flex items-center gap-2">
+                <button onClick={handleSaveAll} disabled={saveAllSaving} className="btn-primary inline-flex items-center gap-2">
                     {saveAllSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     保存全部
                 </button>

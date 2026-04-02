@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioOverviewResponse, Report, ReportBatchDeleteResponse, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, QmtImportState, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -140,12 +140,6 @@ class ApiService {
         })
     }
 
-    async deleteReportsBatch(reportIds: string[]): Promise<ReportBatchDeleteResponse> {
-        return this.request<ReportBatchDeleteResponse>('/v1/reports/batch/delete', {
-            method: 'POST',
-            body: JSON.stringify({ report_ids: reportIds }),
-        })
-    }
 
     async createReport(report: {
         symbol: string
@@ -222,24 +216,42 @@ class ApiService {
         })
     }
 
-    async getQmtImportState(): Promise<QmtImportState> {
-        return this.request<QmtImportState>('/v1/portfolio/imports/qmt')
+    async getPortfolioImportState(): Promise<PortfolioImportState> {
+        return this.request<PortfolioImportState>('/v1/portfolio/imports')
     }
 
-    async syncQmtImport(data: {
-        qmt_path: string
-        account_id: string
-        account_type?: string
+    async syncPortfolioImport(data: {
+        positions: PortfolioPositionInput[]
+        source?: string
         auto_apply_scheduled: boolean
-    }): Promise<QmtImportState> {
-        return this.request<QmtImportState>('/v1/portfolio/imports/qmt', {
+    }): Promise<PortfolioImportState> {
+        return this.request<PortfolioImportState>('/v1/portfolio/imports', {
             method: 'POST',
             body: JSON.stringify(data),
         })
     }
 
-    async clearQmtImport(): Promise<void> {
-        await this.request('/v1/portfolio/imports/qmt', { method: 'DELETE' })
+    async clearPortfolioImport(): Promise<void> {
+        await this.request('/v1/portfolio/imports', { method: 'DELETE' })
+    }
+
+    async parsePositionImage(file: File): Promise<{ positions: PortfolioPositionInput[] }> {
+        const formData = new FormData()
+        formData.append('file', file)
+        const url = `${getBaseUrl()}/v1/portfolio/parse-image`
+        const token = getAuthToken()
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: formData,
+        })
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ detail: response.statusText }))
+            throw new Error(error.detail || '图片解析失败')
+        }
+        return response.json()
     }
 
     async getDashboardTrackingBoard(): Promise<TrackingBoardResponse> {

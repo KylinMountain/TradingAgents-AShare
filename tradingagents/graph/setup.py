@@ -25,6 +25,7 @@ def _load_agent_factories() -> dict[str, Any]:
     from tradingagents.agents.analysts.news_analyst import create_news_analyst
     from tradingagents.agents.analysts.smart_money_analyst import create_smart_money_analyst
     from tradingagents.agents.analysts.social_media_analyst import create_social_media_analyst
+    from tradingagents.agents.analysts.volume_price_analyst import create_volume_price_analyst
     from tradingagents.agents.managers.research_manager import create_research_manager
     from tradingagents.agents.managers.risk_manager import create_risk_manager
     from tradingagents.agents.researchers.bear_researcher import create_bear_researcher

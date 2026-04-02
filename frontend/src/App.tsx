@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import { useEffect } from 'react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Analysis from './pages/Analysis'
@@ -55,6 +56,7 @@ function App() {
           }
         />
       </Routes>
+      <SpeedInsights />
     </BrowserRouter>
   )
 }

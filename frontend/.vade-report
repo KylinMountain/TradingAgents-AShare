@@ -1,0 +1,48 @@
+# Vercel Speed Insights Installation
+
+Successfully installed and configured Vercel Speed Insights for the TradingAgents Dashboard React + Vite project.
+
+## Changes Made
+
+### Modified Files:
+
+1. **frontend/package.json**
+   - Added `@vercel/speed-insights` (v2.0.0) to dependencies
+   - Package installed using npm as specified in the project's package manager
+
+2. **frontend/package-lock.json**
+   - Updated lock file with Speed Insights package and its dependencies
+   - Ensures consistent dependency resolution across environments
+
+3. **frontend/src/App.tsx**
+   - Added import: `import { SpeedInsights } from '@vercel/speed-insights/react'`
+   - Added `<SpeedInsights />` component inside the BrowserRouter component
+   - Component placed after all Routes to track page navigation across all routes
+
+## Implementation Details
+
+Following the official Vercel Speed Insights documentation (fetched from https://vercel.com/docs/speed-insights/quickstart):
+- Used the React-specific import (`@vercel/speed-insights/react`)
+- Added the component at the root level within BrowserRouter to track all route changes
+- Preserved all existing code structure and functionality
+- No breaking changes introduced
+
+## Framework Detection
+
+- **Framework**: React 18.2.0 with TypeScript
+- **Build Tool**: Vite 5.1.0
+- **Router**: React Router DOM 6.22.0
+
+## Verification
+
+✅ Build completed successfully with no errors
+✅ Linter ran with no new errors (only pre-existing warnings)
+✅ TypeScript compilation passed
+✅ Lock file properly updated
+
+## Next Steps
+
+After deploying to Vercel:
+1. Enable Speed Insights in the Vercel project dashboard
+2. Monitor performance metrics after deployment
+3. Speed Insights will automatically begin collecting real user metrics

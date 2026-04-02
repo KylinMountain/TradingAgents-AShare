@@ -1,6 +1,6 @@
 import { FormEvent, useState, useRef, useEffect } from 'react'
 import {
-    Bot, Loader2, Send, Sparkles, Settings2, ChevronDown, ChevronUp, FileText, ChevronRight, Trash2,
+    Bot, Loader2, Send, Sparkles, FileText, ChevronRight, Trash2,
     TrendingUp, MessageCircle, Newspaper, Calculator, BarChart2, DollarSign, Globe,
     ArrowBigUp, ArrowBigDown, Brain, Briefcase, Flame, Scale, Shield, CheckCircle2,
     Activity,
@@ -34,6 +34,7 @@ const ANALYST_OPTIONS = [
     { id: 'market_impact', label: '地缘冲击', description: '战争关税' },
     { id: 'volume_price', label: '量价分析', description: '成交量价格' },
 ]
+
 
 interface StreamEvent {
     event: string
@@ -147,13 +148,13 @@ function ReportCard({
 export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initialInput }: ChatCopilotPanelProps) {
     const [input, setInput] = useState(initialInput || '')
     const [streaming, setStreaming] = useState(false)
-    const [showConfig, setShowConfig] = useState(false)
     // Tracks agent bubbles waiting for their first token (shows "正在推理分析中..." spinner)
     const pendingAgentMsgIdsRef = useRef<Set<string>>(new Set())
     // Only used to trigger re-render when pending status changes
     const [, forceUpdate] = useState(0)
     const [expandedAgentMsgId, setExpandedAgentMsgId] = useState<string | null>(null)
-    const [selectedAnalysts, setSelectedAnalysts] = useState<string[]>(() => {
+    // Use global default analysts from Settings (read-only here)
+    const selectedAnalysts = (() => {
         try {
             const stored = localStorage.getItem('tradingagents-settings')
             if (!stored) return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact', 'volume_price']
@@ -163,7 +164,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             }
         } catch {}
         return ['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact', 'volume_price']
-    })
+    })()
     // track which section IDs have been added to chatMessages and whether they're done
     const streamingReportIds = useRef<Map<string, boolean>>(new Map()) // section → isComplete
     const agentMessageMapRef = useRef<Record<string, string>>({})
@@ -263,12 +264,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             behavior: 'smooth',
         })
     }, [chatMessages])
-
-    const toggleAnalyst = (id: string) => {
-        setSelectedAnalysts((prev) =>
-            prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-        )
-    }
 
     const pushAssistant = (content: string) => {
         addChatMessage({
@@ -744,42 +739,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         {prompt}
                     </button>
                 ))}
-            </div>
-
-            {/* 分析师配置（可折叠） */}
-            <div className="mb-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-                <button
-                    onClick={() => setShowConfig(!showConfig)}
-                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                    <div className="flex items-center gap-2">
-                        <Settings2 className="w-4 h-4 text-slate-400" />
-                        <span className="text-sm text-slate-600 dark:text-slate-400">
-                            分析类型 ({selectedAnalysts.length}/6)
-                        </span>
-                    </div>
-                    {showConfig ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                </button>
-
-                {showConfig && (
-                    <div className="p-3 bg-white dark:bg-slate-800/30">
-                        <div className="flex flex-wrap gap-2">
-                            {ANALYST_OPTIONS.map((option) => (
-                                <button
-                                    key={option.id}
-                                    onClick={() => toggleAnalyst(option.id)}
-                                    className={`px-3 py-1.5 text-xs rounded-md border transition-all ${selectedAnalysts.includes(option.id)
-                                        ? 'bg-blue-50 dark:bg-blue-500/10 border-blue-500 text-blue-600 dark:text-blue-400'
-                                        : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-500'
-                                        }`}
-                                >
-                                    <span className="font-medium">{option.label}</span>
-                                    <span className="block opacity-70">{option.description}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
 
             {/* 聊天内容 */}
