@@ -59,7 +59,6 @@ export default function Settings() {
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
-    const [modelSaving, setModelSaving] = useState(false)
     const [saveAllSaving, setSaveAllSaving] = useState(false)
     const [warmingUp, setWarmingUp] = useState(false)
     const [saved, setSaved] = useState(false)
@@ -231,17 +230,6 @@ export default function Settings() {
         return response
     }
 
-    const handleSaveModel = async () => {
-        setModelSaving(true)
-        try {
-            await submitConfig({ includeEmail: false, includeWecom: false, successMessage: '模型配置已保存' })
-        } catch (err) {
-            alert(err instanceof Error ? err.message : '保存模型配置失败')
-        } finally {
-            setModelSaving(false)
-        }
-    }
-
     const handleSaveAll = async () => {
         setSaveAllSaving(true)
         try {
@@ -341,18 +329,7 @@ export default function Settings() {
                 <div className="flex items-center gap-2">
                     <Database className="w-5 h-5 text-purple-500" />
                     <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">模型接入</h2>
-                    <div className="ml-auto flex items-center gap-3">
-                        {configLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-                        <button
-                            type="button"
-                            onClick={handleSaveModel}
-                            disabled={configLoading || modelSaving || saveAllSaving}
-                            className="btn-secondary inline-flex items-center gap-2"
-                        >
-                            {modelSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            保存
-                        </button>
-                    </div>
+                    {configLoading && <Loader2 className="ml-auto w-4 h-4 animate-spin text-slate-400" />}
                 </div>
 
                 {configError && (
@@ -462,7 +439,7 @@ export default function Settings() {
                                 <button
                                     type="button"
                                     onClick={handleClearApiKey}
-                                    disabled={saving || modelSaving || saveAllSaving}
+                                    disabled={saving || saveAllSaving}
                                     className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
                                 >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -483,7 +460,7 @@ export default function Settings() {
                                     使用当前表单配置向模型发送“你好”，不会自动保存设置。
                                 </p>
                             </div>
-                            <button onClick={handleWarmup} disabled={saving || modelSaving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
+                            <button onClick={handleWarmup} disabled={saving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
                                 {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
                                 {warmingUp ? '测试中...' : '测试连接'}
                             </button>
@@ -726,16 +703,38 @@ export default function Settings() {
                             <div className="text-sm font-medium text-slate-700 dark:text-slate-200">企业微信 Webhook</div>
                             <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">定时分析完成时向机器人推送摘要</div>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
-                            disabled={configLoading}
-                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                                wecomReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
-                            }`}
-                        >
-                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleWecomWarmup}
+                                disabled={configLoading || saving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
+                                className="btn-secondary inline-flex items-center gap-1.5 text-xs"
+                            >
+                                {wecomWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+                                {wecomWarmingUp ? '发送中...' : '测试连接'}
+                            </button>
+                            {hasStoredWebhook && (
+                                <button
+                                    type="button"
+                                    onClick={handleClearWebhook}
+                                    disabled={saving || saveAllSaving}
+                                    className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 disabled:opacity-50"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                    清除
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setWecomReportEnabled(!wecomReportEnabled)}
+                                disabled={configLoading}
+                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                    wecomReportEnabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                                }`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wecomReportEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                        </div>
                     </div>
 
                     <div className="relative">
@@ -756,29 +755,6 @@ export default function Settings() {
                         </div>
                     )}
 
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={handleWecomWarmup}
-                            disabled={configLoading || saving || modelSaving || saveAllSaving || wecomWarmingUp || (!wecomWebhook.trim() && !hasStoredWebhook)}
-                            className="btn-secondary inline-flex items-center gap-1.5 text-xs"
-                        >
-                            {wecomWarmingUp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
-                            {wecomWarmingUp ? '发送中...' : '测试发送'}
-                        </button>
-                        {hasStoredWebhook && (
-                            <button
-                                type="button"
-                                onClick={handleClearWebhook}
-                                disabled={saving || modelSaving || saveAllSaving}
-                                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 disabled:opacity-50"
-                            >
-                                <Trash2 className="w-3 h-3" />
-                                清除
-                            </button>
-                        )}
-                    </div>
-
                     {wecomWarmupMessage && (
                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
                             {wecomWarmupMessage}
@@ -793,7 +769,7 @@ export default function Settings() {
             </div>
 
             <div className="flex items-center gap-4">
-                <button onClick={handleSaveAll} disabled={saveAllSaving || modelSaving} className="btn-primary inline-flex items-center gap-2">
+                <button onClick={handleSaveAll} disabled={saveAllSaving} className="btn-primary inline-flex items-center gap-2">
                     {saveAllSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     保存全部
                 </button>
