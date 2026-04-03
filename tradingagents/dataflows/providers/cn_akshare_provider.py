@@ -10,7 +10,9 @@ from .base import BaseMarketDataProvider
 from ..trade_calendar import cn_market_phase, cn_no_data_reason, cn_today_str, is_cn_trading_day
 
 
-AKSHARE_CALL_LOCK = threading.RLock()
+# 允许最多 5 个 akshare 调用并发（全局锁改信号量，缓解排队瓶颈）
+# akshare 内部有少量全局状态，但适度并发实测可行；过高会触发数据源反爬
+AKSHARE_CALL_LOCK = threading.Semaphore(5)
 
 
 class CnAkshareProvider(BaseMarketDataProvider):
@@ -46,14 +48,13 @@ class CnAkshareProvider(BaseMarketDataProvider):
         return "cn_akshare"
 
     def _ak(self):
-        with AKSHARE_CALL_LOCK:
-            try:
-                import akshare as ak  # type: ignore
-            except ImportError as exc:
-                raise NotImplementedError(
-                    "cn_akshare requires 'akshare'. Install it with: pip install akshare"
-                ) from exc
-            return ak
+        try:
+            import akshare as ak  # type: ignore
+        except ImportError as exc:
+            raise NotImplementedError(
+                "cn_akshare requires 'akshare'. Install it with: pip install akshare"
+            ) from exc
+        return ak
 
     def _locked(self, func, *args, **kwargs):
         with AKSHARE_CALL_LOCK:

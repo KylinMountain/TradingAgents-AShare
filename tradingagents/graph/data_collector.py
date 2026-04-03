@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+import threading
 import time
 import pandas as pd
 from stockstats import wrap
@@ -348,20 +349,31 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
 
 
 class DataCollector:
-    """Collect and cache data for a single analysis run."""
+    """Collect and cache data, thread-safe and shareable across jobs."""
 
     def __init__(self):
         self._cache: Dict[str, Dict[str, Any]] = {}
+        self._locks: Dict[str, threading.Lock] = {}
+        self._meta_lock = threading.Lock()
+        self._refcounts: Dict[str, int] = {}
+
+    def _get_key_lock(self, key: str) -> threading.Lock:
+        with self._meta_lock:
+            if key not in self._locks:
+                self._locks[key] = threading.Lock()
+            return self._locks[key]
 
     def collect(self, ticker: str, trade_date: str, horizons: Optional[List[str]] = None) -> Dict[str, Any]:
         """Fetch all data and store in cache.
 
-        Always fetches full data (including financial statements) regardless of horizon.
-        Data is collected once and shared across all horizon runs.
+        Thread-safe: concurrent calls for the same ticker+date will block
+        on a per-key lock, so data is fetched only once.
         """
         key = make_cache_key(ticker, trade_date)
-        if key not in self._cache:
-            self._cache[key] = _fetch_all(ticker, trade_date)
+        key_lock = self._get_key_lock(key)
+        with key_lock:
+            if key not in self._cache:
+                self._cache[key] = _fetch_all(ticker, trade_date)
         return self._cache[key]
 
     def get(self, ticker: str, trade_date: str) -> Optional[Dict[str, Any]]:
@@ -381,6 +393,20 @@ class DataCollector:
         result["_horizon"] = horizon
         return result
 
+    def ref(self, ticker: str, trade_date: str) -> None:
+        """Increment reference count (call before using cached data)."""
+        key = make_cache_key(ticker, trade_date)
+        with self._meta_lock:
+            self._refcounts[key] = self._refcounts.get(key, 0) + 1
+
     def evict(self, ticker: str, trade_date: str) -> None:
-        """Remove cached data after analysis completes to free memory."""
-        self._cache.pop(make_cache_key(ticker, trade_date), None)
+        """Decrement refcount and remove cached data when no one needs it."""
+        key = make_cache_key(ticker, trade_date)
+        with self._meta_lock:
+            count = self._refcounts.get(key, 1) - 1
+            if count <= 0:
+                self._cache.pop(key, None)
+                self._refcounts.pop(key, None)
+                self._locks.pop(key, None)
+            else:
+                self._refcounts[key] = count

@@ -59,6 +59,10 @@ def _get_real_ip(request: Request) -> Optional[str]:
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph.data_collector import DataCollector
+
+# 全局共享 DataCollector：同一 ticker+date 的数据只拉一次，所有 job 复用缓存
+_shared_data_collector = DataCollector()
 from tradingagents.dataflows.trade_calendar import cn_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
@@ -1765,23 +1769,31 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
+    # 用 asyncio.Task + sleep 竞速代替 wait_for，避免 cancel 卡在 to_thread 导致
+    # semaphore 永远不释放的问题。超时后标记失败但不 cancel 内部协程（让线程自然结束）。
+    inner_task = asyncio.create_task(
+        _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
+    )
+    done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
+    if inner_task in done:
+        # 正常完成（可能成功也可能异常）
+        if inner_task.exception():
+            _log(f"[Job {job_id}] failed: {inner_task.exception()}")
+        return
+    # 超时：标记失败，但不 cancel 内部 task（避免 cancel 卡住）
+    err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
+    _log(f"[Job {job_id}] {err_msg}")
+    _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
     try:
-        await asyncio.wait_for(
-            _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source),
-            timeout=_JOB_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
-        _log(f"[Job {job_id}] {err_msg}")
-        _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
-        try:
-            def _record_timeout():
-                with get_db_ctx() as db:
-                    report_service.mark_report_failed(db, job_id, err_msg)
-            await asyncio.to_thread(_record_timeout)
-        except Exception:
-            pass
-        _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+        def _record_timeout():
+            with get_db_ctx() as db:
+                report_service.mark_report_failed(db, job_id, err_msg)
+        await asyncio.to_thread(_record_timeout)
+    except Exception:
+        pass
+    _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+    # 后台让 inner_task 自然结束，不阻塞调用方
+    inner_task.cancel()
 
 
 async def _run_job_inner(
@@ -1863,12 +1875,16 @@ async def _run_job_inner(
             selected_analysts=request.selected_analysts,
             debug=False,
             config=config,
+            data_collector=_shared_data_collector,
         )
+        _shared_data_collector.ref(request.symbol, request.trade_date)
         final_state: Optional[Dict[str, Any]] = None
 
-        # Ensure horizons is never empty
+        # 强制单周期：多个 horizon 时只取第一个，避免 dual-horizon 双倍开销
         if not request.horizons:
             request.horizons = ["short"]
+        elif len(request.horizons) > 1:
+            request.horizons = [request.horizons[0]]
 
         # ── Dual-horizon intent-driven path ──────────────────────────────────
         if request.query:
@@ -2982,9 +2998,8 @@ async def _ai_extract_symbol_and_date_streaming(
 字段说明：
 - stock_name：用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）；美股直接填 ticker。
 - date：YYYY-MM-DD 格式。今天是 {today}，如未提及则填今天。
-- horizons：分析周期数组：
+- horizons：分析周期，只能选一个：
   * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"→ ["medium"]
-  * 同时提到短期和中期 → ["short", "medium"]
   * 其他所有情况（含未提及）→ ["short"]
 - focus_areas：用户关注的分析维度关键词列表，如 ["技术面", "资金面", "业绩"]，未提及则 []。
 - specific_questions：用户提出的具体问题列表，如 ["近期有无催化剂？", "主力是否出货？"]，未提及则 []。
@@ -3080,9 +3095,8 @@ def _ai_extract_symbol_and_date(
 字段说明：
 - stock_name：用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）；美股直接填 ticker。
 - date：YYYY-MM-DD 格式。今天是 {today}，如未提及则填今天。
-- horizons：分析周期数组：
+- horizons：分析周期，只能选一个：
   * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"→ ["medium"]
-  * 同时提到短期和中期 → ["short", "medium"]
   * 其他所有情况（含未提及）→ ["short"]
 - focus_areas：用户关注的分析维度关键词列表，如 ["技术面", "资金面", "业绩"]，未提及则 []。
 - specific_questions：用户提出的具体问题列表，如 ["近期有无催化剂？", "主力是否出货？"]，未提及则 []。
