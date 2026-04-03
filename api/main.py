@@ -189,6 +189,10 @@ async def _scheduled_analysis_release(job_id: str, symbol: str) -> None:
 
 @asynccontextmanager
 async def _scheduled_analysis_slot(job_id: str, symbol: str):
+    if _scheduled_analysis_max_concurrency <= 0:
+        # 0 = 不限制并发，跳过 semaphore
+        yield
+        return
     await _scheduled_analysis_acquire(job_id, symbol)
     try:
         yield
