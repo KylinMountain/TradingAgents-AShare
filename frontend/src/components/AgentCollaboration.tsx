@@ -68,14 +68,14 @@ const VERDICT_COLORS: Record<string, string> = {
 // ── 流程图布局 ────────────────────────────────────────────────────────────────
 
 const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
-    // 左列：数据源分析师
+    // 左列：数据源分析师（间距 110，verdict 展开后不重叠）
     'Market Analyst':       { x: 0, y: 0 },
-    'Social Analyst':       { x: 0, y: 105 },
-    'News Analyst':         { x: 0, y: 210 },
-    'Fundamentals Analyst': { x: 0, y: 315 },
-    'Macro Analyst':        { x: 0, y: 420 },
-    'Smart Money Analyst':  { x: 0, y: 525 },
-    'Volume Price Analyst': { x: 0, y: 630 },
+    'Social Analyst':       { x: 0, y: 110 },
+    'News Analyst':         { x: 0, y: 220 },
+    'Fundamentals Analyst': { x: 0, y: 330 },
+    'Macro Analyst':        { x: 0, y: 440 },
+    'Smart Money Analyst':  { x: 0, y: 550 },
+    'Volume Price Analyst': { x: 0, y: 660 },
     // 研究团队（靠近左侧分析师）
     'Bull Researcher':      { x: 470, y: 80 },
     'Research Manager':     { x: 630, y: 240 },
@@ -139,7 +139,7 @@ interface GroupLabelDef {
 }
 
 const GROUP_LABELS: GroupLabelDef[] = [
-    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 760 },
+    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 870 },
     { id: 'group-research', label: '研究团队', position: { x: 454, y: 44 }, width: 410, height: 450 },
     { id: 'group-risk', label: '风控团队', position: { x: 1164, y: 44 }, width: 248, height: 450 },
 ]
@@ -428,7 +428,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
             </div>
 
             {/* React Flow 画布 */}
-            <div className="h-[700px] w-full">
+            <div className="h-[820px] w-full">
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -445,7 +445,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
                     zoomOnPinch={false}
                     zoomOnDoubleClick={false}
                     preventScrolling={false}
-                    translateExtent={[[-40, -40], [1730, 660]]}
+                    translateExtent={[[-40, -40], [1730, 800]]}
                     proOptions={{ hideAttribution: true }}
                 />
             </div>
