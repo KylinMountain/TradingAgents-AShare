@@ -30,9 +30,12 @@ export default function Feedback() {
 
     useEffect(() => { loadFeedbacks(page) }, [page])
 
+    const [error, setError] = useState('')
+
     const handleSubmit = async () => {
         if (!subject.trim() || !content.trim()) return
         setSubmitting(true)
+        setError('')
         try {
             await api.createFeedback(subject.trim(), content.trim())
             setSubject('')
@@ -41,7 +44,7 @@ export default function Feedback() {
             setPage(1)
             await loadFeedbacks(1)
         } catch (e) {
-            console.error('Failed to submit feedback', e)
+            setError(e instanceof Error ? e.message : '提交失败，请稍后重试')
         } finally {
             setSubmitting(false)
         }
@@ -139,6 +142,7 @@ export default function Feedback() {
                         rows={5}
                         className="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-none mb-3"
                     />
+                    {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
                     <div className="flex justify-end gap-2">
                         <button
                             onClick={() => { setShowForm(false); setSubject(''); setContent('') }}
