@@ -11,6 +11,7 @@ interface MoneySponsor {
     name: string
     github?: string
     avatar?: string
+    email?: string
     date: string
 }
 
@@ -62,17 +63,18 @@ function formatDate(dateStr: string): string {
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-function SponsorCard({ name, github, avatar, date, badge, badgeColor, extra }: {
+function SponsorCard({ name, github, avatar, email, date, badge, badgeColor, extra }: {
     name: string
     github?: string
     avatar?: string
+    email?: string
     date: string
     badge: string
     badgeColor: string
     extra?: string
 }) {
     return (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="group relative flex items-center gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
             <Avatar name={name} github={github} avatar={avatar} />
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -89,6 +91,11 @@ function SponsorCard({ name, github, avatar, date, badge, badgeColor, extra }: {
                     <span className="text-[11px] text-slate-400 dark:text-slate-500">{formatDate(date)}</span>
                 </div>
             </div>
+            {email && (
+                <div className="absolute left-1/2 -translate-x-1/2 -top-9 px-2.5 py-1 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-lg">
+                    {email}
+                </div>
+            )}
         </div>
     )
 }
@@ -162,6 +169,7 @@ export default function Thanks() {
                                             name={s.name}
                                             github={s.github || undefined}
                                             avatar={s.avatar || undefined}
+                                            email={s.email || undefined}
                                             date={s.date}
                                             badge="资金赞助"
                                             badgeColor="bg-pink-50 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300"
