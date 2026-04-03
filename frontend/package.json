@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.1.0",
+    "@tanstack/react-virtual": "^3.13.23",
     "@vercel/speed-insights": "^2.0.0",
     "@xyflow/react": "^12.10.2",
     "clsx": "^2.1.0",
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
-    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
     "@typescript-eslint/parser": "^8.57.2",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
