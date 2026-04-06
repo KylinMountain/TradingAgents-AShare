@@ -10,7 +10,9 @@ from .base import BaseMarketDataProvider
 from ..trade_calendar import cn_market_phase, cn_no_data_reason, cn_today_str, is_cn_trading_day
 
 
-AKSHARE_CALL_LOCK = threading.RLock()
+# 允许最多 5 个 akshare 调用并发（全局锁改信号量，缓解排队瓶颈）
+# akshare 内部有少量全局状态，但适度并发实测可行；过高会触发数据源反爬
+AKSHARE_CALL_LOCK = threading.Semaphore(5)
 
 
 class CnAkshareProvider(BaseMarketDataProvider):
@@ -46,14 +48,13 @@ class CnAkshareProvider(BaseMarketDataProvider):
         return "cn_akshare"
 
     def _ak(self):
-        with AKSHARE_CALL_LOCK:
-            try:
-                import akshare as ak  # type: ignore
-            except ImportError as exc:
-                raise NotImplementedError(
-                    "cn_akshare requires 'akshare'. Install it with: pip install akshare"
-                ) from exc
-            return ak
+        try:
+            import akshare as ak  # type: ignore
+        except ImportError as exc:
+            raise NotImplementedError(
+                "cn_akshare requires 'akshare'. Install it with: pip install akshare"
+            ) from exc
+        return ak
 
     def _locked(self, func, *args, **kwargs):
         with AKSHARE_CALL_LOCK:
@@ -739,7 +740,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
         """获取行业板块资金流向排名。"""
         try:
             ak = self._ak()
-            df = ak.stock_board_industry_fund_flow_em(symbol="今日")
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_board_industry_fund_flow_em(symbol="今日")
             if df is None or df.empty:
                 return "今日板块资金流向数据暂不可用。"
             sort_col = "今日主力净流入-净额"
@@ -761,7 +763,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
             code = self._normalize_symbol(symbol)
             # 沪市：以 5、6、9 开头；其余为深市
             market = "sh" if code[:1] in ("5", "6", "9") else "sz"
-            df = ak.stock_individual_fund_flow(stock=code, market=market)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_individual_fund_flow(stock=code, market=market)
             if df is None or df.empty:
                 return f"{symbol} 近期主力资金流向数据暂不可用。"
             df_recent = df.tail(5)
@@ -774,7 +777,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
         try:
             ak = self._ak()
             code = self._normalize_symbol(symbol)
-            df = ak.stock_lhb_detail_em(symbol=code, start_date=date, end_date=date)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_lhb_detail_em(symbol=code, start_date=date, end_date=date)
             if df is None or df.empty:
                 return f"{symbol} 在 {date} 无龙虎榜数据（非异动日属正常）。"
             return f"{symbol} 龙虎榜明细（{date}）：\n{df.head(20).to_string(index=False)}"
@@ -785,7 +789,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
         """获取涨停板情绪池，反映市场整体情绪温度。"""
         try:
             ak = self._ak()
-            df = ak.stock_zt_pool_em(date=date.replace("-", ""))
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_zt_pool_em(date=date.replace("-", ""))
             if df is None or df.empty:
                 return f"{date} 涨停板情绪池数据暂不可用。"
             count = len(df)
@@ -801,7 +806,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
         """获取雪球热搜股票，反映散户关注度。"""
         try:
             ak = self._ak()
-            df = ak.stock_hot_follow_xq(symbol="最热门")
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_hot_follow_xq(symbol="最热门")
             if df is None or df.empty:
                 return "雪球热搜数据暂不可用。"
             return f"雪球热搜前20：\n{df.head(20).to_string(index=False)}"

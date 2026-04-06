@@ -1,6 +1,7 @@
 {
   "money": [
-    { "name": "*生", "avatar": "/avatars/sponsor-1.jpg", "date": "2026-04-01" },
+    { "name": "*生", "avatar": "/avatars/sponsor-1.jpg", "email": "zhujun_989@163.com", "date": "2026-04-01" },
+    { "name": "*毅", "avatar": "/avatars/sponsor-3.jpg", "email": "xmyahoo@1683.com", "date": "2026-04-03" },
     { "name": "*明", "avatar": "/avatars/sponsor-2.jpg", "date": "2026-03-31" }
   ],
   "token": [
