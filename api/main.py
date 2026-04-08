@@ -1866,9 +1866,8 @@ async def _run_job_inner(
         )
         final_state: Optional[Dict[str, Any]] = None
 
-        # Ensure horizons is never empty
-        if not request.horizons:
-            request.horizons = ["short"]
+        # Ensure horizons is never empty; always run short only (medium is redundant)
+        request.horizons = ["short"]
 
         # ── Dual-horizon intent-driven path ──────────────────────────────────
         if request.query:
