@@ -252,3 +252,4 @@ frontend/node_modules/
 .vite/
 uv.lock.cp313
 .worktrees/
+.idea

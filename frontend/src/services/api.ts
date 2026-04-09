@@ -1,11 +1,13 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
 
 export function getBaseUrl(): string {
-    const envUrl = (import.meta.env.VITE_API_URL as string) || ''
-    if (envUrl) return envUrl.replace(/\/$/, '')
+    // 浏览器环境优先使用当前页面 origin，适配任意端口映射
     if (typeof window !== 'undefined' && window.location?.origin) {
         return window.location.origin.replace(/\/$/, '')
     }
+    // 非浏览器环境（如 SSR）回退到构建时环境变量
+    const envUrl = (import.meta.env.VITE_API_URL as string) || ''
+    if (envUrl) return envUrl.replace(/\/$/, '')
     return 'http://localhost:8000'
 }
 
