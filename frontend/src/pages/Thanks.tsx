@@ -195,7 +195,7 @@ export default function Thanks() {
                                             name={s.name}
                                             github={s.github || undefined}
                                             date={s.date}
-                                            badge={s.provider}
+                                            badge={s.provider ?? ""}
                                             badgeColor="bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300"
                                             extra="Token 赞助"
                                         />

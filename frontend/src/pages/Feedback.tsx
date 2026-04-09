@@ -92,7 +92,7 @@ export default function Feedback() {
                             <div className="flex items-center gap-1.5 mb-2">
                                 <CheckCircle2 className="w-4 h-4 text-blue-500" />
                                 <span className="text-xs font-medium text-blue-600 dark:text-blue-400">管理员回复</span>
-                                <span className="text-xs text-slate-400 ml-auto">{formatTime(fb.replied_at)}</span>
+                                <span className="text-xs text-slate-400 ml-auto">{formatTime(fb.replied_at ?? undefined)}</span>
                             </div>
                             <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fb.admin_reply}</p>
                         </div>
