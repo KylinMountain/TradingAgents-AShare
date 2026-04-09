@@ -1,26 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
-    "ignoreBuildStep": "if git describe --tags --exact-match HEAD > /dev/null 2>&1; then exit 1; else exit 0; fi"
+    "ignoreBuildStep": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"release\" ] || [ \"$VERCEL_GIT_COMMIT_REF\" = \"main\" ]; then exit 1; else exit 0; fi"
   },
   "framework": "vite",
   "rewrites": [
-    {
-      "source": "/v1/(.*)",
-      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/v1/$1"
-    },
-    {
-      "source": "/healthz",
-      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/healthz"
-    },
-    {
-      "source": "/openapi.json",
-      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/openapi.json"
-    },
-    {
-      "source": "/docs",
-      "destination": "https://purposes-precisely-iowa-billy.trycloudflare.com/docs"
-    },
     {
       "source": "/((?!assets/|vite.svg|favicon.ico).*)",
       "destination": "/index.html"
