@@ -200,6 +200,20 @@ async def _scheduled_analysis_slot(job_id: str, symbol: str):
         await _scheduled_analysis_release(job_id, symbol)
 
 
+def _refresh_sector_db_sync():
+    """Synchronous sector DB refresh — runs in executor thread."""
+    try:
+        import time as _time
+        from tradingagents.dataflows.sector_db import get_sector_db
+        t0 = _time.time()
+        sdb = get_sector_db()
+        stats = sdb.refresh()  # all concepts + industries
+        elapsed = _time.time() - t0
+        _log(f"[Scheduler] Sector DB refreshed in {elapsed:.0f}s: {stats}")
+    except Exception as e:
+        logger.error(f"[Scheduler] Sector DB refresh failed: {e}")
+
+
 async def _scheduler_loop():
     """Background loop: check every minute for scheduled tasks to trigger.
 
@@ -212,6 +226,7 @@ async def _scheduler_loop():
     from zoneinfo import ZoneInfo
 
     _log("[Scheduler] Started.")
+    _sector_refresh_date: Optional[str] = None  # track daily sector refresh
     while True:
         await asyncio.sleep(60)
         try:
@@ -224,6 +239,20 @@ async def _scheduler_loop():
             time_val = now.hour * 60 + now.minute
             if 8 * 60 < time_val < 20 * 60:
                 continue
+
+            # ── Auto-refresh sector/concept DB (once per week, non-blocking) ──
+            if _sector_refresh_date != today:
+                _sector_refresh_date = today
+                try:
+                    from tradingagents.dataflows.sector_db import get_sector_db
+                    sdb = get_sector_db()
+                    if sdb.is_stale(max_age_days=7):
+                        _log("[Scheduler] Sector DB is stale, starting background refresh...")
+                        asyncio.get_event_loop().run_in_executor(
+                            _executor, _refresh_sector_db_sync
+                        )
+                except Exception as e:
+                    logger.warning(f"[Scheduler] Sector DB check failed: {e}")
 
             with get_db_ctx() as db:
                 tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
@@ -480,6 +509,16 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
+    # Auto-refresh sector/concept DB if stale or never initialized
+    try:
+        from tradingagents.dataflows.sector_db import get_sector_db
+        sdb = get_sector_db()
+        if sdb.is_stale(max_age_days=7):
+            _log(f"[Startup] Sector DB is stale (last: {sdb.get_last_refresh() or 'Never'}), "
+                 "scheduling background refresh...")
+            asyncio.get_event_loop().run_in_executor(_executor, _refresh_sector_db_sync)
+    except Exception as e:
+        logger.warning(f"[Startup] Sector DB check failed: {e}")
     _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
@@ -712,6 +751,7 @@ FIXED_TEAMS = {
         "Fundamentals Analyst",
         "Macro Analyst",
         "Smart Money Analyst",
+        "Market Impact Analyst",
         "Volume Price Analyst",
     ],
     "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
@@ -719,7 +759,7 @@ FIXED_TEAMS = {
     "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
     "Portfolio Management": ["Portfolio Manager"],
 }
-ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
+ANALYST_ORDER = ["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact", "volume_price"]
 ANALYST_AGENT_NAMES = {
     "market": "Market Analyst",
     "social": "Social Analyst",
@@ -728,6 +768,7 @@ ANALYST_AGENT_NAMES = {
     "macro": "Macro Analyst",
     "volume_price": "Volume Price Analyst",
     "smart_money": "Smart Money Analyst",
+    "market_impact": "Market Impact Analyst",
     "bull": "Bull Researcher",
     "bear": "Bear Researcher",
     "Bull_Initial": "Bull Researcher",
@@ -748,6 +789,7 @@ ANALYST_REPORT_MAP = {
     "fundamentals": "fundamentals_report",
     "macro": "macro_report",
     "smart_money": "smart_money_report",
+    "market_impact": "market_impact_report",
     "volume_price": "volume_price_report",
 }
 
@@ -802,7 +844,7 @@ class AnalyzeRequest(UserContextInput):
     symbol: str = Field(default="", description="股票代码，如 600519.SH（当 query 包含代码时可省略）")
     trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -862,7 +904,7 @@ class ChatCompletionRequest(UserContextInput):
     messages: List[ChatMessage]
     stream: bool = True
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -919,6 +961,7 @@ class ReportDetailResponse(ReportResponse):
     fundamentals_report: Optional[str]
     macro_report: Optional[str]
     smart_money_report: Optional[str]
+    market_impact_report: Optional[str]
     volume_price_report: Optional[str]
     game_theory_report: Optional[str]
     investment_plan: Optional[str]
@@ -1397,6 +1440,7 @@ def _build_result_payload(final_state: Dict[str, Any]) -> Dict[str, Any]:
         "fundamentals_report": final_state.get("fundamentals_report"),
         "macro_report": final_state.get("macro_report"),
         "smart_money_report": final_state.get("smart_money_report"),
+        "market_impact_report": final_state.get("market_impact_report"),
         "volume_price_report": final_state.get("volume_price_report"),
         "game_theory_report": final_state.get("game_theory_report"),
         "game_theory_signals": final_state.get("game_theory_signals"),
@@ -1434,6 +1478,7 @@ class AgentProgressTracker:
             "fundamentals_report": None,
             "macro_report": None,
             "smart_money_report": None,
+            "market_impact_report": None,
             "volume_price_report": None,
             "game_theory_report": None,
             "investment_plan": None,
@@ -1949,7 +1994,7 @@ async def _run_job_inner(
 
             report_keys = (
                 "market_report", "sentiment_report", "news_report", "fundamentals_report",
-                "macro_report", "smart_money_report", "volume_price_report",
+                "macro_report", "smart_money_report", "market_impact_report", "volume_price_report",
                 "investment_plan", "trader_investment_plan", "final_trade_decision",
             )
 
@@ -2112,6 +2157,7 @@ async def _run_job_inner(
                 "fundamentals_report": primary_r.get("fundamentals_report", ""),
                 "macro_report": primary_r.get("macro_report", ""),
                 "smart_money_report": primary_r.get("smart_money_report", ""),
+                "market_impact_report": primary_r.get("market_impact_report", ""),
                 "volume_price_report": primary_r.get("volume_price_report", ""),
                 "analyst_traces": (
                     short_r.get("analyst_traces", []) + medium_r.get("analyst_traces", [])
@@ -2211,6 +2257,7 @@ async def _run_job_inner(
                 "fundamentals_report",
                 "macro_report",
                 "smart_money_report",
+                "market_impact_report",
                 "volume_price_report",
                 "investment_plan",
                 "trader_investment_plan",

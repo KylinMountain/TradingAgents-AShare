@@ -114,6 +114,8 @@ def _ensure_report_schema() -> None:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN smart_money_report TEXT"))
             if "game_theory_report" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN game_theory_report TEXT"))
+            if "market_impact_report" not in columns:
+                conn.execute(text("ALTER TABLE reports ADD COLUMN market_impact_report TEXT"))
             if "volume_price_report" not in columns:
                 conn.execute(text("ALTER TABLE reports ADD COLUMN volume_price_report TEXT"))
     except Exception as e:
@@ -274,6 +276,7 @@ class ReportDB(Base):
     fundamentals_report = Column(Text, nullable=True)
     macro_report = Column(Text, nullable=True)
     smart_money_report = Column(Text, nullable=True)
+    market_impact_report = Column(Text, nullable=True)
     volume_price_report = Column(Text, nullable=True)
     game_theory_report = Column(Text, nullable=True)
     investment_plan = Column(Text, nullable=True)
@@ -306,6 +309,7 @@ class ReportDB(Base):
             "fundamentals_report": self.fundamentals_report,
             "macro_report": self.macro_report,
             "smart_money_report": self.smart_money_report,
+            "market_impact_report": self.market_impact_report,
             "volume_price_report": self.volume_price_report,
             "game_theory_report": self.game_theory_report,
             "investment_plan": self.investment_plan,

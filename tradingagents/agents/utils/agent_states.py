@@ -175,6 +175,7 @@ class AgentState(MessagesState):
 
     macro_report: Annotated[str, "Report from the Macro/Sector Analyst"]
     smart_money_report: Annotated[str, "Report from the Smart Money Analyst"]
+    market_impact_report: Annotated[str, "Report from the Market Impact Analyst (geopolitical events, tariffs, etc.)"]
     volume_price_report: Annotated[str, "Report from the Volume Price Analyst"]
     user_intent: Annotated[Optional[UserIntent], "Parsed user intent from natural language"]
     horizon: Annotated[str, "Current analysis horizon: short or medium"]

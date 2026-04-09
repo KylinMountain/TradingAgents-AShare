@@ -344,6 +344,27 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
     except Exception as e:
         results["vpa_indicators"] = f"VPA 计算失败：{e}"
 
+    # ── 地缘政治与外部冲击数据 ──────────────────────
+    try:
+        from tradingagents.dataflows.geopolitical_fetcher import fetch_geopolitical_news
+        geo_data = fetch_geopolitical_news(limit_per_source=15)
+        results["geopolitical_news"] = geo_data.get("formatted", "")
+    except Exception as e:
+        print(f"  [Warning] Geopolitical news fetch failed: {e}")
+        results["geopolitical_news"] = ""
+
+    # ── 股票板块/概念数据 ─────────────────────────────
+    try:
+        from tradingagents.dataflows.sector_db import get_sector_db
+        sdb = get_sector_db()
+        # Extract 6-digit code from ticker like "600519.SH"
+        code = ticker.split(".")[0][-6:] if "." in ticker else ticker[-6:]
+        results["sector_context"] = sdb.format_stock_context(code)
+    except Exception as e:
+        print(f"  [Warning] Sector context lookup failed: {e}")
+        results["sector_context"] = ""
+    # ────────────────────────────────────────────────
+
     print(f"[Timer] Total Data Collection for {ticker} took {time.time() - fetch_start:.2f}s")
     return results
 

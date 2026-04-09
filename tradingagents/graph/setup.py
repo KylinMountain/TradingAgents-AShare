@@ -33,6 +33,8 @@ def _load_agent_factories() -> dict[str, Any]:
     from tradingagents.agents.risk_mgmt.aggressive_debator import create_aggressive_debator
     from tradingagents.agents.risk_mgmt.conservative_debator import create_conservative_debator
     from tradingagents.agents.risk_mgmt.neutral_debator import create_neutral_debator
+    from tradingagents.agents.analysts.market_impact_analyst import create_market_impact_analyst
+    from tradingagents.agents.analysts.volume_price_analyst import create_volume_price_analyst
     from tradingagents.agents.trader.trader import create_trader
 
     return {
@@ -49,6 +51,7 @@ def _load_agent_factories() -> dict[str, Any]:
         "create_risk_manager": create_risk_manager,
         "create_smart_money_analyst": create_smart_money_analyst,
         "create_social_media_analyst": create_social_media_analyst,
+        "create_market_impact_analyst": create_market_impact_analyst,
         "create_volume_price_analyst": create_volume_price_analyst,
         "create_trader": create_trader,
     }
@@ -83,7 +86,7 @@ class GraphSetup:
         self.data_collector = data_collector
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
+        self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money", "market_impact", "volume_price"],
         checkpointer=None
     ):
         """Set up and compile the agent workflow graph.
@@ -146,6 +149,13 @@ class GraphSetup:
             )
             tool_nodes["smart_money"] = self.tool_nodes["smart_money"]
             done_nodes["smart_money"] = analyst_done_node
+
+        if "market_impact" in selected_analysts:
+            analyst_nodes["market_impact"] = factories["create_market_impact_analyst"](
+                self.quick_thinking_llm, self.data_collector
+            )
+            tool_nodes["market_impact"] = self.tool_nodes["market_impact"]
+            done_nodes["market_impact"] = analyst_done_node
 
         if "volume_price" in selected_analysts:
             analyst_nodes["volume_price"] = factories["create_volume_price_analyst"](

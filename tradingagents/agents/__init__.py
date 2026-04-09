@@ -8,6 +8,7 @@ from .analysts.market_analyst import create_market_analyst
 from .analysts.news_analyst import create_news_analyst
 from .analysts.smart_money_analyst import create_smart_money_analyst
 from .analysts.social_media_analyst import create_social_media_analyst
+from .analysts.market_impact_analyst import create_market_impact_analyst
 from .analysts.volume_price_analyst import create_volume_price_analyst
 
 from .researchers.bear_researcher import create_bear_researcher
@@ -40,6 +41,7 @@ __all__ = [
     "create_risk_manager",
     "create_conservative_debator",
     "create_social_media_analyst",
+    "create_market_impact_analyst",
     "create_trader",
     "create_volume_price_analyst",
 ]

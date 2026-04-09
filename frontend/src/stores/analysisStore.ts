@@ -127,6 +127,7 @@ const initialAgents: Agent[] = [
     { id: 'fundamentals', name: 'Fundamentals Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'macro', name: 'Macro Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'smart_money', name: 'Smart Money Analyst', team: 'Analyst Team', status: 'pending' },
+    { id: 'market_impact', name: 'Market Impact Analyst', team: 'Analyst Team', status: 'pending' },
     { id: 'volume_price', name: 'Volume Price Analyst', team: 'Analyst Team', status: 'pending' },
 
     // Research Team

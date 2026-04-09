@@ -60,6 +60,14 @@ class ConditionalLogic:
             return "continue"
         return "done"
 
+    def should_continue_market_impact(self, state: AgentState):
+        """Determine if market impact analysis should continue."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        if getattr(last_message, "tool_calls", None):
+            return "continue"
+        return "done"
+
     def should_continue_volume_price(self, state: AgentState):
         """Determine if volume price analysis should continue."""
         messages = state["messages"]

@@ -21,6 +21,7 @@ def create_bull_researcher(llm, memory):
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
+        market_impact_report = state.get("market_impact_report", "")
         volume_price_report = state.get("volume_price_report", "")
         claims = investment_debate_state.get("claims", [])
         focus_claim_ids = investment_debate_state.get("focus_claim_ids", [])
@@ -34,7 +35,7 @@ def create_bull_researcher(llm, memory):
         specific_questions = user_intent.get("specific_questions", [])
         horizon_ctx = build_horizon_context(horizon, focus_areas, specific_questions, agent_type="bull")
 
-        curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}\n\n{volume_price_report}"
+        curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}\n\n{market_impact_report}\n\n{volume_price_report}"
         past_memories = memory.get_memories(curr_situation, n_matches=2)
 
         past_memory_str = ""
@@ -46,6 +47,7 @@ def create_bull_researcher(llm, memory):
             sentiment_report=sentiment_report,
             news_report=news_report,
             fundamentals_report=fundamentals_report,
+            market_impact_report=market_impact_report,
             volume_price_report=volume_price_report,
             history=history,
             current_response=current_response,

@@ -40,7 +40,7 @@ function inferPreset(llmProvider: string, backendUrl: string): string {
 
 export default function Settings() {
     const { user } = useAuthStore()
-    const [defaultAnalysts, setDefaultAnalysts] = useState(['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'volume_price'])
+    const [defaultAnalysts, setDefaultAnalysts] = useState(['market', 'social', 'news', 'fundamentals', 'macro', 'smart_money', 'market_impact', 'volume_price'])
     const [customPrompt, setCustomPrompt] = useState('')
     const [llmApiKey, setLlmApiKey] = useState('')
     const [hasStoredApiKey, setHasStoredApiKey] = useState(false)
@@ -517,6 +517,7 @@ export default function Settings() {
                             { key: 'fundamentals', label: '基本面' },
                             { key: 'macro', label: '宏观板块' },
                             { key: 'smart_money', label: '主力资金' },
+                            { key: 'market_impact', label: '地缘冲击' },
                             { key: 'volume_price', label: '量价分析' },
                         ].map((analyst) => {
                             const active = defaultAnalysts.includes(analyst.key)

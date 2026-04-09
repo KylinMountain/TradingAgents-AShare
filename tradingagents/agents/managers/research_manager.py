@@ -15,6 +15,7 @@ def create_research_manager(llm, memory):
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
         smart_money_report = state.get("smart_money_report", "")
+        market_impact_report = state.get("market_impact_report", "")
         volume_price_report = state.get("volume_price_report", "")
 
         investment_debate_state = state["investment_debate_state"]
@@ -22,7 +23,7 @@ def create_research_manager(llm, memory):
         unresolved_claim_ids = investment_debate_state.get("unresolved_claim_ids", [])
         round_summary = investment_debate_state.get("round_summary", "")
 
-        curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}"
+        curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}\n\n{market_impact_report}\n\n{volume_price_report}"
         past_memories = memory.get_memories(curr_situation, n_matches=2)
 
         past_memory_str = ""
@@ -35,6 +36,7 @@ def create_research_manager(llm, memory):
             smart_money_report=smart_money_report,
             volume_price_report=volume_price_report,
             sentiment_report=sentiment_report,
+            market_impact_report=market_impact_report,
             claims_text=format_claims_for_prompt(claims),
             unresolved_claims_text=format_claim_subset_for_prompt(claims, unresolved_claim_ids),
             round_summary=round_summary or "暂无轮次摘要。",
