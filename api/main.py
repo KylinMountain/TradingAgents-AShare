@@ -76,10 +76,13 @@ def _cors_allow_origins() -> list[str]:
     default_origins = [
         "http://127.0.0.1:5174",
         "http://localhost:5174",
+        "http://0.0.0.0:5174",
         "http://127.0.0.1:5175",
         "http://localhost:5175",
+        "http://0.0.0.0:5175",
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://0.0.0.0:5173",
     ]
     if not raw:
         return default_origins
@@ -88,7 +91,10 @@ def _cors_allow_origins() -> list[str]:
 
 def _cors_allow_origin_regex() -> str | None:
     raw = os.getenv("CORS_ALLOW_ORIGIN_REGEX", "").strip()
-    return raw or None
+    if raw:
+        return raw
+    # Allow local/private-network dev origins without forcing users to hardcode a host.
+    return r"^https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d+)?$"
 
 
 def _report_version_stats() -> None:
@@ -114,6 +120,16 @@ _scheduled_analysis_semaphore: Optional[asyncio.Semaphore] = None
 _scheduled_analysis_queue_lock: Optional[asyncio.Lock] = None
 _scheduled_analysis_waiting_job_ids: list[str] = []
 _scheduled_analysis_running_job_ids: set[str] = set()
+_TRANSIENT_HORIZON_ERROR_PATTERNS = (
+    "connection error",
+    "incomplete chunked read",
+    "peer closed connection",
+    "server disconnected",
+    "remote protocol error",
+    "read timeout",
+    "timed out",
+)
+_HORIZON_TRANSIENT_RETRIES = max(0, int(os.getenv("TA_HORIZON_TRANSIENT_RETRIES", "1")))
 
 
 def _ensure_scheduled_analysis_queue() -> tuple[asyncio.Semaphore, asyncio.Lock]:
@@ -1957,124 +1973,146 @@ async def _run_job_inner(
 
             async def _process_horizon(horizon: str):
                 """Async helper to run analysis for a single horizon."""
-                # 根据周期过滤 analyst，共享已采集的数据缓存
-                horizon_analysts = _get_horizon_analysts(horizon, request.selected_analysts)
-                horizon_graph = TradingAgentsGraph(
-                    selected_analysts=horizon_analysts,
-                    debug=False,
-                    config=config,
-                    data_collector=graph.data_collector,
-                )
-
                 horizon_label = "短线" if horizon == "short" else "中线"
-                _emit_job_event(job_id, "agent.horizon_start", {
-                    "horizon": horizon, "label": horizon_label,
-                })
-                # 每轮重置 tracker，前端进度条重新走一遍
-                h_tracker = AgentProgressTracker(horizon_analysts, job_id, horizon=horizon)
-                _emit_job_event(job_id, "agent.snapshot", h_tracker.snapshot())
-                # 告知前端本轮参与的 analyst 即将开始
-                for analyst_key in ANALYST_ORDER:
-                    if analyst_key in horizon_analysts:
-                        aname = ANALYST_AGENT_NAMES[analyst_key]
-                        h_tracker._set_status(aname, "in_progress")
-                        h_tracker._emit_writing_status(aname, ANALYST_REPORT_MAP[analyst_key])
+                max_attempts = 1 + _HORIZON_TRANSIENT_RETRIES
+                last_error: Exception | None = None
 
-                h_args = horizon_graph.propagator.get_graph_args()
+                def _is_transient_horizon_error(exc: Exception) -> bool:
+                    detail = str(exc).strip().lower()
+                    return any(pattern in detail for pattern in _TRANSIENT_HORIZON_ERROR_PATTERNS)
 
-                # Use thread_id for LangGraph checkpointer persistence
-                if "config" not in h_args:
-                    h_args["config"] = {}
-                h_args["config"]["configurable"] = {"thread_id": f"{job_id}_{horizon}"}
+                for attempt in range(1, max_attempts + 1):
+                    # 根据周期过滤 analyst，共享已采集的数据缓存
+                    horizon_analysts = _get_horizon_analysts(horizon, request.selected_analysts)
+                    horizon_graph = TradingAgentsGraph(
+                        selected_analysts=horizon_analysts,
+                        debug=False,
+                        config=config,
+                        data_collector=graph.data_collector,
+                    )
 
-                init_state = horizon_graph.propagator.create_initial_state(
-                    ticker, request.trade_date,
-                    user_context=user_context_payload,
-                    selected_analysts=horizon_analysts,
-                    request_source=request_source,
-                    user_intent=user_intent, horizon=horizon,
-                )
-                last_report: Dict[str, str] = {}
-                seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
-                horizon_final = None
-
-                # DB 更新使用短生命周期 session，避免长期占用连接池
-                def _horizon_partial_update(updates: dict):
-                    with get_db_ctx() as _hdb:
-                        report_service.update_report_partial(_hdb, job_id, **updates)
-
-                # 通过 ContextVar 将 tracker 传入 async 节点（LangGraph 不传递 schema 外的字段）
-                _tracker_token = current_tracker_var.set(h_tracker)
-                try:
-                    async for chunk in horizon_graph.graph.astream(init_state, **h_args):
-                        horizon_final = chunk
-
-                        # ── 并行感知的状态推进 ──────────────────
-                        # 1. 每个 analyst 报告首次出现 → completed
-                        for analyst_key in ANALYST_ORDER:
-                            if analyst_key not in horizon_analysts:
-                                continue
-                            rkey = ANALYST_REPORT_MAP[analyst_key]
+                    _emit_job_event(job_id, "agent.horizon_start", {
+                        "horizon": horizon, "label": horizon_label,
+                    })
+                    # 每轮重置 tracker，前端进度条重新走一遍
+                    h_tracker = AgentProgressTracker(horizon_analysts, job_id, horizon=horizon)
+                    _emit_job_event(job_id, "agent.snapshot", h_tracker.snapshot())
+                    # 告知前端本轮参与的 analyst 即将开始
+                    for analyst_key in ANALYST_ORDER:
+                        if analyst_key in horizon_analysts:
                             aname = ANALYST_AGENT_NAMES[analyst_key]
-                            if chunk.get(rkey) and not seen.get(rkey):
-                                seen[rkey] = True
-                                h_tracker._set_status(aname, "completed")
+                            h_tracker._set_status(aname, "in_progress")
+                            h_tracker._emit_writing_status(aname, ANALYST_REPORT_MAP[analyst_key])
 
-                        # 2. 分析师全部完成后 → Bull/Bear/ResearchManager 开始
-                        all_analysts_done = all(
-                            seen.get(ANALYST_REPORT_MAP.get(a, "")) for a in h_tracker.selected_analysts
-                        )
-                        if all_analysts_done and not seen.get("_research_started"):
-                            seen["_research_started"] = True
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")
+                    h_args = horizon_graph.propagator.get_graph_args()
 
-                        # 3. research judge → 研究团队完成, Trader 开始
-                        debate = chunk.get("investment_debate_state") or {}
-                        if debate.get("judge_decision") and not seen.get("judge_decision"):
-                            seen["judge_decision"] = True
-                            for r_key in ["bull", "bear", "research_manager"]:
-                                h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
-                            h_tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
+                    # Use a unique thread_id per retry so checkpointer state never resumes a broken run.
+                    if "config" not in h_args:
+                        h_args["config"] = {}
+                    h_args["config"]["configurable"] = {"thread_id": f"{job_id}_{horizon}_attempt_{attempt}"}
 
-                        # 4. trader plan → Trader completed, 风控开始
-                        if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
-                            seen["trader_investment_plan"] = True
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
-                            h_tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
+                    init_state = horizon_graph.propagator.create_initial_state(
+                        ticker, request.trade_date,
+                        user_context=user_context_payload,
+                        selected_analysts=horizon_analysts,
+                        request_source=request_source,
+                        user_intent=user_intent, horizon=horizon,
+                    )
+                    last_report: Dict[str, str] = {}
+                    seen: Dict[str, bool] = {}   # 追踪哪些字段已出现过，避免重复事件
+                    horizon_final = None
 
-                        # 5. risk judge → 风控全部完成
-                        risk = chunk.get("risk_debate_state") or {}
-                        if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
-                            seen["risk_judge_decision"] = True
-                            for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
-                                h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
-                        # ── end 并行感知 ────────────────────────────────────────────
+                    # DB 更新使用短生命周期 session，避免长期占用连接池
+                    def _horizon_partial_update(updates: dict):
+                        with get_db_ctx() as _hdb:
+                            report_service.update_report_partial(_hdb, job_id, **updates)
 
-                        # 报告分片推送与数据库即时更新
-                        db_updates = {}
-                        for key in report_keys:
-                            value = chunk.get(key)
-                            if value and value != last_report.get(key):
-                                last_report[key] = value
-                                db_updates[key] = str(value)
-                                h_tracker._emit_report_chunked(job_id, key, str(value))
+                    # 通过 ContextVar 将 tracker 传入 async 节点（LangGraph 不传递 schema 外的字段）
+                    _tracker_token = current_tracker_var.set(h_tracker)
+                    try:
+                        async for chunk in horizon_graph.graph.astream(init_state, **h_args):
+                            horizon_final = chunk
 
-                        if db_updates:
-                            await asyncio.to_thread(_horizon_partial_update, db_updates)
-                except Exception as e:
-                    _log(f"Error during horizon streaming ({horizon}): {e}")
-                    raise
-                finally:
-                    current_tracker_var.reset(_tracker_token)
+                            # ── 并行感知的状态推进 ──────────────────
+                            # 1. 每个 analyst 报告首次出现 → completed
+                            for analyst_key in ANALYST_ORDER:
+                                if analyst_key not in horizon_analysts:
+                                    continue
+                                rkey = ANALYST_REPORT_MAP[analyst_key]
+                                aname = ANALYST_AGENT_NAMES[analyst_key]
+                                if chunk.get(rkey) and not seen.get(rkey):
+                                    seen[rkey] = True
+                                    h_tracker._set_status(aname, "completed")
 
-                horizon_states[horizon] = horizon_final
-                for agent, st in h_tracker.status.items():
-                    if st not in ("completed", "skipped"):
-                        h_tracker._set_status(agent, "completed")
-                _emit_job_event(job_id, "agent.horizon_done", {"horizon": horizon})
+                            # 2. 分析师全部完成后 → Bull/Bear/ResearchManager 开始
+                            all_analysts_done = all(
+                                seen.get(ANALYST_REPORT_MAP.get(a, "")) for a in h_tracker.selected_analysts
+                            )
+                            if all_analysts_done and not seen.get("_research_started"):
+                                seen["_research_started"] = True
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["bull"], "in_progress")
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["bear"], "in_progress")
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["research_manager"], "in_progress")
+
+                            # 3. research judge → 研究团队完成, Trader 开始
+                            debate = chunk.get("investment_debate_state") or {}
+                            if debate.get("judge_decision") and not seen.get("judge_decision"):
+                                seen["judge_decision"] = True
+                                for r_key in ["bull", "bear", "research_manager"]:
+                                    h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "in_progress")
+                                h_tracker._emit_writing_status(ANALYST_AGENT_NAMES["trader"], "trader_investment_plan")
+
+                            # 4. trader plan → Trader completed, 风控开始
+                            if chunk.get("trader_investment_plan") and not seen.get("trader_investment_plan"):
+                                seen["trader_investment_plan"] = True
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["trader"], "completed")
+                                h_tracker._set_status(ANALYST_AGENT_NAMES["aggressive"], "in_progress")
+
+                            # 5. risk judge → 风控全部完成
+                            risk = chunk.get("risk_debate_state") or {}
+                            if risk.get("judge_decision") and not seen.get("risk_judge_decision"):
+                                seen["risk_judge_decision"] = True
+                                for r_key in ["aggressive", "neutral", "conservative", "portfolio_manager"]:
+                                    h_tracker._set_status(ANALYST_AGENT_NAMES[r_key], "completed")
+                            # ── end 并行感知 ────────────────────────────────────────────
+
+                            # 报告分片推送与数据库即时更新
+                            db_updates = {}
+                            for key in report_keys:
+                                value = chunk.get(key)
+                                if value and value != last_report.get(key):
+                                    last_report[key] = value
+                                    db_updates[key] = str(value)
+                                    h_tracker._emit_report_chunked(job_id, key, str(value))
+
+                            if db_updates:
+                                await asyncio.to_thread(_horizon_partial_update, db_updates)
+                    except Exception as e:
+                        _log(f"Error during horizon streaming ({horizon}, attempt {attempt}/{max_attempts}): {e}")
+                        last_error = e
+                        if attempt < max_attempts and _is_transient_horizon_error(e):
+                            _log(f"[Horizon Retry] {horizon_label}分析出现瞬时连接错误，准备重试第 {attempt + 1}/{max_attempts} 次")
+                            _emit_job_event(job_id, "agent.tool_call", {
+                                "agent": "系统",
+                                "tool": "llm_retry",
+                                "description": f"{horizon_label}分析连接中断，正在重试 ({attempt + 1}/{max_attempts})",
+                            })
+                            await asyncio.sleep(min(2 * attempt, 5))
+                            continue
+                        raise
+                    finally:
+                        current_tracker_var.reset(_tracker_token)
+
+                    horizon_states[horizon] = horizon_final
+                    for agent, st in h_tracker.status.items():
+                        if st not in ("completed", "skipped"):
+                            h_tracker._set_status(agent, "completed")
+                    _emit_job_event(job_id, "agent.horizon_done", {"horizon": horizon})
+                    return
+
+                if last_error is not None:
+                    raise last_error
 
             # 3. 按解析出的 horizons 并行运行 astream()，事件实时推给前端
             results = await asyncio.gather(
