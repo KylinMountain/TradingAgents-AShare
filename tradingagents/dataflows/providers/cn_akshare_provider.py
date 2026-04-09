@@ -1,6 +1,7 @@
 import re
 import time
 import threading
+import contextvars
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -10,9 +11,113 @@ from .base import BaseMarketDataProvider
 from ..trade_calendar import cn_market_phase, cn_no_data_reason, cn_today_str, is_cn_trading_day
 
 
-# 允许最多 5 个 akshare 调用并发（全局锁改信号量，缓解排队瓶颈）
-# akshare 内部有少量全局状态，但适度并发实测可行；过高会触发数据源反爬
-AKSHARE_CALL_LOCK = threading.Semaphore(5)
+# ── akshare 并发控制 ──
+# 总并发上限 5（防反爬 + akshare 全局状态安全）
+# 定时任务最多占 3 个槽位，保证前端至少有 2 个槽位可用
+#
+# 关键设计：僵尸线程回收
+# _run_job 超时后不会 cancel 内部线程（避免 cancel 卡在 to_thread），
+# 导致僵尸线程可能永远持有 semaphore permit。_AkshareLock 通过追踪每个
+# permit 的持有时间，在超过 STALE_TIMEOUT 后自动回收，防止锁被耗尽。
+
+_is_scheduled_task: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "is_scheduled_task", default=False,
+)
+
+
+def set_scheduled_task_context(value: bool = True) -> contextvars.Token:
+    """标记当前上下文为定时任务（会通过 asyncio.to_thread 自动传播到工作线程）"""
+    return _is_scheduled_task.set(value)
+
+
+import logging as _logging
+
+_lock_logger = _logging.getLogger(__name__)
+
+
+class _AkshareLock:
+    """akshare 并发锁：前端优先 + 僵尸线程自动回收。
+
+    - 总并发上限 ``total``（防反爬）
+    - 定时任务额外受 ``scheduled_max`` 限制，为前端保留带宽
+    - 持锁超过 ``stale_timeout`` 秒的线程视为僵尸，permit 被自动回收
+    - 僵尸线程最终退出 ``with`` 块时不会 double-release（已被回收）
+    """
+
+    ACQUIRE_TIMEOUT = 60   # 等待 slot 的最大秒数
+    STALE_TIMEOUT = 120    # 单次 akshare 调用不应超过 2 分钟，超过视为僵尸
+
+    def __init__(self, total: int = 5, scheduled_max: int = 3):
+        self._total = threading.Semaphore(total)
+        self._scheduled = threading.Semaphore(scheduled_max)
+        self._holders: dict[int, tuple[float, bool]] = {}   # tid -> (mono_time, is_scheduled)
+        self._mu = threading.Lock()
+
+    # ── 僵尸回收 ──
+
+    def _reclaim_stale(self) -> int:
+        """回收超时持有者的 permit，返回回收数量。"""
+        now = time.monotonic()
+        reclaimed = 0
+        with self._mu:
+            stale = [
+                (tid, is_sched)
+                for tid, (t, is_sched) in self._holders.items()
+                if now - t > self.STALE_TIMEOUT
+            ]
+            for tid, is_sched in stale:
+                del self._holders[tid]
+                self._total.release()
+                if is_sched:
+                    self._scheduled.release()
+                reclaimed += 1
+        if reclaimed:
+            _lock_logger.warning("[AkshareLock] reclaimed %d stale permits from zombie threads", reclaimed)
+        return reclaimed
+
+    # ── context manager ──
+
+    def _acquire_or_reclaim(self, sem: threading.Semaphore, label: str) -> None:
+        """尝试获取 semaphore，超时后回收僵尸再重试一次。"""
+        if sem.acquire(timeout=self.ACQUIRE_TIMEOUT):
+            return
+        self._reclaim_stale()
+        if sem.acquire(timeout=10):
+            return
+        raise TimeoutError(f"akshare {label} slot acquire timeout after reclaim")
+
+    def __enter__(self):
+        is_scheduled = _is_scheduled_task.get(False)
+        try:
+            if is_scheduled:
+                self._acquire_or_reclaim(self._scheduled, "scheduled")
+                try:
+                    self._acquire_or_reclaim(self._total, "total")
+                except BaseException:
+                    self._scheduled.release()
+                    raise
+            else:
+                self._acquire_or_reclaim(self._total, "total")
+        except TimeoutError:
+            _lock_logger.error("[AkshareLock] acquire timeout (is_scheduled=%s)", is_scheduled)
+            raise
+        with self._mu:
+            self._holders[threading.get_ident()] = (time.monotonic(), is_scheduled)
+        return self
+
+    def __exit__(self, *exc_info):
+        tid = threading.get_ident()
+        with self._mu:
+            info = self._holders.pop(tid, None)
+        if info is not None:
+            _, is_scheduled = info
+            self._total.release()
+            if is_scheduled:
+                self._scheduled.release()
+        # info is None → permit 已被 _reclaim_stale 回收，不 double-release
+
+
+AKSHARE_CALL_LOCK = _AkshareLock(total=5, scheduled_max=3)
 
 
 class CnAkshareProvider(BaseMarketDataProvider):
@@ -180,7 +285,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     out = self._normalize_hist_df(df)
                     out = self._slice_hist_df(out, start_date, end_date)
                     if not out.empty:
-                        return self._maybe_append_realtime_row(symbol, out, end_date)
+                        return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
                     etf_errors.append("fund_etf_hist_sina: empty after date filter")
                 except Exception as exc:
                     etf_errors.append(f"fund_etf_hist_sina: {type(exc).__name__}")
@@ -195,7 +300,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     )
                     out = self._normalize_hist_df(df)
                     if not out.empty:
-                        return self._maybe_append_realtime_row(symbol, out, end_date)
+                        return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
                     etf_errors.append("fund_etf_hist_em: empty dataframe")
                 except Exception as exc:
                     etf_errors.append(f"fund_etf_hist_em: {type(exc).__name__}")
@@ -212,7 +317,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                         adjust="qfq",
                     )
                     out = self._normalize_hist_df(df)
-                    return self._maybe_append_realtime_row(symbol, out, end_date)
+                    return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
                 except Exception as exc:
                     em_last_exc = exc
                     if i < 1:
@@ -227,7 +332,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     adjust="qfq",
                 )
                 out = self._normalize_hist_df(df)
-                return self._maybe_append_realtime_row(symbol, out, end_date)
+                return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
             except Exception:
                 pass
 
@@ -240,7 +345,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     adjust="qfq",
                 )
                 out = self._normalize_hist_df(df)
-                return self._maybe_append_realtime_row(symbol, out, end_date)
+                return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
             except Exception:
                 pass
 
@@ -248,31 +353,41 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 f"cn_akshare is temporarily unavailable for price history (eastmoney/sina/tencent all failed): {em_last_exc}"
             ) from em_last_exc
 
+    def _fetch_realtime_row_unlocked(self, symbol: str) -> pd.DataFrame:
+        ak = self._ak()
+        spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol))
+        if spot is None or spot.empty:
+            return pd.DataFrame()
+        if not {"item", "value"}.issubset(set(spot.columns)):
+            return pd.DataFrame()
+        kv = dict(zip(spot["item"].astype(str), spot["value"]))
+
+        date_val = pd.to_datetime(kv.get("时间"), errors="coerce")
+        if pd.isna(date_val):
+            date_val = pd.to_datetime(cn_today_str())
+        row = {
+            "Date": pd.to_datetime(date_val).normalize(),
+            "Open": pd.to_numeric(kv.get("今开"), errors="coerce"),
+            "High": pd.to_numeric(kv.get("最高"), errors="coerce"),
+            "Low": pd.to_numeric(kv.get("最低"), errors="coerce"),
+            "Close": pd.to_numeric(kv.get("现价"), errors="coerce"),
+            "Volume": pd.to_numeric(kv.get("成交量"), errors="coerce"),
+        }
+        rt = pd.DataFrame([row]).dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        return rt
+
     def _fetch_realtime_row(self, symbol: str) -> pd.DataFrame:
         with AKSHARE_CALL_LOCK:
-            ak = self._ak()
-            spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol))
-            if spot is None or spot.empty:
-                return pd.DataFrame()
-            if not {"item", "value"}.issubset(set(spot.columns)):
-                return pd.DataFrame()
-            kv = dict(zip(spot["item"].astype(str), spot["value"]))
+            return self._fetch_realtime_row_unlocked(symbol)
 
-            date_val = pd.to_datetime(kv.get("时间"), errors="coerce")
-            if pd.isna(date_val):
-                date_val = pd.to_datetime(cn_today_str())
-            row = {
-                "Date": pd.to_datetime(date_val).normalize(),
-                "Open": pd.to_numeric(kv.get("今开"), errors="coerce"),
-                "High": pd.to_numeric(kv.get("最高"), errors="coerce"),
-                "Low": pd.to_numeric(kv.get("最低"), errors="coerce"),
-                "Close": pd.to_numeric(kv.get("现价"), errors="coerce"),
-                "Volume": pd.to_numeric(kv.get("成交量"), errors="coerce"),
-            }
-            rt = pd.DataFrame([row]).dropna(subset=["Open", "High", "Low", "Close", "Volume"])
-            return rt
-
-    def _maybe_append_realtime_row(self, symbol: str, hist_df: pd.DataFrame, end_date: str) -> pd.DataFrame:
+    def _maybe_append_realtime_row(
+        self,
+        symbol: str,
+        hist_df: pd.DataFrame,
+        end_date: str,
+        *,
+        assume_locked: bool = False,
+    ) -> pd.DataFrame:
         if hist_df is None:
             hist_df = pd.DataFrame()
         try:
@@ -295,7 +410,10 @@ class CnAkshareProvider(BaseMarketDataProvider):
             if phase in ("pre_open", "closed"):
                 return hist_df
 
-            rt = self._fetch_realtime_row(symbol)
+            if assume_locked:
+                rt = self._fetch_realtime_row_unlocked(symbol)
+            else:
+                rt = self._fetch_realtime_row(symbol)
             if rt.empty:
                 return hist_df
             if pd.to_datetime(rt.iloc[0]["Date"]).normalize() != today:
@@ -547,37 +665,37 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 ) from exc
 
     def get_insider_transactions(self, symbol: str) -> str:
-        with AKSHARE_CALL_LOCK:
-            ak = self._ak()
-            code = self._normalize_symbol(symbol)
-            errors = []
-            try:
-                # stock_ggcg_em 不支持按个股代码查询，默认全市场数据量较大
+        ak = self._ak()
+        code = self._normalize_symbol(symbol)
+        errors = []
+        try:
+            # stock_ggcg_em 不支持按个股代码查询，默认全市场数据量较大
+            with AKSHARE_CALL_LOCK:
                 df = ak.stock_main_stock_holder(stock=code)
-                if df is not None and not df.empty:
-                    return (
-                        f"## Insider Transactions for {symbol}\n\n"
-                        f"{df.head(20).to_markdown(index=False)}"
-                    )
-                errors.append("stock_main_stock_holder: empty dataframe")
-            except Exception as exc:
-                errors.append(f"stock_main_stock_holder: {type(exc).__name__}")
-
-            try:
-                # 退化为最近相关新闻，至少保证接口有可用输出
-                end_date = datetime.now().strftime("%Y-%m-%d")
-                start_date = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
-                news = self.get_news(symbol, start_date, end_date)
+            if df is not None and not df.empty:
                 return (
                     f"## Insider Transactions for {symbol}\n\n"
-                    f"未获取到股东交易明细，降级返回近两周公司相关新闻：\n\n{news}"
+                    f"{df.head(20).to_markdown(index=False)}"
                 )
-            except Exception as exc:
-                errors.append(f"news_fallback: {type(exc).__name__}")
+            errors.append("stock_main_stock_holder: empty dataframe")
+        except Exception as exc:
+            errors.append(f"stock_main_stock_holder: {type(exc).__name__}")
 
-            raise NotImplementedError(
-                f"cn_akshare is temporarily unavailable for insider transactions: {'; '.join(errors)}"
+        try:
+            # 退化为最近相关新闻，至少保证接口有可用输出
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+            news = self.get_news(symbol, start_date, end_date)
+            return (
+                f"## Insider Transactions for {symbol}\n\n"
+                f"未获取到股东交易明细，降级返回近两周公司相关新闻：\n\n{news}"
             )
+        except Exception as exc:
+            errors.append(f"news_fallback: {type(exc).__name__}")
+
+        raise NotImplementedError(
+            f"cn_akshare is temporarily unavailable for insider transactions: {'; '.join(errors)}"
+        )
 
     # TTL cache for stock_zh_a_spot_em to avoid hammering Eastmoney under concurrent load
     _spot_cache: "pd.DataFrame | None" = None

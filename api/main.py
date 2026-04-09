@@ -64,6 +64,7 @@ from tradingagents.graph.data_collector import DataCollector
 # 全局共享 DataCollector：同一 ticker+date 的数据只拉一次，所有 job 复用缓存
 _shared_data_collector = DataCollector()
 from tradingagents.dataflows.trade_calendar import cn_today_str
+from tradingagents.dataflows.providers.cn_akshare_provider import set_scheduled_task_context
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.graph.intent_parser import parse_intent as _parse_intent
@@ -350,6 +351,8 @@ async def _run_scheduled_analysis_once(
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
     _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
+    # 标记当前上下文为定时任务，akshare 并发锁会据此限制槽位，为前端保留带宽
+    set_scheduled_task_context(True)
     try:
         async with _scheduled_analysis_slot(job_id, symbol):
             with get_db_ctx() as db:
