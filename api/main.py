@@ -439,20 +439,34 @@ async def lifespan(app: FastAPI):
             ScheduledAnalysisDB.last_run_status == "running"
         ).all()
         if stale:
+            recovered_count = 0
+            reset_count = 0
             for item in stale:
                 # 检查是否已有对应的成功报告（任务实际完成了但状态卡在 running）
-                has_report = item.last_report_id and db.query(ReportDB).filter(
-                    ReportDB.id == item.last_report_id,
-                    ReportDB.status == "completed",
-                ).first()
+                # 必须同时校验报告是本次运行产生的（created_at >= last_run_date），
+                # 否则 last_report_id 指向的旧报告会导致假成功。
+                has_report = (
+                    item.last_report_id
+                    and item.last_run_date
+                    and db.query(ReportDB).filter(
+                        ReportDB.id == item.last_report_id,
+                        ReportDB.status == "completed",
+                        ReportDB.created_at >= item.last_run_date,
+                    ).first()
+                )
                 if has_report:
                     item.last_run_status = "success"
                     # 保留 last_run_date，不重新触发
+                    recovered_count += 1
                 else:
                     item.last_run_status = "stale"
                     item.last_run_date = None  # 真正未完成，允许重新触发
+                    reset_count += 1
             db.commit()
-            _log(f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup.")
+            _log(
+                f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup "
+                f"(recovered={recovered_count}, reset_to_stale={reset_count})."
+            )
         report_reset = report_service.recover_stale_active_reports(db)
         if report_reset["total"]:
             _log(
