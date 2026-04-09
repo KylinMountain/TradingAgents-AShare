@@ -806,7 +806,7 @@ class AnalyzeRequest(UserContextInput):
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
-    # When set, triggers intent-driven analysis via streaming dual-horizon path
+    # When set, triggers intent-driven analysis via streaming path
     query: Optional[str] = Field(default=None, description="自然语言查询，如：分析贵州茅台短线机会")
     horizons: List[str] = Field(default_factory=lambda: ["short"], description="分析周期列表，如 ['short'] 或 ['short','medium']")
     # Pre-parsed intent from _ai_extract_symbol_and_date (avoids second LLM call in _run_job)
@@ -1896,13 +1896,13 @@ async def _run_job_inner(
         )
         final_state: Optional[Dict[str, Any]] = None
 
-        # 强制单周期：多个 horizon 时只取第一个，避免 dual-horizon 双倍开销
+        # 强制单周期：多个 horizon 时只取第一个，避免双倍开销
         if not request.horizons:
             request.horizons = ["short"]
         elif len(request.horizons) > 1:
             request.horizons = [request.horizons[0]]
 
-        # ── Dual-horizon intent-driven path ──────────────────────────────────
+        # ── Intent-driven streaming path ──────────────────────────────────
         if request.query:
             # 1. 组装用户意图
             intent_start_t = time.time()
@@ -2096,7 +2096,7 @@ async def _run_job_inner(
             result = {
                 "symbol": ticker,
                 "trade_date": request.trade_date,
-                "mode": "dual_horizon",
+                "mode": "intent_driven",
                 "user_intent": user_intent,
                 "short_term": short_r,
                 "medium_term": medium_r,
@@ -2177,7 +2177,7 @@ async def _run_job_inner(
             _emit_job_event(job_id, "job.completed", {
                 "job_id": job_id, "decision": decision,
                 "direction": result["direction"],
-                "result": result, "mode": "dual_horizon",
+                "result": result, "mode": "intent_driven",
                 "risk_items": [r.model_dump() for r in structured.risks] if structured else [],
                 "key_metrics": [m.model_dump() for m in structured.key_metrics] if structured else [],
                 "confidence": result["confidence"],
@@ -2185,9 +2185,9 @@ async def _run_job_inner(
                 "stop_loss_price": result["stop_loss_price"],
             })
             _log(f"Job completed successfully: {job_id}")
-            _log(f"[Timer] TOTAL Job execution (dual_horizon) took {time.time() - job_start_t:.2f}s")
+            _log(f"[Timer] TOTAL Job execution (intent_driven) took {time.time() - job_start_t:.2f}s")
             return
-        # ── End dual-horizon path ─────────────────────────────────────────────
+        # ── End intent-driven path ────────────────────────────────────────────
 
         if stream_events:
             init_state = graph.propagator.create_initial_state(
