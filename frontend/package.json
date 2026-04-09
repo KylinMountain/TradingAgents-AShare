@@ -39,7 +39,7 @@
     "globals": "^17.4.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.3.3",
+    "typescript": "^6.0.2",
     "vite": "^5.1.0",
     "vitest": "^4.1.2"
   }
