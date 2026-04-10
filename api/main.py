@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 
 from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -347,7 +348,6 @@ async def _run_scheduled_analysis_once(
     symbol = task["symbol"]
     horizon = task.get("horizon") or "short"
 
-    _ensure_job_event_queue(job_id)
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
     _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
@@ -408,7 +408,7 @@ async def _run_scheduled_job(task: dict, trade_date: str):
             mark_schedule_run=True,
         )
     finally:
-        _job_events.pop(job_id, None)
+        get_job_store().delete_job(job_id)
 
 
 @asynccontextmanager
@@ -417,9 +417,8 @@ async def lifespan(app: FastAPI):
     global _scheduler_task, _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
     init_db()
     _log("Database initialized.")
-    with _jobs_lock:
-        _jobs.clear()
-        _job_events.clear()
+    store = get_job_store()
+    store.clear()
     _background_tasks.clear()
     _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
     _scheduled_analysis_queue_lock = asyncio.Lock()
@@ -527,8 +526,15 @@ app.add_middleware(
 )
 
 _executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
-_jobs_lock = Lock()
-_jobs: Dict[str, Dict[str, Any]] = {}
+
+# ── Singleton job store (in-memory or Redis depending on REDIS_URL) ─────────
+_job_store_instance: Optional[Any] = None
+
+def get_job_store():
+    global _job_store_instance
+    if _job_store_instance is None:
+        _job_store_instance = _new_job_store()
+    return _job_store_instance
 
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
@@ -540,7 +546,6 @@ _CONFIG_OVERRIDES_ALLOWLIST = {
     "max_debate_rounds", "max_risk_discuss_rounds",
     "prompt_language",
 }
-_job_events: Dict[str, "asyncio.Queue[Dict[str, Any]]"] = {}
 # Hold references to fire-and-forget tasks so they are not garbage collected
 _background_tasks: set = set()
 
@@ -1274,51 +1279,23 @@ def _optional_user(
 
 
 def _set_job(job_key: str, **kwargs) -> None:
-    with _jobs_lock:
-        if job_key not in _jobs:
-            _jobs[job_key] = {}
-        _jobs[job_key].update(kwargs)
+    # Callers may pass job_id=<value> as a stored field.  Since
+    # store.set_job()'s first positional param is also called job_id,
+    # we must strip it from kwargs to avoid a "got multiple values" TypeError.
+    # _get_job() always injects job_id back into the returned dict.
+    kwargs.pop("job_id", None)
+    get_job_store().set_job(job_key, **kwargs)
 
 
 def _get_job(job_key: str) -> Dict[str, Any]:
-    with _jobs_lock:
-        return dict(_jobs.get(job_key, {}))
-
-
-def _ensure_job_event_queue(job_id: str) -> "asyncio.Queue[Dict[str, Any]]":
-    with _jobs_lock:
-        q = _job_events.get(job_id)
-        if q is None:
-            q = asyncio.Queue()
-            _job_events[job_id] = q
-        return q
+    d = get_job_store().get_job(job_key)
+    if d:
+        d.setdefault("job_id", job_key)
+    return d
 
 
 def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
-    """Thread-safe event emitter: uses call_soon_threadsafe when called from a
-    non-event-loop thread (e.g. inside asyncio.to_thread callbacks)."""
-    payload = {
-        "event": event,
-        "data": data,
-        "timestamp": _utcnow_iso(),
-    }
-    q = _ensure_job_event_queue(job_id)
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # We are inside the event loop – safe to call directly
-        q.put_nowait(payload)
-    else:
-        # Called from a worker thread – schedule on the main loop
-        try:
-            main_loop = asyncio.get_event_loop()
-            main_loop.call_soon_threadsafe(q.put_nowait, payload)
-        except RuntimeError:
-            # Fallback: no event loop available at all
-            q.put_nowait(payload)
+    get_job_store().emit_event(job_id, event, data)
 
 
 def _attach_job_runtime_state(target: Any, job_id: Optional[str]) -> Any:
@@ -2687,22 +2664,14 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
 
 
 async def _stream_job_events(job_id: str):
-    q = _ensure_job_event_queue(job_id)
+    store = get_job_store()
     yield _sse_pack("job.ready", {"job_id": job_id})
-    while True:
-        try:
-            event = await asyncio.wait_for(q.get(), timeout=15)
-            yield _sse_pack(event["event"], event["data"])
-            if event["event"] in ("job.completed", "job.failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-        except asyncio.TimeoutError:
-            # 仅在 status 已完成且无更多事件时关闭（兜底，正常路径不会触发）
-            status = _jobs.get(job_id, {}).get("status")
-            if status in ("completed", "failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-            yield _sse_pack("ping", {"timestamp": _utcnow_iso()})
+    async for event in store.subscribe(job_id):
+        evt_name = event["event"]
+        yield _sse_pack(evt_name, event["data"])
+        if evt_name in ("job.completed", "job.failed"):
+            yield "event: done\ndata: [DONE]\n\n"
+            return
 
 
 @app.get("/healthz")
@@ -2920,7 +2889,6 @@ async def analyze(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -2928,15 +2896,14 @@ async def analyze(
     )
     if request.dry_run:
         await _run_job(job_id, request, True, True, current_user.id, "api")
-        final_status = _jobs.get(job_id, {}).get("status", "completed")
+        final_status = _get_job(job_id).get("status", "completed")
         return AnalyzeResponse(job_id=job_id, status=final_status, created_at=now)
     _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
 def _require_job_owner(job_id: str, current_user: UserDB) -> Dict[str, Any]:
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    job = _get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     owner_id = job.get("user_id")
@@ -3198,7 +3165,6 @@ async def chat_completions(
     # 这样用户提交查询后立刻收到 job.ready，不用等待 thinking 模型的 StockExtract。
     if request.stream:
         job_id = uuid4().hex
-        _ensure_job_event_queue(job_id)
 
         async def _extract_and_run():
             try:
@@ -3338,7 +3304,6 @@ async def chat_completions(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -3346,8 +3311,8 @@ async def chat_completions(
     )
     if request.dry_run:
         await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
-        status_text = _jobs.get(job_id, {}).get("status", "completed")
-        decision_text = _jobs.get(job_id, {}).get("decision", "DRY_RUN")
+        status_text = _get_job(job_id).get("status", "completed")
+        decision_text = _get_job(job_id).get("decision", "DRY_RUN")
         return {
             "id": f"chatcmpl-{job_id}",
             "object": "chat.completion",
@@ -4463,7 +4428,6 @@ async def trigger_scheduled_analyses_batch(
             user_id=current_user.id,
             request_source="scheduled_manual_batch",
         )
-        _ensure_job_event_queue(job_id)
         _emit_job_event(
             job_id,
             "job.queued",
@@ -4530,7 +4494,6 @@ async def trigger_scheduled_analysis_once(
         user_id=current_user.id,
         request_source="scheduled_manual",
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.queued",
