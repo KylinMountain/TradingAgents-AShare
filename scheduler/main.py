@@ -397,5 +397,9 @@ def main():
         _log("[Scheduler] Stopped by user.")
 
 
+# Alias for pyproject.toml script entry (must be sync)
+sync_main = main
+
+
 if __name__ == "__main__":
     main()

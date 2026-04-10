@@ -25,6 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # 拷贝后端源码
 COPY api/ ./api/
 COPY tradingagents/ ./tradingagents/
+COPY scheduler/ ./scheduler/
 
 # 安装项目本身，避免 uv run 启动时重复安装
 RUN --mount=type=cache,target=/root/.cache/uv \
