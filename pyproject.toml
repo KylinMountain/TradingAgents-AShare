@@ -33,6 +33,7 @@ dependencies = [
     "cryptography>=45.0.3",
     "json-repair>=0.44.0",
     "markdown>=3.7",
+    "redis[hiredis]>=5.0.0",
 ]
 
 [project.scripts]
