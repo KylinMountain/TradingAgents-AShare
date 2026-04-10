@@ -1818,11 +1818,11 @@ async def _run_job(
     err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
     _log(f"[Job {job_id}] {err_msg}")
     _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
+    # 注意：不能用 asyncio.to_thread 写 DB，因为线程池可能被僵尸任务占满导致死锁。
+    # 用同步方式直接写，SQLite 的写入足够快不会阻塞事件循环。
     try:
-        def _record_timeout():
-            with get_db_ctx() as db:
-                report_service.mark_report_failed(db, job_id, err_msg)
-        await asyncio.to_thread(_record_timeout)
+        with get_db_ctx() as db:
+            report_service.mark_report_failed(db, job_id, err_msg)
     except Exception:
         pass
     _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
