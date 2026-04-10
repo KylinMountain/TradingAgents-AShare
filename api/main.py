@@ -275,7 +275,15 @@ def _build_scheduled_analyze_request(
     scheduled_user_context: Optional[Dict[str, Any]] = None,
 ) -> "AnalyzeRequest":
     scheduled_user_context = scheduled_user_context or _build_imported_user_context(db, user_id, symbol)
-    return AnalyzeRequest(
+    # Read user's saved analyst selection from DB
+    user_cfg = auth_service.get_user_llm_config(db, user_id)
+    selected = None
+    if user_cfg and user_cfg.default_analysts:
+        try:
+            selected = json.loads(user_cfg.default_analysts)
+        except Exception:
+            pass
+    req = AnalyzeRequest(
         symbol=symbol,
         trade_date=trade_date,
         horizons=[horizon],
@@ -293,6 +301,9 @@ def _build_scheduled_analyze_request(
         average_cost=scheduled_user_context.get("average_cost"),
         user_notes=scheduled_user_context.get("user_notes"),
     )
+    if selected:
+        req.selected_analysts = selected
+    return req
 
 
 async def _send_scheduled_report_notifications(user_id: str, report_id: str, symbol: str) -> None:
@@ -1037,6 +1048,7 @@ class UserRuntimeConfigResponse(BaseModel):
     server_fallback_enabled: bool = True
     email_report_enabled: bool = True
     wecom_report_enabled: bool = True
+    default_analysts: List[str] = Field(default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"])
 
 
 class UserRuntimeConfigUpdateRequest(BaseModel):
@@ -1054,6 +1066,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     clear_wecom_webhook: bool = False
     warmup: bool = True
     force_warmup: bool = False
+    default_analysts: Optional[List[str]] = None
 
 
 class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
@@ -3849,6 +3862,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
         email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
         wecom_report_enabled=user.wecom_report_enabled if user and hasattr(user, "wecom_report_enabled") else True,
+        default_analysts=json.loads(user_cfg.default_analysts) if user_cfg and user_cfg.default_analysts else ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"],
     )
 
 
@@ -3928,6 +3942,7 @@ def update_runtime_config(
         wecom_webhook_url=normalized_wecom_webhook,
         clear_api_key=updates.clear_api_key,
         clear_wecom_webhook=updates.clear_wecom_webhook,
+        default_analysts=updates.default_analysts,
     )
     user_pref_updated = False
     if updates.email_report_enabled is not None:

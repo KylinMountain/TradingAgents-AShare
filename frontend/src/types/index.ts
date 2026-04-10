@@ -567,6 +567,7 @@ export interface RuntimeConfig {
     server_fallback_enabled?: boolean
     email_report_enabled?: boolean
     wecom_report_enabled?: boolean
+    default_analysts?: string[]
 }
 
 export interface RuntimeConfigUpdateResponse {
@@ -590,6 +591,7 @@ export interface RuntimeConfigUpdate {
     clear_wecom_webhook?: boolean
     email_report_enabled?: boolean
     wecom_report_enabled?: boolean
+    default_analysts?: string[]
     warmup?: boolean
     force_warmup?: boolean
 }

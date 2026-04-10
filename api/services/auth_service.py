@@ -254,6 +254,7 @@ def upsert_user_llm_config(
     wecom_webhook_url: Optional[str] = None,
     clear_api_key: bool = False,
     clear_wecom_webhook: bool = False,
+    default_analysts: Optional[list] = None,
 ) -> UserLLMConfigDB:
     row = get_user_llm_config(db, user_id)
     now = _utcnow()
@@ -283,6 +284,10 @@ def upsert_user_llm_config(
         row.wecom_webhook_encrypted = None
     elif wecom_webhook_url:
         row.wecom_webhook_encrypted = encrypt_secret(wecom_webhook_url)
+
+    if default_analysts is not None:
+        import json
+        row.default_analysts = json.dumps(default_analysts)
 
     row.updated_at = now
     db.commit()
