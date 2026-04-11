@@ -17,7 +17,7 @@
     "clsx": "^2.1.0",
     "date-fns": "^4.1.0",
     "lightweight-charts": "^5.1.0",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "^1.8.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
