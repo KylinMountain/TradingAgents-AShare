@@ -81,7 +81,7 @@ class Propagator:
             "risk_debate_state": RiskDebateState(build_empty_risk_debate_state()),
             "risk_feedback_state": {
                 "retry_count": 0,
-                "max_retries": 1,
+                "max_retries": 0, ##先调整为不触发revise
                 "revision_required": False,
                 "latest_risk_verdict": "",
                 "hard_constraints": [],

@@ -1,3 +1,4 @@
+import os
 import re
 import time
 import threading
@@ -250,7 +251,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
     def _fetch_realtime_row(self, symbol: str) -> pd.DataFrame:
         with AKSHARE_CALL_LOCK:
             ak = self._ak()
-            spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol))
+            xq_token = os.environ.get("XQ_A_TOKEN")
+            spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol), token=xq_token)
             if spot is None or spot.empty:
                 return pd.DataFrame()
             if not {"item", "value"}.issubset(set(spot.columns)):
@@ -500,50 +502,12 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     f"cn_akshare is temporarily unavailable for news: {exc}"
                 ) from exc
 
-    def get_global_news(
-        self, curr_date: str, look_back_days: int = 7, limit: int = 50
-    ) -> str:
-        with AKSHARE_CALL_LOCK:
-            ak = self._ak()
-            try:
-                if hasattr(ak, "news_cctv"):
-                    target_dt = datetime.strptime(curr_date, "%Y-%m-%d")
-                    used_date = curr_date
-                    df = ak.news_cctv(date=curr_date.replace("-", ""))
-                    if df is None or df.empty:
-                        # Fallback: if today's feed is empty, try recent 3 days.
-                        for back in range(1, 4):
-                            probe_dt = target_dt - timedelta(days=back)
-                            probe_date = probe_dt.strftime("%Y-%m-%d")
-                            probe_df = ak.news_cctv(date=probe_date.replace("-", ""))
-                            if probe_df is not None and not probe_df.empty:
-                                df = probe_df
-                                used_date = probe_date
-                                break
-                    if df is None or df.empty:
-                        return f"{curr_date} 未获取到全球市场新闻（已回看最近3天）"
-                    rows = []
-                    for _, row in df.head(limit).iterrows():
-                        title = str(row.get("title", row.get("标题", "No title")))
-                        content = str(row.get("content", row.get("内容", "")))
-                        rows.append(f"### {title}")
-                        if content and content != "nan":
-                            rows.append(content[:300])
-                        rows.append("")
-                    start = (
-                        datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=look_back_days)
-                    ).strftime("%Y-%m-%d")
-                    if used_date != curr_date:
-                        return (
-                            f"## 全球市场新闻（{start} 至 {curr_date}，当日为空，回退至 {used_date}）：\n\n"
-                            + "\n".join(rows)
-                        )
-                    return f"## 全球市场新闻（{start} 至 {curr_date}）：\n\n" + "\n".join(rows)
-                return "当前 cn_akshare 实现暂不支持全球新闻接口。"
-            except Exception as exc:
-                raise NotImplementedError(
-                    f"cn_akshare is temporarily unavailable for global news: {exc}"
-                ) from exc
+    def get_global_news(self, curr_date: str) -> str:
+        result = self.get_sina_global_news(page="1", page_size="100", tag_id="1,4,7")
+        # get_sina_global_news 异常时返回 "新浪财经快讯获取失败：..." 字符串（truthy），需显式检查
+        if result and result.startswith("## "):
+            return result
+        return f"{curr_date} 未获取到全球市场新闻"
 
     def get_insider_transactions(self, symbol: str) -> str:
         with AKSHARE_CALL_LOCK:
@@ -577,6 +541,69 @@ class CnAkshareProvider(BaseMarketDataProvider):
             raise NotImplementedError(
                 f"cn_akshare is temporarily unavailable for insider transactions: {'; '.join(errors)}"
             )
+
+    def get_sina_global_news(
+        self, page: str = "1", page_size: str = "20", zhibo_id: str = "152", tag_id: str = "0"
+    ) -> str:
+        """获取新浪财经全球快讯（支持参数）
+
+        Args:
+            page: 页码，默认 "1"
+            page_size: 每页数量，默认 "20"
+            zhibo_id: 直播ID，默认 "152"（财经）
+            tag_id: 标签ID，默认 "0"（全部）
+
+        Returns:
+            格式化的新闻文本
+        """
+        with AKSHARE_CALL_LOCK:
+            try:
+                import requests
+                import re as _re
+
+                url = "https://zhibo.sina.com.cn/api/zhibo/feed"
+                params = {
+                    "page": page,
+                    "page_size": page_size,
+                    "zhibo_id": zhibo_id,
+                    "tag_id": tag_id,
+                    "dire": "f",
+                    "dpc": "1",
+                    "pagesize": page_size,
+                    "type": "1",
+                }
+
+                r = requests.get(url, params=params, timeout=10)
+                data_json = r.json()
+
+                time_list = [
+                    item["create_time"] for item in data_json["result"]["data"]["feed"]["list"]
+                ]
+                text_list = [
+                    item["rich_text"] for item in data_json["result"]["data"]["feed"]["list"]
+                ]
+
+                if not text_list:
+                    return "未获取到新浪财经快讯"
+
+                rows = []
+                for time_str, content in zip(time_list, text_list):
+                    if not content or content == "nan":
+                        continue
+                    m = _re.match(r"^【(.+?)】(.*)", content, _re.DOTALL)
+                    if m:
+                        title, body = m.group(1), m.group(2).strip()
+                        rows.append(f"### [{time_str}] {title}")
+                        if body:
+                            rows.append(body[:300])
+                        rows.append("")
+
+                # 每条新闻占3行（标题、正文可选、空行），计算实际输出的新闻数
+                actual_count = len([r for r in rows if r.startswith("###")])
+                return f"## 新浪财经快讯（第{page}页，共{actual_count}条）：\n\n" + "\n".join(rows)
+
+            except Exception as exc:
+                return f"新浪财经快讯获取失败：{type(exc).__name__}: {exc}"
 
     # TTL cache for stock_zh_a_spot_em to avoid hammering Eastmoney under concurrent load
     _spot_cache: "pd.DataFrame | None" = None
@@ -736,10 +763,14 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return None
 
     def get_board_fund_flow(self) -> str:
-        """获取行业板块资金流向排名。"""
+        """获取行业板块资金流向排名。
+
+        注意：此接口依赖 akshare，可能因东方财富 API 变化而暂时不可用。
+        """
         try:
             ak = self._ak()
-            df = ak.stock_board_industry_fund_flow_em(symbol="今日")
+            # 使用正确的方法名 stock_fund_flow_industry
+            df = ak.stock_fund_flow_industry(symbol="即时")
             if df is None or df.empty:
                 return "今日板块资金流向数据暂不可用。"
             sort_col = "今日主力净流入-净额"
@@ -752,7 +783,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
             result = df_sorted.head(10).to_string(index=False)
             return f"板块资金流向排名（共{total}个板块，前10名）：\n{result}"
         except Exception as exc:
-            return f"板块资金流向数据获取失败：{type(exc).__name__}: {exc}"
+            return f"板块资金流向数据暂时不可用（akshare 接口问题）：{type(exc).__name__}"
 
     def get_individual_fund_flow(self, symbol: str) -> str:
         """获取个股近期主力资金净流向。"""
@@ -770,16 +801,26 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return f"个股资金流向数据获取失败：{type(exc).__name__}: {exc}"
 
     def get_lhb_detail(self, symbol: str, date: str) -> str:
-        """获取龙虎榜数据，非异动日返回空提示（属正常）。"""
+        """获取龙虎榜数据，非异动日返回空提示（属正常）。
+
+        注意：此接口依赖 akshare，可能因东方财富 API 变化而暂时不可用。
+        """
         try:
             ak = self._ak()
             code = self._normalize_symbol(symbol)
-            df = ak.stock_lhb_detail_em(symbol=code, start_date=date, end_date=date)
+            # stock_lhb_detail_em 不接受 symbol 参数，返回全市场数据
+            date_fmt = date.replace("-", "")
+            df = ak.stock_lhb_detail_em(start_date=date_fmt, end_date=date_fmt)
             if df is None or df.empty:
+                return f"{date} 全市场无龙虎榜数据。"
+            # 手动过滤指定股票
+            if "代码" in df.columns:
+                df = df[df["代码"] == code]
+            if df.empty:
                 return f"{symbol} 在 {date} 无龙虎榜数据（非异动日属正常）。"
             return f"{symbol} 龙虎榜明细（{date}）：\n{df.head(20).to_string(index=False)}"
         except Exception as exc:
-            return f"龙虎榜数据获取失败：{type(exc).__name__}: {exc}"
+            return f"龙虎榜数据暂时不可用（akshare 接口问题）：{type(exc).__name__}"
 
     def get_zt_pool(self, date: str) -> str:
         """获取涨停板情绪池，反映市场整体情绪温度。"""
@@ -801,7 +842,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
         """获取雪球热搜股票，反映散户关注度。"""
         try:
             ak = self._ak()
-            df = ak.stock_hot_follow_xq(symbol="最热门")
+            df = ak.stock_hot_follow_xq(symbol="本周新增")
             if df is None or df.empty:
                 return "雪球热搜数据暂不可用。"
             return f"雪球热搜前20：\n{df.head(20).to_string(index=False)}"
