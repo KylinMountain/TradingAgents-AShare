@@ -39,7 +39,8 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -64,7 +65,6 @@ from tradingagents.graph.data_collector import DataCollector
 # 全局共享 DataCollector：同一 ticker+date 的数据只拉一次，所有 job 复用缓存
 _shared_data_collector = DataCollector()
 from tradingagents.dataflows.trade_calendar import cn_today_str
-from tradingagents.dataflows.providers.cn_akshare_provider import set_scheduled_task_context
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.graph.intent_parser import parse_intent as _parse_intent
@@ -109,156 +109,6 @@ def _report_version_stats() -> None:
     threading.Thread(target=_send, daemon=True).start()
 
 
-_scheduler_task: Optional[asyncio.Task] = None
-_scheduled_analysis_max_concurrency = int(os.getenv("TA_SCHEDULED_ANALYSIS_MAX_CONCURRENCY", "10"))
-_scheduled_analysis_semaphore: Optional[asyncio.Semaphore] = None
-_scheduled_analysis_queue_lock: Optional[asyncio.Lock] = None
-_scheduled_analysis_waiting_job_ids: list[str] = []
-_scheduled_analysis_running_job_ids: set[str] = set()
-
-
-def _ensure_scheduled_analysis_queue() -> tuple[asyncio.Semaphore, asyncio.Lock]:
-    global _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
-    if _scheduled_analysis_semaphore is None:
-        _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
-    if _scheduled_analysis_queue_lock is None:
-        _scheduled_analysis_queue_lock = asyncio.Lock()
-    return _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
-
-
-async def _scheduled_analysis_acquire(job_id: str, symbol: str) -> None:
-    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
-
-    async with queue_lock:
-        _scheduled_analysis_waiting_job_ids.append(job_id)
-        queue_position = _scheduled_analysis_waiting_job_ids.index(job_id) + 1
-        running_count = len(_scheduled_analysis_running_job_ids)
-        _set_job(
-            job_id,
-            queue_position=queue_position,
-            waiting_ahead_count=max(0, queue_position - 1),
-            scheduled_running_count=running_count,
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] queued job={job_id} symbol={symbol} "
-            f"waiting_position={queue_position} running={running_count}/{_scheduled_analysis_max_concurrency}"
-        )
-
-    await semaphore.acquire()
-
-    async with queue_lock:
-        if job_id in _scheduled_analysis_waiting_job_ids:
-            _scheduled_analysis_waiting_job_ids.remove(job_id)
-        _scheduled_analysis_running_job_ids.add(job_id)
-        _set_job(
-            job_id,
-            queue_position=None,
-            waiting_ahead_count=None,
-            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] acquired slot job={job_id} symbol={symbol} "
-            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
-            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
-        )
-
-
-async def _scheduled_analysis_release(job_id: str, symbol: str) -> None:
-    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
-
-    async with queue_lock:
-        _scheduled_analysis_running_job_ids.discard(job_id)
-        if job_id in _scheduled_analysis_waiting_job_ids:
-            _scheduled_analysis_waiting_job_ids.remove(job_id)
-        _set_job(
-            job_id,
-            queue_position=None,
-            waiting_ahead_count=None,
-            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] released slot job={job_id} symbol={symbol} "
-            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
-            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
-        )
-
-    semaphore.release()
-
-
-@asynccontextmanager
-async def _scheduled_analysis_slot(job_id: str, symbol: str):
-    if _scheduled_analysis_max_concurrency <= 0:
-        # 0 = 不限制并发，跳过 semaphore
-        yield
-        return
-    await _scheduled_analysis_acquire(job_id, symbol)
-    try:
-        yield
-    finally:
-        await _scheduled_analysis_release(job_id, symbol)
-
-
-async def _scheduler_loop():
-    """Background loop: check every minute for scheduled tasks to trigger.
-
-    Each task has its own trigger_time (HH:MM). The scheduler runs on trading
-    days only, outside of trading hours (before 9:15 or after 15:00). Tasks
-    are triggered when current time >= task.trigger_time and the task hasn't
-    run today yet.
-    """
-    from tradingagents.dataflows.trade_calendar import is_cn_trading_day
-    from zoneinfo import ZoneInfo
-
-    _log("[Scheduler] Started.")
-    while True:
-        await asyncio.sleep(60)
-        try:
-            now = datetime.now(tz=ZoneInfo("Asia/Shanghai"))
-            today = now.strftime("%Y-%m-%d")
-            current_hhmm = now.strftime("%H:%M")
-
-            if not is_cn_trading_day(today):
-                continue
-            time_val = now.hour * 60 + now.minute
-            if 8 * 60 < time_val < 20 * 60:
-                continue
-
-            with get_db_ctx() as db:
-                tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
-                if not tasks:
-                    continue
-
-                # 先标记为"已触发"防止下次循环重复启动
-                for task in tasks:
-                    task.last_run_date = today
-                    task.last_run_status = "running"
-                db.commit()
-
-                # commit 后 SQLAlchemy 会 expire 属性，db.close() 后访问会抛
-                # DetachedInstanceError，所以这里拷贝成 dict 传给 job 函数
-                task_snapshots = [
-                    {
-                        "id": task.id,
-                        "user_id": task.user_id,
-                        "symbol": task.symbol,
-                        "horizon": task.horizon,
-                    }
-                    for task in tasks
-                ]
-
-                _log(f"[Scheduler] Launching {len(task_snapshots)} tasks (staggered)")
-                for i, snap in enumerate(task_snapshots):
-                    if i > 0:
-                        await asyncio.sleep(1)
-                    _create_tracked_task(_run_scheduled_job(snap, today))
-
-        except Exception as e:
-            logger.error(f"[Scheduler] Error: {e}")
-
-
 def _resolve_scheduled_trade_date(trade_date: str) -> str:
     """Use the requested trading day, or fall back to the latest CN trading day."""
     from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
@@ -295,137 +145,59 @@ def _build_scheduled_analyze_request(
     )
 
 
-async def _send_scheduled_report_notifications(user_id: str, report_id: str, symbol: str) -> None:
-    """Send configured scheduled report notifications."""
-    try:
-        from api.services.email_report_service import send_report_email_with_retry
-        from api.services.wecom_notification_service import send_report_message_with_retry
-
-        email_user = None
-        report_to_send = None
-        webhook_url = None
-        wecom_report_enabled = True
-        with get_db_ctx() as db:
-            user = db.query(UserDB).filter(UserDB.id == user_id).first()
-            report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
-            user_cfg = auth_service.get_user_llm_config(db, user_id)
-            webhook_url = auth_service.decrypt_secret(getattr(user_cfg, "wecom_webhook_encrypted", None))
-            if report:
-                db.expunge(report)
-                report_to_send = report
-            if user:
-                wecom_report_enabled = getattr(user, "wecom_report_enabled", True)
-                if getattr(user, "email_report_enabled", True):
-                    db.expunge(user)
-                    email_user = user
-        if email_user and report_to_send:
-            _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
-            _create_tracked_task(
-                send_report_email_with_retry(email_user, report_to_send),
-                label=f"Email notification task ({symbol})",
-            )
-        if report_to_send and webhook_url and wecom_report_enabled:
-            _log(f"[Scheduler] Sending WeCom report for {symbol}")
-            _create_tracked_task(
-                send_report_message_with_retry(report_to_send, webhook_url),
-                label=f"WeCom notification task ({symbol})",
-            )
-    except Exception as e:
-        logger.warning(f"[Scheduler] Notification send failed for {symbol}: {e}")
-
-
-async def _run_scheduled_analysis_once(
+async def _run_manual_trigger(
     task: dict,
     requested_trade_date: str,
     job_id: str,
-    *,
-    mark_schedule_run: bool,
 ) -> None:
-    """Execute one scheduled analysis, optionally recording it as the daily scheduled run."""
+    """Execute a manual-trigger analysis (no scheduler concurrency control).
+
+    Used by the /v1/scheduled/{id}/trigger and /v1/scheduled/batch/trigger
+    endpoints. Calls _run_job directly then records the test result.
+    """
     task_id = task["id"]
     user_id = task["user_id"]
     symbol = task["symbol"]
     horizon = task.get("horizon") or "short"
 
-    _ensure_job_event_queue(job_id)
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
-    _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
+    _log(f"[Manual Trigger] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
-    # 标记当前上下文为定时任务，akshare 并发锁会据此限制槽位，为前端保留带宽
-    set_scheduled_task_context(True)
     try:
-        async with _scheduled_analysis_slot(job_id, symbol):
-            with get_db_ctx() as db:
-                scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(db, user_id, symbol)
-                req = _build_scheduled_analyze_request(
-                    db=db,
-                    user_id=user_id,
-                    symbol=symbol,
-                    horizon=horizon,
-                    trade_date=actual_trade_date,
-                    scheduled_user_context=scheduled_user_context,
-                )
+        with get_db_ctx() as db:
+            scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(
+                db, user_id, symbol
+            )
+            req = _build_scheduled_analyze_request(
+                db=db,
+                user_id=user_id,
+                symbol=symbol,
+                horizon=horizon,
+                trade_date=actual_trade_date,
+                scheduled_user_context=scheduled_user_context,
+            )
 
-            await _run_job(job_id, req, False, True, user_id, "scheduled" if mark_schedule_run else "scheduled_manual")
+        await _run_job(job_id, req, False, True, user_id, "scheduled_manual")
         job_state = _get_job(job_id)
         if job_state.get("status") == "failed":
-            raise RuntimeError(job_state.get("error") or f"scheduled analysis job {job_id} failed")
+            raise RuntimeError(job_state.get("error") or f"manual trigger job {job_id} failed")
         with get_db_ctx() as db:
-            if mark_schedule_run:
-                scheduled_service.mark_run_success(db, task_id, requested_trade_date, job_id)
-            else:
-                scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
-        _log(f"[Scheduler] Completed {symbol}")
-
-        await _send_scheduled_report_notifications(user_id, job_id, symbol)
+            scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
+        _log(f"[Manual Trigger] Completed {symbol}")
     except Exception as e:
-        logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
+        logger.error(f"[Manual Trigger] Failed {symbol}: {e}\n{traceback.format_exc()}")
         with get_db_ctx() as db:
-            if mark_schedule_run:
-                scheduled_service.mark_run_failed(db, task_id, requested_trade_date)
-            else:
-                scheduled_service.record_manual_test_result(db, task_id, "failed")
-
-
-async def _run_scheduled_job(task: dict, trade_date: str):
-    """Execute a single scheduled analysis job.
-
-    Args:
-        task: dict with keys id, user_id, symbol, horizon (plain values,
-              not an ORM instance, to avoid DetachedInstanceError).
-        trade_date: YYYY-MM-DD string.
-    """
-    user_id = task["user_id"]
-    symbol = task["symbol"]
-
-    _log(f"[Scheduler] Running {symbol} for user={user_id}")
-    job_id = uuid4().hex
-    try:
-        await _run_scheduled_analysis_once(
-            task,
-            trade_date,
-            job_id,
-            mark_schedule_run=True,
-        )
-    finally:
-        _job_events.pop(job_id, None)
+            scheduled_service.record_manual_test_result(db, task_id, "failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
-    global _scheduler_task, _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
     init_db()
     _log("Database initialized.")
-    with _jobs_lock:
-        _jobs.clear()
-        _job_events.clear()
+    store = get_job_store()
+    store.clear()
     _background_tasks.clear()
-    _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
-    _scheduled_analysis_queue_lock = asyncio.Lock()
-    _scheduled_analysis_waiting_job_ids.clear()
-    _scheduled_analysis_running_job_ids.clear()
-    _log(f"[Scheduled Queue] Concurrency limit set to {_scheduled_analysis_max_concurrency}")
 
     # Security: warn loudly if using default secret key
     if not os.getenv("TA_APP_SECRET_KEY"):
@@ -436,46 +208,6 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
-    # 启动时把卡在 running 的定时任务重置
-    with get_db_ctx() as db:
-        stale = db.query(ScheduledAnalysisDB).filter(
-            ScheduledAnalysisDB.last_run_status == "running"
-        ).all()
-        if stale:
-            recovered_count = 0
-            reset_count = 0
-            for item in stale:
-                # 检查是否已有对应的成功报告（任务实际完成了但状态卡在 running）
-                # 必须同时校验报告是本次运行产生的（created_at >= last_run_date），
-                # 否则 last_report_id 指向的旧报告会导致假成功。
-                has_report = (
-                    item.last_report_id
-                    and item.last_run_date
-                    and db.query(ReportDB).filter(
-                        ReportDB.id == item.last_report_id,
-                        ReportDB.status == "completed",
-                        ReportDB.created_at >= item.last_run_date,
-                    ).first()
-                )
-                if has_report:
-                    item.last_run_status = "success"
-                    # 保留 last_run_date，不重新触发
-                    recovered_count += 1
-                else:
-                    item.last_run_status = "stale"
-                    item.last_run_date = None  # 真正未完成，允许重新触发
-                    reset_count += 1
-            db.commit()
-            _log(
-                f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup "
-                f"(recovered={recovered_count}, reset_to_stale={reset_count})."
-            )
-        report_reset = report_service.recover_stale_active_reports(db)
-        if report_reset["total"]:
-            _log(
-                "[Reports] Recovered %s stale active reports on startup (marked failed)."
-                % report_reset["total"]
-            )
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
@@ -483,11 +215,8 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
-    _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
-    if _scheduler_task:
-        _scheduler_task.cancel()
     _executor.shutdown(wait=True)
     _log("Executor shutdown complete.")
 
@@ -527,8 +256,15 @@ app.add_middleware(
 )
 
 _executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
-_jobs_lock = Lock()
-_jobs: Dict[str, Dict[str, Any]] = {}
+
+# ── Singleton job store (in-memory or Redis depending on REDIS_URL) ─────────
+_job_store_instance: Optional[Any] = None
+
+def get_job_store():
+    global _job_store_instance
+    if _job_store_instance is None:
+        _job_store_instance = _new_job_store()
+    return _job_store_instance
 
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
@@ -540,7 +276,6 @@ _CONFIG_OVERRIDES_ALLOWLIST = {
     "max_debate_rounds", "max_risk_discuss_rounds",
     "prompt_language",
 }
-_job_events: Dict[str, "asyncio.Queue[Dict[str, Any]]"] = {}
 # Hold references to fire-and-forget tasks so they are not garbage collected
 _background_tasks: set = set()
 
@@ -1274,51 +1009,23 @@ def _optional_user(
 
 
 def _set_job(job_key: str, **kwargs) -> None:
-    with _jobs_lock:
-        if job_key not in _jobs:
-            _jobs[job_key] = {}
-        _jobs[job_key].update(kwargs)
+    # Callers may pass job_id=<value> as a stored field.  Since
+    # store.set_job()'s first positional param is also called job_id,
+    # we must strip it from kwargs to avoid a "got multiple values" TypeError.
+    # _get_job() always injects job_id back into the returned dict.
+    kwargs.pop("job_id", None)
+    get_job_store().set_job(job_key, **kwargs)
 
 
 def _get_job(job_key: str) -> Dict[str, Any]:
-    with _jobs_lock:
-        return dict(_jobs.get(job_key, {}))
-
-
-def _ensure_job_event_queue(job_id: str) -> "asyncio.Queue[Dict[str, Any]]":
-    with _jobs_lock:
-        q = _job_events.get(job_id)
-        if q is None:
-            q = asyncio.Queue()
-            _job_events[job_id] = q
-        return q
+    d = get_job_store().get_job(job_key)
+    if d:
+        d.setdefault("job_id", job_key)
+    return d
 
 
 def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
-    """Thread-safe event emitter: uses call_soon_threadsafe when called from a
-    non-event-loop thread (e.g. inside asyncio.to_thread callbacks)."""
-    payload = {
-        "event": event,
-        "data": data,
-        "timestamp": _utcnow_iso(),
-    }
-    q = _ensure_job_event_queue(job_id)
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # We are inside the event loop – safe to call directly
-        q.put_nowait(payload)
-    else:
-        # Called from a worker thread – schedule on the main loop
-        try:
-            main_loop = asyncio.get_event_loop()
-            main_loop.call_soon_threadsafe(q.put_nowait, payload)
-        except RuntimeError:
-            # Fallback: no event loop available at all
-            q.put_nowait(payload)
+    get_job_store().emit_event(job_id, event, data)
 
 
 def _attach_job_runtime_state(target: Any, job_id: Optional[str]) -> Any:
@@ -2687,22 +2394,14 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
 
 
 async def _stream_job_events(job_id: str):
-    q = _ensure_job_event_queue(job_id)
+    store = get_job_store()
     yield _sse_pack("job.ready", {"job_id": job_id})
-    while True:
-        try:
-            event = await asyncio.wait_for(q.get(), timeout=15)
-            yield _sse_pack(event["event"], event["data"])
-            if event["event"] in ("job.completed", "job.failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-        except asyncio.TimeoutError:
-            # 仅在 status 已完成且无更多事件时关闭（兜底，正常路径不会触发）
-            status = _jobs.get(job_id, {}).get("status")
-            if status in ("completed", "failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-            yield _sse_pack("ping", {"timestamp": _utcnow_iso()})
+    async for event in store.subscribe(job_id):
+        evt_name = event["event"]
+        yield _sse_pack(evt_name, event["data"])
+        if evt_name in ("job.completed", "job.failed"):
+            yield "event: done\ndata: [DONE]\n\n"
+            return
 
 
 @app.get("/healthz")
@@ -2920,7 +2619,6 @@ async def analyze(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -2928,15 +2626,14 @@ async def analyze(
     )
     if request.dry_run:
         await _run_job(job_id, request, True, True, current_user.id, "api")
-        final_status = _jobs.get(job_id, {}).get("status", "completed")
+        final_status = _get_job(job_id).get("status", "completed")
         return AnalyzeResponse(job_id=job_id, status=final_status, created_at=now)
     _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
 def _require_job_owner(job_id: str, current_user: UserDB) -> Dict[str, Any]:
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    job = _get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     owner_id = job.get("user_id")
@@ -3198,7 +2895,6 @@ async def chat_completions(
     # 这样用户提交查询后立刻收到 job.ready，不用等待 thinking 模型的 StockExtract。
     if request.stream:
         job_id = uuid4().hex
-        _ensure_job_event_queue(job_id)
 
         async def _extract_and_run():
             try:
@@ -3338,7 +3034,6 @@ async def chat_completions(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -3346,8 +3041,8 @@ async def chat_completions(
     )
     if request.dry_run:
         await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
-        status_text = _jobs.get(job_id, {}).get("status", "completed")
-        decision_text = _jobs.get(job_id, {}).get("decision", "DRY_RUN")
+        status_text = _get_job(job_id).get("status", "completed")
+        decision_text = _get_job(job_id).get("decision", "DRY_RUN")
         return {
             "id": f"chatcmpl-{job_id}",
             "object": "chat.completion",
@@ -4463,18 +4158,16 @@ async def trigger_scheduled_analyses_batch(
             user_id=current_user.id,
             request_source="scheduled_manual_batch",
         )
-        _ensure_job_event_queue(job_id)
         _emit_job_event(
             job_id,
             "job.queued",
             {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
         )
         _create_tracked_task(
-            _run_scheduled_analysis_once(
+            _run_manual_trigger(
                 task_snapshot,
                 requested_trade_date,
                 job_id,
-                mark_schedule_run=False,
             )
         )
 
@@ -4487,9 +4180,6 @@ async def trigger_scheduled_analyses_batch(
             "created_at": now,
             "current_position": scheduled_user_context.get("current_position"),
             "average_cost": scheduled_user_context.get("average_cost"),
-            "waiting_ahead_count": _get_job(job_id).get("waiting_ahead_count"),
-            "scheduled_running_count": _get_job(job_id).get("scheduled_running_count"),
-            "scheduled_concurrency_limit": _get_job(job_id).get("scheduled_concurrency_limit"),
         })
 
     return {
@@ -4530,18 +4220,16 @@ async def trigger_scheduled_analysis_once(
         user_id=current_user.id,
         request_source="scheduled_manual",
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.queued",
         {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
     )
     _create_tracked_task(
-        _run_scheduled_analysis_once(
+        _run_manual_trigger(
             task_snapshot,
             requested_trade_date,
             job_id,
-            mark_schedule_run=False,
         )
     )
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
