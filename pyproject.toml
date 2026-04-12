@@ -33,14 +33,16 @@ dependencies = [
     "cryptography>=45.0.3",
     "json-repair>=0.44.0",
     "markdown>=3.7",
+    "redis[hiredis]>=5.0.0",
 ]
 
 [project.scripts]
 tradingagents = "cli.main:app"
 tradingagents-api = "api.main:run"
+tradingagents-scheduler = "scheduler.main:sync_main"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*", "api*"]
+include = ["tradingagents*", "cli*", "api*", "scheduler*"]
 
 [dependency-groups]
 dev = [
