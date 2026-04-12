@@ -129,6 +129,9 @@ export default function Settings() {
                 setServerFallbackEnabled(!!cfg.server_fallback_enabled)
                 setEmailReportEnabled(cfg.email_report_enabled !== false)
                 setWecomReportEnabled(cfg.wecom_report_enabled !== false)
+                if (Array.isArray(cfg.default_analysts) && cfg.default_analysts.length > 0) {
+                    setDefaultAnalysts(cfg.default_analysts)
+                }
             })
             .catch(err => {
                 setConfigError(err instanceof Error ? err.message : '无法连接到后端')
@@ -204,6 +207,7 @@ export default function Settings() {
             wecom_report_enabled: wecomReportEnabled,
         } : {}),
         ...(options?.includeEmail ? { email_report_enabled: emailReportEnabled } : {}),
+        default_analysts: defaultAnalysts,
     })
 
     const showSavedMessage = (message: string) => {
