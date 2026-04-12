@@ -10,11 +10,15 @@ import Portfolio from './pages/Portfolio'
 import TrackingBoard from './pages/TrackingBoard'
 import Login from './pages/Login'
 import Feedback from './pages/Feedback'
+import Sponsor from './pages/Sponsor'
+import Thanks from './pages/Thanks'
 import { useAuthStore } from './stores/authStore'
 
-const ONLINE_BASE = 'https://app.510168.xyz'
+const ONLINE_HOST = 'app.510168.xyz'
+const isOnline = typeof window !== 'undefined' && window.location.hostname === ONLINE_HOST
 
-function ExternalRedirect({ to }: { to: string }) {
+function ExternalRedirect({ to, fallback }: { to: string; fallback: JSX.Element }) {
+  if (isOnline) return fallback
   window.location.href = to
   return null
 }
@@ -42,8 +46,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/sponsor" element={<ExternalRedirect to={`${ONLINE_BASE}/sponsor`} />} />
-        <Route path="/thanks" element={<ExternalRedirect to={`${ONLINE_BASE}/thanks`} />} />
+        <Route path="/sponsor" element={<ExternalRedirect to={`https://${ONLINE_HOST}/sponsor`} fallback={<Sponsor />} />} />
+        <Route path="/thanks" element={<ExternalRedirect to={`https://${ONLINE_HOST}/thanks`} fallback={<Thanks />} />} />
         <Route
           path="*"
           element={
