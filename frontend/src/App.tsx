@@ -10,9 +10,14 @@ import Portfolio from './pages/Portfolio'
 import TrackingBoard from './pages/TrackingBoard'
 import Login from './pages/Login'
 import Feedback from './pages/Feedback'
-import Sponsor from './pages/Sponsor'
-import Thanks from './pages/Thanks'
 import { useAuthStore } from './stores/authStore'
+
+const ONLINE_BASE = 'https://app.510168.xyz'
+
+function ExternalRedirect({ to }: { to: string }) {
+  window.location.href = to
+  return null
+}
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { user, hydrated, hydrate } = useAuthStore()
@@ -37,8 +42,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/sponsor" element={<Sponsor />} />
-        <Route path="/thanks" element={<Thanks />} />
+        <Route path="/sponsor" element={<ExternalRedirect to={`${ONLINE_BASE}/sponsor`} />} />
+        <Route path="/thanks" element={<ExternalRedirect to={`${ONLINE_BASE}/thanks`} />} />
         <Route
           path="*"
           element={
