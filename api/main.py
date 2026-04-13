@@ -4432,6 +4432,11 @@ from fastapi.responses import FileResponse
 
 # ─── Static Files & SPA Routing ──────────────────────────────────────────────
 
+# Serve uploaded files (avatars etc.) from shared uploads directory
+_uploads_dir = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent / "uploads")))
+if _uploads_dir.is_dir():
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
+
 # Mount frontend if dist exists
 dist_path = os.path.join(os.getcwd(), "frontend/dist")
 if os.path.exists(dist_path):
