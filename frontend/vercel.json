@@ -6,7 +6,11 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!assets/|vite.svg|favicon.ico).*)",
+      "source": "/uploads/(.*)",
+      "destination": "https://api.510168.xyz/uploads/$1"
+    },
+    {
+      "source": "/((?!assets/|uploads/|vite.svg|favicon.ico).*)",
       "destination": "/index.html"
     }
   ]
