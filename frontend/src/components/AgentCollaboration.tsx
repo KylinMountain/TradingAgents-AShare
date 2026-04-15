@@ -139,7 +139,7 @@ interface GroupLabelDef {
 }
 
 const GROUP_LABELS: GroupLabelDef[] = [
-    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 760 },
+    { id: 'group-sources', label: '技术分析', position: { x: -16, y: -30 }, width: 248, height: 860 },
     { id: 'group-research', label: '研究团队', position: { x: 454, y: 44 }, width: 410, height: 450 },
     { id: 'group-risk', label: '风控团队', position: { x: 1164, y: 44 }, width: 248, height: 450 },
 ]
@@ -428,7 +428,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
             </div>
 
             {/* React Flow 画布 */}
-            <div className="h-[700px] w-full">
+            <div className="h-[810px] w-full">
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -445,7 +445,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
                     zoomOnPinch={false}
                     zoomOnDoubleClick={false}
                     preventScrolling={false}
-                    translateExtent={[[-40, -40], [1730, 660]]}
+                    translateExtent={[[-40, -40], [1730, 780]]}
                     proOptions={{ hideAttribution: true }}
                 />
             </div>
