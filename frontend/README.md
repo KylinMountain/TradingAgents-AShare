@@ -28,13 +28,12 @@ cd frontend
 npm install
 ```
 
-### 2. 配置环境变量
+### 2. API 地址说明
 
-创建 `.env` 文件：
+前端默认使用当前访问地址作为 API 地址，即 `window.location.origin`。
 
-```env
-VITE_API_URL=http://localhost:8000
-```
+- 访问 `http://localhost:5173` 时，请使用 Vite 代理转发到后端。
+- 生产环境中，前端静态资源和后端 API 由同一个服务/域名提供，无需配置固定 API 地址。
 
 ### 3. 启动开发服务器
 
