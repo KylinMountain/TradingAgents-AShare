@@ -73,7 +73,7 @@ export default function DebateDrawer({ debate, onClose }: DebateDrawerProps) {
             />
 
             {/* Drawer */}
-            <div className="fixed top-0 right-0 h-full w-1/2 max-w-[720px] min-w-[400px] bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="fixed top-0 right-0 h-full w-1/2 max-w-[720px] min-w-[400px] dark bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
                     <div className="flex items-center gap-3">
