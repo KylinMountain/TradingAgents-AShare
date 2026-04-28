@@ -82,7 +82,7 @@ export default function DebateTimeline({ messages, debate }: DebateTimelineProps
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="prose dark:prose-invert prose-sm max-w-none text-sm leading-relaxed">
+                                        <div className="prose-sm max-w-none text-sm leading-relaxed text-slate-200">
                                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                 {msg.content}
                                             </ReactMarkdown>
@@ -112,7 +112,7 @@ export default function DebateTimeline({ messages, debate }: DebateTimelineProps
                                 {debate === 'research' ? '研究总监裁决' : '风控裁决'}
                             </span>
                         </div>
-                        <div className="prose dark:prose-invert prose-sm max-w-none text-sm leading-relaxed">
+                        <div className="prose-sm max-w-none text-sm leading-relaxed text-slate-200">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                 {verdict.content}
                             </ReactMarkdown>
