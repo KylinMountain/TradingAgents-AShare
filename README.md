@@ -102,14 +102,19 @@ export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
 docker run -d -p 8000:8000 \
   --name tradingagents \
   -v $(pwd)/data:/app/data \
+  -e APP_ENV=production \
   -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
   -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
   ghcr.io/kylinmountain/tradingagents-ashare:latest
 ```
 
-访问 `http://localhost:8000` 即可使用。
+本镜像默认以前后端同源方式工作，前端 API 请求使用 `/v1/...` 相对路径。部署在远程服务器时，请通过 `http://<服务器IP>:8000` 或绑定的域名访问；只有在浏览器和容器运行在同一台本机时才使用 `http://localhost:8000`。
+
+不要在生产构建中设置 `VITE_API_URL=http://localhost:8000`。浏览器中的 `localhost` 指向访问者自己的机器，不是 Docker 服务器。仅当前后端分离部署时，才在前端构建阶段显式设置 `VITE_API_URL` 为真实后端地址。
 
 > **`TA_APP_SECRET_KEY`**：用于加密用户 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且不可更改。
+
+> **邮箱验证码**：如果要真正发送邮件验证码，需要配置 `MAIL_HOST`、`MAIL_PORT`、`MAIL_USER`、`MAIL_PASS`、`MAIL_FROM`、`MAIL_SSL`。未配置 SMTP 且 `APP_ENV` 不是 `production` 时，系统可能返回 `dev_code` 或在日志打印验证码，这是开发便利行为，不应暴露在公网生产环境。
 
 > **LLM 配置**：启动后在前端"设置"页面配置模型厂商、API Key 和模型名称即可，无需环境变量预设。
 

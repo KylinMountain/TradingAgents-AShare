@@ -1,6 +1,8 @@
 # Stage 1: Build Frontend (始终在原生架构运行以提速)
 FROM --platform=$BUILDPLATFORM node:25-slim AS frontend-builder
 WORKDIR /app/frontend
+ARG VITE_API_URL=""
+ENV VITE_API_URL=${VITE_API_URL}
 COPY frontend/package*.json ./
 # 开启缓存挂载，加速 npm 安装
 RUN --mount=type=cache,target=/root/.npm npm install

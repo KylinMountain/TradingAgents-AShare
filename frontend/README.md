@@ -28,13 +28,17 @@ cd frontend
 npm install
 ```
 
-### 2. 配置环境变量
+### 2. 配置环境变量（可选）
 
-创建 `.env` 文件：
+默认不需要配置 `VITE_API_URL`。未设置时，前端使用同源相对 API 路径 `/v1/...`；本地开发服务通过 `vite.config.ts` 代理到 `http://localhost:8000`。
+
+只有当前后端分离部署时，才创建 `.env.local` 并设置真实后端地址：
 
 ```env
-VITE_API_URL=http://localhost:8000
+VITE_API_URL=https://api.example.com
 ```
+
+不要在生产构建中设置 `VITE_API_URL=http://localhost:8000`，否则远程浏览器会请求访问者本机的 localhost。
 
 ### 3. 启动开发服务器
 
