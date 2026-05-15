@@ -8,6 +8,7 @@ import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import Portfolio from './pages/Portfolio'
 import TrackingBoard from './pages/TrackingBoard'
+import Accuracy from './pages/Accuracy'
 import Login from './pages/Login'
 import Feedback from './pages/Feedback'
 import Sponsor from './pages/Sponsor'
@@ -56,6 +57,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/tracking-board" element={<TrackingBoard />} />
+                  <Route path="/accuracy" element={<Accuracy />} />
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />

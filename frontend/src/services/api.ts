@@ -345,6 +345,17 @@ class ApiService {
     async markFeedbackRead(id: string): Promise<void> {
         return this.request<void>(`/v1/feedbacks/${id}/read`, { method: 'POST' })
     }
+
+    // Accuracy / Backtest
+    async getAccuracySummary(): Promise<any> {
+        return this.request<any>('/v1/accuracy/summary')
+    }
+    async getAccuracyDetails(limit = 50, offset = 0): Promise<any> {
+        return this.request<any>(`/v1/accuracy/details?limit=${limit}&offset=${offset}`)
+    }
+    async runAccuracyBackfill(): Promise<any> {
+        return this.request<any>('/v1/accuracy/backfill', { method: 'POST' })
+    }
 }
 
 export const api = new ApiService()

@@ -452,6 +452,34 @@ class FeedbackDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class SignalBacktestDB(Base):
+    """Signal accuracy backtest results for each report."""
+
+    __tablename__ = "signal_backtests"
+
+    id = Column(String(36), primary_key=True, index=True)
+    report_id = Column(String(36), index=True, nullable=False)
+    user_id = Column(String(64), index=True, nullable=True)
+    symbol = Column(String(20), index=True, nullable=False)
+    signal_date = Column(String(10), nullable=False)
+    decision = Column(String(50), nullable=True)
+    confidence = Column(Integer, nullable=True)
+    signal_price = Column(Float, nullable=True)
+    target_price = Column(Float, nullable=True)
+    stop_loss_price = Column(Float, nullable=True)
+    # Backtest results at different horizons (days)
+    price_5d = Column(Float, nullable=True)
+    return_5d = Column(Float, nullable=True)
+    correct_5d = Column(Boolean, nullable=True)
+    price_10d = Column(Float, nullable=True)
+    return_10d = Column(Float, nullable=True)
+    correct_10d = Column(Boolean, nullable=True)
+    price_20d = Column(Float, nullable=True)
+    return_20d = Column(Float, nullable=True)
+    correct_20d = Column(Boolean, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class ImportedPortfolioPositionDB(Base):
     """Imported current holdings snapshot plus recent trade points for a symbol."""
 

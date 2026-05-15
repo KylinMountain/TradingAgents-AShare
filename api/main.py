@@ -3380,6 +3380,52 @@ def delete_backtest(job_id: str) -> Dict:
     return {"message": "已删除"}
 
 
+# ─── Signal Accuracy Endpoints ─────────────────────────────────────────────────
+
+from api.services import accuracy_service as _acc
+
+
+@app.post("/v1/accuracy/backfill")
+def accuracy_backfill(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """对历史报告运行回测，计算信号准确率。"""
+    try:
+        summary = _acc.backfill_reports(user_id=current_user.id)
+        return {"status": "ok", "message": f"已回测 {summary['backtested']}/{summary['total_reports']} 条信号", "summary": _acc.get_accuracy_summary(user_id=current_user.id)}
+    except Exception as exc:
+        raise HTTPException(500, f"回测失败: {exc}")
+
+
+@app.get("/v1/accuracy/summary")
+def accuracy_summary(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """获取信号准确率汇总统计。"""
+    try:
+        return _acc.get_accuracy_summary(user_id=current_user.id)
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@app.get("/v1/accuracy/details")
+def accuracy_details(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict:
+    """获取每条信号的准确率明细。"""
+    try:
+        return _acc.get_accuracy_details(
+            user_id=current_user.id, limit=limit, offset=offset
+        )
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 # ─── Runtime Config Endpoints ────────────────────────────────────────────────
 
 _CONFIG_ALLOWED_KEYS = {
