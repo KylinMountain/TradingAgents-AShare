@@ -12,6 +12,7 @@ import {
     MouseEventParams,
     Time,
     createChart,
+    createSeriesMarkers,
 } from 'lightweight-charts'
 import { Activity, CandlestickChart, TrendingUp } from 'lucide-react'
 import { api } from '@/services/api'
@@ -85,6 +86,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+    const markersRef = useRef<any>(null)
     const niuxiongSeriesRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -156,6 +158,27 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             aData.push({ time: time as Time, value: p.a_line })
         }
         seriesMap.gs_a.setData(showGs ? aData : [])
+
+        // GS buy/sell markers
+        if (markersRef.current && showGs) {
+            const markers = points
+                .filter(p => p.buy_signal || p.sell_signal)
+                .map(p => {
+                    const time = toBusinessDay(p.date)
+                    if (!time) return null
+                    return {
+                        time: time as Time,
+                        position: p.buy_signal ? ('belowBar' as const) : ('aboveBar' as const),
+                        color: p.buy_signal ? '#ef4444' : '#22c55e',
+                        shape: p.buy_signal ? ('arrowUp' as const) : ('arrowDown' as const),
+                        text: p.buy_signal ? 'B' : 'S',
+                    }
+                })
+                .filter(Boolean)
+            markersRef.current.setMarkers(markers as any)
+        } else if (markersRef.current) {
+            markersRef.current.setMarkers([])
+        }
 
         chartRef.current?.timeScale().fitContent()
     }
@@ -264,6 +287,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
 
         chartRef.current = chart
         seriesRef.current = series
+        markersRef.current = createSeriesMarkers(series)
 
         if (candlesRef.current.length) {
             const existingData: CandlestickData[] = candlesRef.current.flatMap((c) => {
@@ -463,6 +487,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                                         for (const s of Object.values(gsSeriesRefs.current)) {
                                             s.setData([])
                                         }
+                                        markersRef.current?.setMarkers([])
                                     }
                                 }}
                                 className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${isActive
@@ -504,6 +529,12 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                                     </span>
                                     {lastGs.zj_bias != null && (
                                         <span className="text-slate-500">乖离 {lastGs.zj_bias > 0 ? '+' : ''}{lastGs.zj_bias}%</span>
+                                    )}
+                                    {lastGs.buy_signal && (
+                                        <span className="text-red-500 font-bold">B 买入</span>
+                                    )}
+                                    {lastGs.sell_signal && (
+                                        <span className="text-green-500 font-bold">S 卖出</span>
                                     )}
                                 </div>
                             )}
