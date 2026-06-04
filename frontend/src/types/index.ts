@@ -340,6 +340,24 @@ export interface GSResponse {
     signal?: Record<string, any> | null
 }
 
+export interface RadarPoint {
+    date: string
+    close: number
+    radar_wave?: number | null
+    radar_avg?: number | null
+    radar_buy?: boolean
+    radar_sell?: boolean
+    radar_top?: boolean
+    radar_down?: boolean
+}
+
+export interface RadarResponse {
+    symbol: string
+    name?: string | null
+    points: RadarPoint[]
+    signal?: Record<string, any> | null
+}
+
 export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
 
 // Structured extraction types

@@ -5,6 +5,7 @@ import DebateDrawer from '@/components/DebateDrawer'
 import ReportViewer from '@/components/ReportViewer'
 import ChatCopilotPanel from '@/components/ChatCopilotPanel'
 import KlinePanel from '@/components/KlinePanel'
+import RadarPanel from '@/components/RadarPanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
@@ -109,6 +110,8 @@ export default function Analysis() {
                             }}
                         />
                     </div>
+
+                    <RadarPanel symbol={activeSymbol} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 

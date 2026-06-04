@@ -61,6 +61,11 @@ def fetch_realtime_data(symbol: str, days: int = 120) -> pd.DataFrame:
 
     # 转换为 DataFrame
     df = pd.DataFrame(klines)
+
+    # mootdx 同时返回 vol 和 volume 两列，先删掉 volume 再重命名 vol → volume
+    if 'volume' in df.columns and 'vol' in df.columns:
+        df = df.drop(columns=['volume'])
+
     df = df.rename(columns={
         'open': 'open',
         'close': 'close',
@@ -919,6 +924,178 @@ def get_gs_signal(df: pd.DataFrame) -> dict:
             "recommendation": "买入" if latest['gs_buy'] else
                              "卖出" if latest['gs_sell'] else "持有",
         },
+    }
+
+    return signal
+
+
+# ============================================================
+# 主力趋势雷达指标 (TDX公式转换)
+# ============================================================
+
+def _ema_np(arr: np.ndarray, period: int) -> np.ndarray:
+    """numpy 版 EMA，避免 pandas 索引对齐问题"""
+    alpha = 2.0 / (period + 1)
+    out = np.empty_like(arr, dtype=float)
+    out[0] = arr[0] if not np.isnan(arr[0]) else 0.0
+    for i in range(1, len(arr)):
+        if np.isnan(arr[i]):
+            out[i] = out[i-1]
+        else:
+            out[i] = alpha * arr[i] + (1 - alpha) * out[i-1]
+    return out
+
+def calculate_radar_indicator(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    主力趋势雷达指标计算
+
+    公式源码 (通达信TDX):
+        最小值:=LLV(LOW,10);
+        最大值:=HHV(HIGH,25);
+        波动线:=EMA((CLOSE-最小值)/(最大值-最小值)*4,4);
+        平均线:EMA(波动线,3);
+
+        信息:=平均线>=REF(平均线,1);
+        走强:=CLOSE>MA(CLOSE,20) AND CLOSE>MA(CLOSE,5);
+        走弱:=CLOSE<MA(CLOSE,10) AND CLOSE<MA(CLOSE,5);
+        量:=VOL>MA(VOL,5);
+
+        D(底): 信息由0→1 + 连续3日下降 + 平均线<0.5
+        S(升): 信息由0→1 + 走强由0→1 + 放量
+        DD(顶): 平均线>2 + 信息由1→0 + 连续2日上升
+        TZ(下): 信息由1→0 + 连续2日上升 + 走弱 + 平均线>1
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        包含 open, high, low, close, volume 的 DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        包含 radar_wave, radar_avg, radar_buy, radar_sell,
+        radar_top, radar_down 的 DataFrame
+    """
+    # 重置索引避免重复日期索引导致 pandas align 错误
+    df = df.reset_index(drop=True)
+
+    # 使用 numpy 数组进行核心计算，避免 pandas 索引对齐问题
+    h = np.array(df['high'], dtype=np.float64)
+    l = np.array(df['low'], dtype=np.float64)
+    c = np.array(df['close'], dtype=np.float64)
+    v = np.array(df['volume'], dtype=np.float64)
+    n = len(c)
+
+    # 核心计算
+    min_val = np.full(n, np.nan)
+    max_val = np.full(n, np.nan)
+    for i in range(9, n):
+        min_val[i] = np.nanmin(l[i-9:i+1])
+    for i in range(24, n):
+        max_val[i] = np.nanmax(h[i-24:i+1])
+
+    # 避免除零
+    range_val = max_val - min_val
+    range_val[range_val == 0] = np.nan
+
+    # 波动线: 标准化价格到 0~4 区间
+    raw_wave = ((c - min_val) / range_val) * 4
+    wave = _ema_np(raw_wave, 4)
+
+    # 平均线: 波动线的3日EMA
+    avg = _ema_np(wave, 3)
+
+    # 状态判断
+    info = np.zeros(n, dtype=int)
+    info[1:] = (avg[1:] >= avg[:-1]).astype(int)
+    strong = np.zeros(n, dtype=int)
+    weak = np.zeros(n, dtype=int)
+    vol_up = np.zeros(n, dtype=int)
+    for i in range(19, n):
+        ci = float(c[i])
+        strong[i] = 1 if ci > float(np.nanmean(c[i-19:i+1])) and ci > float(np.nanmean(c[i-4:i+1])) else 0
+    for i in range(9, n):
+        ci = float(c[i])
+        weak[i] = 1 if ci < float(np.nanmean(c[i-9:i+1])) and ci < float(np.nanmean(c[i-4:i+1])) else 0
+    for i in range(4, n):
+        vol_up[i] = 1 if float(v[i]) > float(np.nanmean(v[i-4:i+1])) else 0
+
+    # 信号计算
+    info_prev1 = np.zeros(n, dtype=int); info_prev1[1:] = info[:-1]
+    info_prev2 = np.zeros(n, dtype=int); info_prev2[2:] = info[:-2]
+    info_prev3 = np.zeros(n, dtype=int); info_prev3[3:] = info[:-3]
+    strong_prev1 = np.zeros(n, dtype=int); strong_prev1[1:] = strong[:-1]
+
+    # 底(D): 信息由0→1 + 连续3日下降 + 平均线<0.5
+    radar_buy = (
+        (info == 1) & (info_prev1 == 0) &
+        ((info_prev2 + info_prev3) == 0) &
+        (avg < 0.5)
+    )
+
+    # 升(S): 信息由0→1 + 走强由0→1 + 放量
+    radar_sell = (
+        (info == 1) & (info_prev1 == 0) &
+        ((info_prev2 + info_prev3) == 0) &
+        (strong == 1) & (strong_prev1 == 0) &
+        (vol_up == 1)
+    )
+
+    # 顶(DD): 平均线>2 + 信息由1→0 + 连续2日上升
+    radar_top = (
+        (avg > 2) &
+        (info == 0) & (info_prev1 == 1) &
+        ((info_prev2 + info_prev3) == 2)
+    )
+
+    # 下(TZ): 信息由1→0 + 连续2日上升 + 走弱 + 平均线>1
+    radar_down = (
+        (info == 0) & (info_prev1 == 1) &
+        ((info_prev2 + info_prev3) == 2) &
+        (weak == 1) &
+        (avg > 1)
+    )
+
+    # 组装结果
+    result = df.copy()
+    result['radar_wave'] = wave
+    result['radar_avg'] = avg
+    result['radar_buy'] = radar_buy
+    result['radar_sell'] = radar_sell
+    result['radar_top'] = radar_top
+    result['radar_down'] = radar_down
+
+    return result
+
+
+def get_radar_signal(df: pd.DataFrame) -> dict:
+    """
+    获取最新的主力趋势雷达信号
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        calculate_radar_indicator 返回的 DataFrame
+
+    Returns
+    -------
+    dict
+        信号字典
+    """
+    if len(df) < 2:
+        return {"error": "数据不足"}
+
+    latest = df.iloc[-1]
+
+    signal = {
+        "date": df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else len(df) - 1,
+        "radar_wave": round(float(latest['radar_wave']), 2) if pd.notna(latest['radar_wave']) else None,
+        "radar_avg": round(float(latest['radar_avg']), 2) if pd.notna(latest['radar_avg']) else None,
+        "radar_buy": bool(latest['radar_buy']),
+        "radar_sell": bool(latest['radar_sell']),
+        "radar_top": bool(latest['radar_top']),
+        "radar_down": bool(latest['radar_down']),
+        "trend": "上升" if latest['radar_avg'] >= df['radar_avg'].iloc[-2] else "下降",
     }
 
     return signal

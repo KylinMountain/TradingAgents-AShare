@@ -697,6 +697,24 @@ class GSResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+class RadarPoint(BaseModel):
+    date: str
+    close: float
+    radar_wave: Optional[float] = None
+    radar_avg: Optional[float] = None
+    radar_buy: bool = False
+    radar_sell: bool = False
+    radar_top: bool = False
+    radar_down: bool = False
+
+
+class RadarResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[RadarPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 # Report API Models
 class ReportCreateRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
@@ -2741,6 +2759,87 @@ def get_gs_strategy(
         pass
 
     return GSResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
+
+
+@app.get("/v1/market/radar", response_model=RadarResponse)
+def get_radar(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> RadarResponse:
+    """主力趋势雷达指标接口"""
+    from tradingagents.indicators import calculate_radar_indicator, get_radar_signal, fetch_realtime_data, fetch_realtime_quote
+
+    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+
+    try:
+        df = fetch_realtime_data(code, days=250)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    # 保存日期索引，重置索引避免重复日期索引导致 pandas align 错误
+    dates = df.index.to_series().reset_index(drop=True)
+    df = df.reset_index(drop=True)
+
+    result = calculate_radar_indicator(df)
+    signal = get_radar_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    # 使用保存的日期进行过滤
+    if start_date:
+        mask = dates >= pd.Timestamp(start_date)
+        result = result[mask.values].reset_index(drop=True)
+        dates = dates[mask.values].reset_index(drop=True)
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        mask = dates <= end_dt
+        result = result[mask.values].reset_index(drop=True)
+        dates = dates[mask.values].reset_index(drop=True)
+
+    points = []
+    for i, (_, row) in enumerate(result.iterrows()):
+        dt = dates.iloc[i]
+        date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)[:10]
+        points.append(RadarPoint(
+            date=date_str,
+            close=float(row["close"]),
+            radar_wave=round(float(row["radar_wave"]), 2) if pd.notna(row["radar_wave"]) else None,
+            radar_avg=round(float(row["radar_avg"]), 2) if pd.notna(row["radar_avg"]) else None,
+            radar_buy=bool(row.get("radar_buy", False)),
+            radar_sell=bool(row.get("radar_sell", False)),
+            radar_top=bool(row.get("radar_top", False)),
+            radar_down=bool(row.get("radar_down", False)),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(code)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return RadarResponse(
         symbol=symbol,
         name=name,
         points=points,
