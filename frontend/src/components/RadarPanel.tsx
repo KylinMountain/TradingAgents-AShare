@@ -31,8 +31,10 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const avgSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+    const waveSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
     const zeroLineRef = useRef<ISeriesApi<'Line'> | null>(null)
-    const refLineRef = useRef<ISeriesApi<'Line'> | null>(null)
+    const overboughtRef = useRef<ISeriesApi<'Line'> | null>(null)
+    const oversoldRef = useRef<ISeriesApi<'Line'> | null>(null)
     const histRefs = useRef<Record<string, ISeriesApi<'Histogram'>>>({})
     const markersRef = useRef<any>(null)
     const [radarData, setRadarData] = useState<RadarPoint[]>([])
@@ -90,12 +92,20 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
             color: '#eab308', lineWidth: 2, lineStyle: LineStyle.Solid,
             priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: true,
         })
+        const waveSeries = chart.addSeries(LineSeries, {
+            color: '#60a5fa', lineWidth: 1, lineStyle: LineStyle.Solid,
+            priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: true,
+        })
         const zeroLine = chart.addSeries(LineSeries, {
             color: '#64748b', lineWidth: 1, lineStyle: LineStyle.Solid,
             priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         })
-        const refLine = chart.addSeries(LineSeries, {
-            color: '#94a3b8', lineWidth: 1, lineStyle: LineStyle.Dashed,
+        const overboughtLine = chart.addSeries(LineSeries, {
+            color: '#eab308', lineWidth: 1, lineStyle: LineStyle.Dashed,
+            priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        })
+        const oversoldLine = chart.addSeries(LineSeries, {
+            color: '#eab308', lineWidth: 1, lineStyle: LineStyle.Dashed,
             priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
         })
         const upHist = chart.addSeries(HistogramSeries, {
@@ -110,8 +120,10 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
         markersRef.current = markers
 
         avgSeriesRef.current = avgSeries
+        waveSeriesRef.current = waveSeries
         zeroLineRef.current = zeroLine
-        refLineRef.current = refLine
+        overboughtRef.current = overboughtLine
+        oversoldRef.current = oversoldLine
         histRefs.current = { up: upHist, down: downHist }
         chartRef.current = chart
 
@@ -126,8 +138,10 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
             chartRef.current?.remove()
             chartRef.current = null
             avgSeriesRef.current = null
+            waveSeriesRef.current = null
             zeroLineRef.current = null
-            refLineRef.current = null
+            overboughtRef.current = null
+            oversoldRef.current = null
             histRefs.current = {}
         }
     }, [isDark])
@@ -147,10 +161,12 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
     // Update series
     useEffect(() => {
         const avgSeries = avgSeriesRef.current
+        const waveSeries = waveSeriesRef.current
         const histSeries = histRefs.current
         if (!avgSeries || !histSeries.up || !radarData.length) return
 
         const avgData: LineData[] = []
+        const waveData: LineData[] = []
         const upHistData: HistogramData[] = []
         const downHistData: HistogramData[] = []
 
@@ -161,6 +177,9 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
             if (!time) continue
 
             avgData.push({ time: time as Time, value: p.radar_avg })
+            if (p.radar_wave != null) {
+                waveData.push({ time: time as Time, value: p.radar_wave })
+            }
 
             if (prevAvg !== null) {
                 const diff = p.radar_avg - prevAvg
@@ -172,6 +191,7 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
         }
 
         avgSeries.setData(avgData)
+        waveSeries?.setData(waveData)
         histSeries.up.setData(upHistData)
         histSeries.down.setData(downHistData)
 
@@ -179,9 +199,13 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
         if (zeroLineRef.current && avgData.length > 0) {
             zeroLineRef.current.setData(avgData.map(d => ({ time: d.time, value: 0 })))
         }
-        // Reference line at 2.0 (midpoint of 0-4 range)
-        if (refLineRef.current && avgData.length > 0) {
-            refLineRef.current.setData(avgData.map(d => ({ time: d.time, value: 2.0 })))
+        // Overbought line at 3.2
+        if (overboughtRef.current && avgData.length > 0) {
+            overboughtRef.current.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
+        }
+        // Oversold line at 0.5
+        if (oversoldRef.current && avgData.length > 0) {
+            oversoldRef.current.setData(avgData.map(d => ({ time: d.time, value: 0.5 })))
         }
 
         // Signal markers
@@ -214,6 +238,11 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
                 {lastPoint && (
                     <div className="flex items-center gap-3 text-xs">
                         <span className="flex items-center gap-1">
+                            <span className="inline-block w-3 h-0.5 bg-blue-400" />
+                            <span className="text-slate-500 dark:text-slate-400">波动线</span>
+                            <span className="text-blue-400 font-medium">{lastPoint.radar_wave ?? '--'}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
                             <span className="inline-block w-3 h-0.5 bg-yellow-400" />
                             <span className="text-slate-500 dark:text-slate-400">平均线</span>
                             <span className="text-yellow-500 font-medium">{lastPoint.radar_avg ?? '--'}</span>
@@ -221,11 +250,6 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
                         <span className="flex items-center gap-1">
                             <span className="inline-block w-3 h-0.5 bg-slate-500" />
                             <span className="text-slate-500 dark:text-slate-400">零轴</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <span className="inline-block w-3 h-0.5 bg-slate-400 border-dashed" />
-                            <span className="text-slate-500 dark:text-slate-400">中轴</span>
-                            <span className="text-slate-500 font-medium">2.0</span>
                         </span>
                         {lastPoint.radar_buy && <span className="text-red-500 font-bold">底</span>}
                         {lastPoint.radar_sell && <span className="text-amber-500 font-bold">升</span>}
