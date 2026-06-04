@@ -98,6 +98,8 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
     const indicatorModeRef = useRef<IndicatorMode>('combined')
     const gsSeriesRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
     const [gsData, setGsData] = useState<GSPoint[]>([])
+    const [showGsLines, setShowGsLines] = useState(false)
+    const showGsLinesRef = useRef(false)
     const candlesRef = useRef<KlineCandle[]>([])
 
     const range = useMemo(() => {
@@ -159,26 +161,31 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
 
         const mode = indicatorModeRef.current
         const showGs = mode === 'gs' || mode === 'combined'
+        const showLines = showGs && showGsLinesRef.current
 
         // BB line
         const bbData: LineData[] = []
-        for (const p of points) {
-            if (p.bb_line == null) continue
-            const time = toBusinessDay(p.date)
-            if (!time) continue
-            bbData.push({ time: time as Time, value: p.bb_line })
+        if (showLines) {
+            for (const p of points) {
+                if (p.bb_line == null) continue
+                const time = toBusinessDay(p.date)
+                if (!time) continue
+                bbData.push({ time: time as Time, value: p.bb_line })
+            }
         }
-        seriesMap.gs_bb.setData(showGs ? bbData : [])
+        seriesMap.gs_bb.setData(bbData)
 
         // A line
         const aData: LineData[] = []
-        for (const p of points) {
-            if (p.a_line == null) continue
-            const time = toBusinessDay(p.date)
-            if (!time) continue
-            aData.push({ time: time as Time, value: p.a_line })
+        if (showLines) {
+            for (const p of points) {
+                if (p.a_line == null) continue
+                const time = toBusinessDay(p.date)
+                if (!time) continue
+                aData.push({ time: time as Time, value: p.a_line })
+            }
         }
-        seriesMap.gs_a.setData(showGs ? aData : [])
+        seriesMap.gs_a.setData(aData)
 
         // GS buy/sell markers
         if (markersRef.current && showGs) {
@@ -523,6 +530,23 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                             </button>
                         )
                     })}
+                    {(indicatorMode === 'gs' || indicatorMode === 'combined') && (
+                        <button
+                            onClick={() => {
+                                const next = !showGsLinesRef.current
+                                showGsLinesRef.current = next
+                                setShowGsLines(next)
+                                if (gsData.length) updateGsSeries(gsData)
+                            }}
+                            className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${showGsLines
+                                ? 'border-amber-500 text-amber-500 bg-amber-50 dark:bg-amber-500/10'
+                                : 'border-slate-200 dark:border-slate-600 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                            }`}
+                            title="显示/隐藏GS BB和A线"
+                        >
+                            BB·A
+                        </button>
+                    )}
                 </div>
             </div>
             <div className="relative flex-1 min-h-0 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 overflow-hidden">
