@@ -546,8 +546,13 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                 {indicatorMode !== 'off' && (() => {
                     const showNx = indicatorMode === 'niuxiong' || indicatorMode === 'combined'
                     const showGs = indicatorMode === 'gs' || indicatorMode === 'combined'
-                    const lastNx = showNx && niuxiongData.length ? niuxiongData[niuxiongData.length - 1] : null
-                    const lastGs = showGs && gsData.length ? gsData[gsData.length - 1] : null
+                    const activeDate = panelCandle?.date
+                    const lastNx = showNx && niuxiongData.length
+                        ? niuxiongData.find(p => p.date === activeDate) ?? niuxiongData[niuxiongData.length - 1]
+                        : null
+                    const lastGs = showGs && gsData.length
+                        ? gsData.find(p => p.date === activeDate) ?? gsData[gsData.length - 1]
+                        : null
                     if (!lastNx && !lastGs) return null
                     return (
                         <div className="absolute left-3 top-3 text-xs px-2 py-1.5 rounded bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 flex flex-col gap-0.5">
