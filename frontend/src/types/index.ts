@@ -306,8 +306,10 @@ export interface NiuxiongPoint {
     date: string
     close: number
     decision_line?: number | null
+    bull_line?: number | null
     bear_line?: number | null
     orbit_line?: number | null
+    orbit_direction?: number | null
     buy_signal?: boolean
     sell_signal?: boolean
 }

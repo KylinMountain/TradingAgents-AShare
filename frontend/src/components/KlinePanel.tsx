@@ -115,8 +115,9 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
         const mode = indicatorModeRef.current
         const showNx = mode === 'niuxiong' || mode === 'combined'
 
-        const keys = ['decision_line', 'bear_line', 'orbit_line'] as const
-        for (const key of keys) {
+        // decision_line, bull_line, bear_line: 直接映射
+        const simpleKeys = ['decision_line', 'bull_line', 'bear_line'] as const
+        for (const key of simpleKeys) {
             const lineData: LineData[] = []
             if (showNx) {
                 for (const p of points) {
@@ -129,6 +130,26 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             }
             seriesMap[key]?.setData(lineData)
         }
+
+        // orbit_bull / orbit_bear: 根据 orbit_direction 分流
+        const orbitBullData: LineData[] = []
+        const orbitBearData: LineData[] = []
+        if (showNx) {
+            for (const p of points) {
+                if (p.orbit_line == null) continue
+                const time = toBusinessDay(p.date)
+                if (!time) continue
+                const entry = { time: time as Time, value: p.orbit_line }
+                if (p.orbit_direction != null && p.orbit_direction < 0) {
+                    orbitBearData.push(entry)
+                } else {
+                    orbitBullData.push(entry)
+                }
+            }
+        }
+        seriesMap.orbit_bull?.setData(orbitBullData)
+        seriesMap.orbit_bear?.setData(orbitBearData)
+
         chartRef.current?.timeScale().fitContent()
     }
 
@@ -248,8 +269,10 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
         // Niuxiong indicator line series
         const niuxiongColors: Record<string, { color: string; lineWidth: 1 | 2; lineStyle: LineStyle; title: string }> = {
             decision_line: { color: '#eab308', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '决策线' },
+            bull_line: { color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '牛线' },
             bear_line: { color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '熊线' },
-            orbit_line: { color: '#06b6d4', lineWidth: 2, lineStyle: LineStyle.Solid, title: '轨道线' },
+            orbit_bull: { color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Solid, title: '轨道线(多)' },
+            orbit_bear: { color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Solid, title: '轨道线(空)' },
         }
         const seriesMap: Record<string, ISeriesApi<'Line'>> = {}
         for (const [key, cfg] of Object.entries(niuxiongColors)) {
@@ -515,8 +538,14 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                             {lastNx && (
                                 <div className="flex items-center gap-4">
                                     <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-yellow-400" style={{ borderTop: '1px dashed #eab308' }} />决策线 <span className="text-yellow-500 font-medium">{lastNx.decision_line ?? '--'}</span></span>
-                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-green-500" style={{ borderTop: '1px dashed #22c55e' }} />熊线 <span className="text-green-500 font-medium">{lastNx.bear_line ?? '--'}</span></span>
-                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-cyan-500" />轨道线 <span className="text-cyan-500 font-medium">{lastNx.orbit_line ?? '--'}</span></span>
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-red-500" style={{ borderTop: '1px dashed #ef4444' }} />牛线 <span className="text-red-500 font-medium">{lastNx.bull_line ?? '--'}</span></span>
+                                    {lastNx.bear_line != null && (
+                                        <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-green-500" style={{ borderTop: '1px dashed #22c55e' }} />熊线 <span className="text-green-500 font-medium">{lastNx.bear_line}</span></span>
+                                    )}
+                                    <span className="flex items-center gap-1">
+                                        <span className={`inline-block w-3 h-0.5 ${(lastNx.orbit_direction ?? 0) >= 0 ? 'bg-red-500' : 'bg-green-500'}`} />
+                                        轨道线 <span className={`font-medium ${(lastNx.orbit_direction ?? 0) >= 0 ? 'text-red-500' : 'text-green-500'}`}>{lastNx.orbit_line ?? '--'}</span>
+                                    </span>
                                 </div>
                             )}
                             {lastGs && (

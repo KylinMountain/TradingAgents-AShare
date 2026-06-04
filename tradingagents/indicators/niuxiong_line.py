@@ -249,6 +249,8 @@ def calculate_niuxiong_line(df: pd.DataFrame) -> pd.DataFrame:
     orbit[dqzt >= 0] = xg1[dqzt >= 0]
 
     result['orbit_line'] = orbit
+    result['orbit_direction'] = dqzt  # 1=多头, -1=空头, 0=未定
+    result['bull_line'] = bull  # 完整的EMA(X1,99)，始终有值
 
     # === 趋势判断 ===
     result['short_trend_up'] = result['decision_line'] > result['decision_line'].shift(1)
