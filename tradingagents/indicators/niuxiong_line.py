@@ -719,3 +719,204 @@ def plot_niuxiong_line(
         print(f"图表已保存至: {save_path}")
     else:
         plt.show()
+
+
+# =============================================================================
+# GS策略指标
+# =============================================================================
+
+def calculate_gs_strategy(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    计算GS策略指标 (基于通达信公式)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        包含 OHLCV 数据的 DataFrame
+
+    Returns
+    -------
+    pd.DataFrame
+        添加了GS策略指标列的 DataFrame
+    """
+    result = df.copy()
+    c = result['close']
+    o = result['open']
+    h = result['high']
+    l = result['low']
+
+    # === BB: 基准线 (4MA融合) ===
+    bb0 = (c.rolling(3).mean() + c.rolling(7).mean() +
+           c.rolling(13).mean() + c.rolling(27).mean()) / 4
+    bb1 = ema(c, 5)
+    bb = bb0.where(bb0.notna(), bb1)
+
+    # === A0: 加权价 (Close权重60%) ===
+    a0 = (h + l + 2 * o + 6 * c) / 10
+
+    # === TK: 看跌形态过滤器 ===
+    c_prev_h = c.shift(1)
+    c_prev_l = c.shift(1)
+    c_prev_c = c.shift(1)
+    tk = (
+        (c < o) |
+        ((c < c_prev_h) & (c > o)) |
+        ((c >= o) & ((h - c) >= (c - o)) & (c / c_prev_c < 1.02)) |
+        ((c == o) & ((h - c) >= (c - l)) & (c / c_prev_c < 1.05))
+    )
+
+    # === TP: 看涨形态过滤器 ===
+    tp = (
+        ((c > o) & (c / c_prev_c > 0.94)) |
+        ((c > c_prev_l) & (c < o)) |
+        ((c <= o) & ((c - l) >= (o - c)) & (c / c_prev_c > 0.98)) |
+        ((c == o) & ((c - l) >= (h - c)) & (c / c_prev_c > 0.95))
+    )
+
+    # === 10层迭代平滑信号线 A0→A9→A ===
+    def _cross(a, b):
+        return (a > b) & (a.shift(1) <= b.shift(1))
+
+    a_prev = a0
+    for i in range(10):
+        c_up = _cross(a_prev, bb) & tk
+        c_dn = _cross(bb, a_prev) & tp
+        a_prev = pd.Series(
+            np.where(c_up, bb * 0.98, np.where(c_dn, bb * 1.02, a_prev)),
+            index=df.index
+        )
+    a_line = a_prev  # 最终A线
+
+    # === 趋势状态 ===
+    k = a_line >= bb  # 多头
+    p = a_line < bb   # 空头
+
+    # === 4种趋势分类 ===
+    zf = (c / c_prev_c - 1) * 100  # 涨跌幅
+    zj = (a_line / bb - 1) * 100   # 乖离率
+
+    # TCY: 强势上涨
+    tcy = k & (
+        ((c >= c_prev_h) & ((h - c) < (c - o))) |
+        (zf >= 7)
+    )
+    # TZK: 温和上涨
+    tzk = k & ~tcy
+    # TKC: 强势下跌
+    tkc = p & (
+        (c < c_prev_l) |
+        ((c > c_prev_l) & (c > o) & (zf < 3) & (zj <= -10))
+    )
+    # TZD: 温和下跌
+    tzd = p & ~tkc
+
+    # === 支撑压力位 RBB ===
+    rbb = (c.rolling(2).sum() / 3 + c.rolling(6).sum() / 7 +
+           c.rolling(12).sum() / 13 + c.rolling(26).sum() / 27)
+    rb1 = 4 * 1.01 - 1540 / 2457
+    rb2 = 4 * 0.99 - 1540 / 2457
+    ax1 = rbb / rb1  # 压力位
+    ax2 = rbb / rb2  # 支撑位
+
+    # === 买卖信号 ===
+    buy_signal = _cross(a_line, bb)
+    sell_signal = _cross(bb, a_line)
+
+    # === K线染色标记 ===
+    # 0=默认, 1=多头红, 2=空头绿, 3=涨停紫, 4=跌停灰, 5=一阳穿三线, 6=一阴穿三线
+    kline_color = pd.Series(0, index=df.index, dtype=int)
+
+    # 涨停/跌停
+    limit_up = ((c - c_prev_c) * 100 / c_prev_c >= (10 - 0.01 * 100 / c_prev_c)) & (c == h)
+    limit_down = c <= c_prev_c * 0.905
+    kline_color[limit_up] = 3
+    kline_color[limit_down] = 4
+
+    # 一阳穿三线 / 一阴穿三线
+    ma5 = c.rolling(5).mean()
+    ma10 = c.rolling(10).mean()
+    ma20 = c.rolling(20).mean()
+    one_line_up = (l < pd.concat([ma5, ma10, ma20], axis=1).min(axis=1)) & (c > ma5) & (c > ma10) & (c > ma20)
+    one_line_dn = (h > pd.concat([ma5, ma10, ma20], axis=1).max(axis=1)) & (c < ma5) & (c < ma10) & (c < ma20)
+    kline_color[one_line_up & (kline_color == 0)] = 5
+    kline_color[one_line_dn & (kline_color == 0)] = 6
+
+    # 多头/空头染色 (非特殊K线)
+    kline_color[k & (kline_color == 0)] = 1
+    kline_color[p & (kline_color == 0)] = 2
+
+    # === 写入结果 ===
+    result['gs_bb'] = bb
+    result['gs_a'] = a_line
+    result['gs_k'] = k
+    result['gs_p'] = p
+    result['gs_tcy'] = tcy
+    result['gs_tzk'] = tzk
+    result['gs_tkc'] = tkc
+    result['gs_tzd'] = tzd
+    result['gs_rbb'] = rbb
+    result['gs_ax1'] = ax1  # 压力位
+    result['gs_ax2'] = ax2  # 支撑位
+    result['gs_zj'] = zj    # 乖离率
+    result['gs_zf'] = zf    # 涨跌幅
+    result['gs_buy'] = buy_signal
+    result['gs_sell'] = sell_signal
+    result['gs_kline_color'] = kline_color
+
+    return result
+
+
+def get_gs_signal(df: pd.DataFrame) -> dict:
+    """
+    获取最新一天的GS策略信号
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        包含GS策略指标的 DataFrame (由 calculate_gs_strategy 计算)
+
+    Returns
+    -------
+    dict
+        信号字典
+    """
+    if len(df) < 2:
+        return {"error": "数据不足"}
+
+    latest = df.iloc[-1]
+
+    # 趋势状态
+    if latest['gs_tcy']:
+        trend = "强势上涨"
+    elif latest['gs_tzk']:
+        trend = "温和上涨"
+    elif latest['gs_tkc']:
+        trend = "强势下跌"
+    elif latest['gs_tzd']:
+        trend = "温和下跌"
+    else:
+        trend = "未知"
+
+    # K线颜色名
+    color_map = {0: "默认", 1: "多头", 2: "空头", 3: "涨停", 4: "跌停", 5: "一阳穿三线", 6: "一阴穿三线"}
+
+    signal = {
+        "date": df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else len(df) - 1,
+        "gs_bb": round(float(latest['gs_bb']), 2) if pd.notna(latest['gs_bb']) else None,
+        "gs_a": round(float(latest['gs_a']), 2) if pd.notna(latest['gs_a']) else None,
+        "trend": trend,
+        "trend_state": "K(多头)" if latest['gs_k'] else "P(空头)",
+        "zj_bias": round(float(latest['gs_zj']), 2) if pd.notna(latest['gs_zj']) else None,
+        "zf": round(float(latest['gs_zf']), 2) if pd.notna(latest['gs_zf']) else None,
+        "support": round(float(latest['gs_ax2']), 2) if pd.notna(latest['gs_ax2']) else None,
+        "resistance": round(float(latest['gs_ax1']), 2) if pd.notna(latest['gs_ax1']) else None,
+        "kline_color": color_map.get(int(latest['gs_kline_color']), "默认"),
+        "trading": {
+            "buy": bool(latest['gs_buy']),
+            "sell": bool(latest['gs_sell']),
+            "recommendation": "买入" if latest['gs_buy'] else
+                             "卖出" if latest['gs_sell'] else "持有",
+        },
+    }
+
+    return signal

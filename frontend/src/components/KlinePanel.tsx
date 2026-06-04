@@ -15,7 +15,7 @@ import {
 } from 'lightweight-charts'
 import { Activity, CandlestickChart, TrendingUp } from 'lucide-react'
 import { api } from '@/services/api'
-import type { KlineCandle, NiuxiongPoint } from '@/types'
+import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode } from '@/types'
 import { useAnalysisStore } from '@/stores/analysisStore'
 
 interface KlinePanelProps {
@@ -91,9 +91,11 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'))
     const [candles, setCandles] = useState<KlineCandle[]>([])
     const [activeCandle, setActiveCandle] = useState<KlineCandle | null>(null)
-    const [showNiuxiong, setShowNiuxiong] = useState(true)
-    const showNiuxiongRef = useRef(true)
     const [niuxiongData, setNiuxiongData] = useState<NiuxiongPoint[]>([])
+    const [indicatorMode, setIndicatorMode] = useState<IndicatorMode>('niuxiong')
+    const indicatorModeRef = useRef<IndicatorMode>('niuxiong')
+    const gsSeriesRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
+    const [gsData, setGsData] = useState<GSPoint[]>([])
     const candlesRef = useRef<KlineCandle[]>([])
 
     const range = useMemo(() => {
@@ -107,20 +109,54 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
 
     const updateNiuxiongSeries = (points: NiuxiongPoint[]) => {
         const seriesMap = niuxiongSeriesRefs.current
-        if (!seriesMap.decision_line || !showNiuxiongRef.current) return
+        if (!seriesMap.decision_line) return
+        const mode = indicatorModeRef.current
+        const showNx = mode === 'niuxiong' || mode === 'combined'
 
         const keys = ['decision_line', 'bear_line', 'orbit_line'] as const
         for (const key of keys) {
             const lineData: LineData[] = []
-            for (const p of points) {
-                const val = p[key]
-                if (val == null) continue
-                const time = toBusinessDay(p.date)
-                if (!time) continue
-                lineData.push({ time: time as Time, value: val })
+            if (showNx) {
+                for (const p of points) {
+                    const val = p[key]
+                    if (val == null) continue
+                    const time = toBusinessDay(p.date)
+                    if (!time) continue
+                    lineData.push({ time: time as Time, value: val })
+                }
             }
             seriesMap[key]?.setData(lineData)
         }
+        chartRef.current?.timeScale().fitContent()
+    }
+
+    const updateGsSeries = (points: GSPoint[]) => {
+        const seriesMap = gsSeriesRefs.current
+        if (!seriesMap.gs_bb) return
+
+        const mode = indicatorModeRef.current
+        const showGs = mode === 'gs' || mode === 'combined'
+
+        // BB line
+        const bbData: LineData[] = []
+        for (const p of points) {
+            if (p.bb_line == null) continue
+            const time = toBusinessDay(p.date)
+            if (!time) continue
+            bbData.push({ time: time as Time, value: p.bb_line })
+        }
+        seriesMap.gs_bb.setData(showGs ? bbData : [])
+
+        // A line
+        const aData: LineData[] = []
+        for (const p of points) {
+            if (p.a_line == null) continue
+            const time = toBusinessDay(p.date)
+            if (!time) continue
+            aData.push({ time: time as Time, value: p.a_line })
+        }
+        seriesMap.gs_a.setData(showGs ? aData : [])
+
         chartRef.current?.timeScale().fitContent()
     }
 
@@ -206,6 +242,26 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
         }
         niuxiongSeriesRefs.current = seriesMap
 
+        // GS indicator line series
+        const gsMap: Record<string, ISeriesApi<'Line'>> = {}
+        gsMap.gs_bb = chart.addSeries(LineSeries, {
+            color: '#e2e8f0',
+            lineWidth: 1,
+            lineStyle: LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+        })
+        gsMap.gs_a = chart.addSeries(LineSeries, {
+            color: '#f59e0b',
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+        })
+        gsSeriesRefs.current = gsMap
+
         chartRef.current = chart
         seriesRef.current = series
 
@@ -271,11 +327,12 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             setLoading(true)
             setError(null)
             try {
-                const [klineResp, niuxiongResp] = await Promise.all([
+                const [klineResp, niuxiongResp, gsResp] = await Promise.all([
                     api.getKline(symbol, range.start, range.end),
                     api.getNiuxiong(symbol, range.start, range.end).catch(() => null),
+                    api.getGsStrategy(symbol, range.start, range.end).catch(() => null),
                 ])
-                const data: CandlestickData[] = klineResp.candles.flatMap((c) => {
+                const data: CandlestickData[] = klineResp.candles.flatMap((c: KlineCandle) => {
                     const time = toBusinessDay((c.date || '').slice(0, 10))
                     const open = Number(c.open)
                     const high = Number(c.high)
@@ -296,6 +353,12 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                 if (niuxiongResp?.points) {
                     setNiuxiongData(niuxiongResp.points)
                     updateNiuxiongSeries(niuxiongResp.points)
+                }
+
+                // Update GS overlay
+                if (gsResp?.points) {
+                    setGsData(gsResp.points)
+                    updateGsSeries(gsResp.points)
                 }
 
                 chartRef.current?.timeScale().fitContent()
@@ -369,40 +432,81 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                             {item.label}
                         </button>
                     ))}
-                    <button
-                        onClick={() => {
-                            const next = !showNiuxiongRef.current
-                            showNiuxiongRef.current = next
-                            setShowNiuxiong(next)
-                            if (next) {
-                                updateNiuxiongSeries(niuxiongData)
-                            } else {
-                                for (const s of Object.values(niuxiongSeriesRefs.current)) {
-                                    s.setData([])
-                                }
-                            }
-                        }}
-                        className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${showNiuxiong
-                                ? 'border-cyan-500 text-cyan-500 bg-cyan-50 dark:bg-cyan-500/10'
-                                : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-500'
-                            }`}
-                    >
-                        <TrendingUp className="w-3 h-3" />
-                        牛熊线
-                    </button>
+                    {(['niuxiong', 'gs', 'combined', 'off'] as IndicatorMode[]).map((mode) => {
+                        const labels: Record<IndicatorMode, string> = {
+                            niuxiong: '牛熊线',
+                            gs: 'GS策略',
+                            combined: '组合',
+                            off: '关闭',
+                        }
+                        const isActive = indicatorMode === mode
+                        return (
+                            <button
+                                key={mode}
+                                onClick={() => {
+                                    setIndicatorMode(mode)
+                                    indicatorModeRef.current = mode
+                                    // Update niuxiong series
+                                    const showNx = mode === 'niuxiong' || mode === 'combined'
+                                    if (showNx) {
+                                        updateNiuxiongSeries(niuxiongData)
+                                    } else {
+                                        for (const s of Object.values(niuxiongSeriesRefs.current)) {
+                                            s.setData([])
+                                        }
+                                    }
+                                    // Update GS series
+                                    const showGs = mode === 'gs' || mode === 'combined'
+                                    if (showGs && gsData.length) {
+                                        updateGsSeries(gsData)
+                                    } else {
+                                        for (const s of Object.values(gsSeriesRefs.current)) {
+                                            s.setData([])
+                                        }
+                                    }
+                                }}
+                                className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${isActive
+                                    ? 'border-cyan-500 text-cyan-500 bg-cyan-50 dark:bg-cyan-500/10'
+                                    : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-500'
+                                }`}
+                            >
+                                {mode === 'niuxiong' && <TrendingUp className="w-3 h-3" />}
+                                {labels[mode]}
+                            </button>
+                        )
+                    })}
                 </div>
             </div>
             <div className="relative flex-1 min-h-0 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 overflow-hidden">
                 <div ref={containerRef} className="absolute inset-0" />
-                {showNiuxiong && niuxiongData.length > 0 && (() => {
-                    const last = niuxiongData[niuxiongData.length - 1]
+                {indicatorMode !== 'off' && (() => {
+                    const showNx = indicatorMode === 'niuxiong' || indicatorMode === 'combined'
+                    const showGs = indicatorMode === 'gs' || indicatorMode === 'combined'
+                    const lastNx = showNx && niuxiongData.length ? niuxiongData[niuxiongData.length - 1] : null
+                    const lastGs = showGs && gsData.length ? gsData[gsData.length - 1] : null
+                    if (!lastNx && !lastGs) return null
                     return (
                         <div className="absolute left-3 top-3 text-xs px-2 py-1.5 rounded bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 flex flex-col gap-0.5">
-                            <div className="flex items-center gap-4">
-                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-yellow-400" style={{ borderTop: '1px dashed #eab308' }} />决策线 <span className="text-yellow-500 font-medium">{last.decision_line ?? '--'}</span></span>
-                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-green-500" style={{ borderTop: '1px dashed #22c55e' }} />熊线 <span className="text-green-500 font-medium">{last.bear_line ?? '--'}</span></span>
-                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-cyan-500" />轨道线 <span className="text-cyan-500 font-medium">{last.orbit_line ?? '--'}</span></span>
-                            </div>
+                            {lastNx && (
+                                <div className="flex items-center gap-4">
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-yellow-400" style={{ borderTop: '1px dashed #eab308' }} />决策线 <span className="text-yellow-500 font-medium">{lastNx.decision_line ?? '--'}</span></span>
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-green-500" style={{ borderTop: '1px dashed #22c55e' }} />熊线 <span className="text-green-500 font-medium">{lastNx.bear_line ?? '--'}</span></span>
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-cyan-500" />轨道线 <span className="text-cyan-500 font-medium">{lastNx.orbit_line ?? '--'}</span></span>
+                                </div>
+                            )}
+                            {lastGs && (
+                                <div className="flex items-center gap-4">
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-slate-300" />BB <span className="text-slate-200 font-medium">{lastGs.bb_line ?? '--'}</span></span>
+                                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-amber-400" />A线 <span className="text-amber-400 font-medium">{lastGs.a_line ?? '--'}</span></span>
+                                    <span className="flex items-center gap-1">
+                                        <span className={`inline-block w-2 h-2 rounded-full ${(lastGs.trend_state ?? '').includes('上涨') ? 'bg-red-500' : 'bg-green-500'}`} />
+                                        {lastGs.trend_state ?? '--'}
+                                    </span>
+                                    {lastGs.zj_bias != null && (
+                                        <span className="text-slate-500">乖离 {lastGs.zj_bias > 0 ? '+' : ''}{lastGs.zj_bias}%</span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )
                 })()}

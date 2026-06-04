@@ -676,6 +676,25 @@ class NiuxiongResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+class GSPoint(BaseModel):
+    date: str
+    close: float
+    bb_line: Optional[float] = None
+    a_line: Optional[float] = None
+    trend_state: Optional[str] = None
+    kline_color: Optional[int] = None
+    zj_bias: Optional[float] = None
+    buy_signal: bool = False
+    sell_signal: bool = False
+
+
+class GSResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[GSPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 # Report API Models
 class ReportCreateRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
@@ -2630,6 +2649,94 @@ def get_niuxiong(
         pass
 
     return NiuxiongResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
+
+
+@app.get("/v1/market/gs-strategy", response_model=GSResponse)
+def get_gs_strategy(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> GSResponse:
+    """GS策略指标接口"""
+    from tradingagents.indicators import calculate_gs_strategy, get_gs_signal, fetch_realtime_data, fetch_realtime_quote
+
+    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+
+    try:
+        df = fetch_realtime_data(code, days=250)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    result = calculate_gs_strategy(df)
+    signal = get_gs_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        # trend_state: K=多头(1), P=空头(2)
+        if row.get('gs_tcy', False):
+            trend = "强势上涨"
+        elif row.get('gs_tzk', False):
+            trend = "温和上涨"
+        elif row.get('gs_tkc', False):
+            trend = "强势下跌"
+        elif row.get('gs_tzd', False):
+            trend = "温和下跌"
+        elif row.get('gs_k', False):
+            trend = "多头"
+        elif row.get('gs_p', False):
+            trend = "空头"
+        else:
+            trend = "未知"
+
+        points.append(GSPoint(
+            date=date_str,
+            close=float(row["close"]),
+            bb_line=round(float(row["gs_bb"]), 2) if pd.notna(row["gs_bb"]) else None,
+            a_line=round(float(row["gs_a"]), 2) if pd.notna(row["gs_a"]) else None,
+            trend_state=trend,
+            kline_color=int(row["gs_kline_color"]),
+            zj_bias=round(float(row["gs_zj"]), 2) if pd.notna(row.get("gs_zj", np.nan)) else None,
+            buy_signal=bool(row.get("gs_buy", False)),
+            sell_signal=bool(row.get("gs_sell", False)),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(code)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return GSResponse(
         symbol=symbol,
         name=name,
         points=points,

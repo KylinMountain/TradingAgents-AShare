@@ -10,6 +10,8 @@ from .niuxiong_line import (
     calculate_rsi,
     multi_indicator_analysis,
     format_analysis_report,
+    calculate_gs_strategy,
+    get_gs_signal,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     'calculate_rsi',
     'multi_indicator_analysis',
     'format_analysis_report',
+    'calculate_gs_strategy',
+    'get_gs_signal',
 ]

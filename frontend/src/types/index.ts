@@ -319,6 +319,27 @@ export interface NiuxiongResponse {
     signal?: Record<string, any> | null
 }
 
+export interface GSPoint {
+    date: string
+    close: number
+    bb_line?: number | null
+    a_line?: number | null
+    trend_state?: string | null
+    kline_color?: number | null
+    zj_bias?: number | null
+    buy_signal?: boolean
+    sell_signal?: boolean
+}
+
+export interface GSResponse {
+    symbol: string
+    name?: string | null
+    points: GSPoint[]
+    signal?: Record<string, any> | null
+}
+
+export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
+
 // Structured extraction types
 export interface RiskItem {
     name: string
