@@ -91,6 +91,27 @@ TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为
 
 ## 快速上手
 
+### 环境准备
+
+根据部署方式准备以下工具：
+
+| 方式 | 必需工具 | 说明 |
+|------|----------|------|
+| Docker 部署 | Docker Engine / Docker Desktop | 推荐方式，镜像内已包含后端与构建后的前端 |
+| 源码安装 | Python 3.10+、[uv](https://docs.astral.sh/uv/)、Node.js 18+、npm | 适合本地开发、调试后端或前端 |
+
+如果本机尚未安装 `uv`，可先执行：
+
+```bash
+pip install uv
+```
+
+Windows PowerShell 用户可用下面的命令生成 `TA_APP_SECRET_KEY`：
+
+```powershell
+$env:TA_APP_SECRET_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
+```
+
 ### Docker 一键部署 (推荐)
 
 ```bash
@@ -115,16 +136,18 @@ docker run -d -p 8000:8000 \
 
 > **邮箱验证码**：未配置 SMTP（`MAIL_HOST` 等）时，验证码会在前端登录页直接显示为 `开发环境验证码：xxxxxx`，本地使用无需配置邮件服务器。如果需要真实邮件投递，参考 `.env.example` 配置 `MAIL_HOST` / `MAIL_USER` / `MAIL_PASS` 等并通过 `-e` 注入容器。
 
+Docker 容器使用 SQLite 时建议挂载 `/app/data`，否则容器删除后历史研报、用户配置和 Token 会丢失。
+
 ### 源码安装
 
 ```bash
 git clone https://github.com/KylinMountain/TradingAgents-AShare.git
 cd TradingAgents-AShare
 
-# 后端（Python 3.10+）
+# 后端
 uv sync
 
-# 前端（Node.js 18+）
+# 前端
 cd frontend
 npm install
 npm run build
@@ -139,6 +162,16 @@ uv run python -m uvicorn api.main:app --port 8000
 ```
 
 访问 `http://localhost:8000` 即可开始 AI 投研之旅。
+
+如果需要单独调试前端开发服务器：
+
+```bash
+cd frontend
+echo VITE_API_URL=http://localhost:8000 > .env
+npm run dev
+```
+
+前端开发服务器默认运行在 `http://localhost:5173`，后端仍保持 `http://localhost:8000`。
 
 ## API 集成
 
@@ -157,6 +190,17 @@ uv run python -m uvicorn api.main:app --port 8000
 | 模型 warmup | `POST /v1/config/warmup` |
 
 认证：Web 端登录后在"设置 / API Token"生成密钥，通过 `Authorization: Bearer <TOKEN>` 传入。
+
+本地部署示例：
+
+```bash
+curl -X POST 'http://localhost:8000/v1/analyze' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
+  -d '{"symbol": "分析一下600519.SH短期趋势", "trade_date": "2026-03-28"}'
+```
+
+线上服务示例：
 
 ```bash
 curl -X POST 'https://app.510168.xyz/v1/analyze' \
