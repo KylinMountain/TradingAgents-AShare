@@ -57,8 +57,8 @@ def test_basic():
     signal = get_signal(result)
     print("\n最新信号详情:")
     print(f"日期: {signal['date']}")
-    print(f"短期趋势: {signal['short_ema']['trend']}")
-    print(f"长期趋势: {signal['long_ema']['trend']}")
+    print(f"短期趋势: {signal['short_trend']}")
+    print(f"长期趋势: {signal['long_trend']}")
     print(f"综合状态: {signal['signal']['status']}")
     print(f"交易建议: {signal['trading']['recommendation']}")
 

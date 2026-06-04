@@ -1,14 +1,23 @@
 """
 同花顺牛熊线高阶指标 Python 实现
-基于通达信公式源码转换
+基于通达信公式源码转换 (TDX原版)
+
+公式源码:
+  X1:=(H+L+O+2*C)/5;
+  决策线:EMA(X1,39);
+  牛线:EMA(X1,99);
+  熊线:IF(牛线>决策线,牛线,DRAWNULL);
+  SG1:=EMA(H,5); XG1:=EMA(L,5);
+  轨道线: 自适应 EMA(H,5) / EMA(L,5) (根据交叉方向切换)
 
 指标组成:
-- 短期轨道: EMA(C,10) 经过3次平滑形成5条轨道 (绿色/品红色)
-- 长期轨道: EMA(C,45) 经过3次平滑形成5条轨道 (橙色/红色)
-- 轨道线: 基于布林带原理的支撑/压力位
+- 决策线 (黄色虚线): EMA(X1, 39), X1=(H+L+O+2C)/5
+- 牛线 (红色虚线): EMA(X1, 99)
+- 熊线 (绿色虚线): 当牛线>决策线时显示牛线值
+- 轨道线 (青色实线): EMA(H,5) 和 EMA(L,5) 的自适应切换
 
 功能:
-- 实时数据接入 (akshare)
+- 实时数据接入 (mootdx/腾讯财经)
 - 买卖信号标记
 - 多指标联动 (MACD/KDJ/RSI)
 """
@@ -185,26 +194,65 @@ def calculate_niuxiong_line(df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(vol, pd.DataFrame):
             result['volume'] = vol.iloc[:, 0]
 
-    # === 决策线 (黄色虚线) - 短期EMA ===
-    result['decision_line'] = ema(close, 10)
+    # === 加权价 X1 = (H+L+O+2*C)/5 (同花顺原版) ===
+    x1 = (high + low + result['open'] + 2 * close) / 5
 
-    # === 熊线 (绿色虚线) - 长期EMA ===
-    result['bear_line'] = ema(close, 45)
+    # === 决策线 (黄色虚线) - EMA(X1, 39) ===
+    result['decision_line'] = ema(x1, 39)
+
+    # === 牛线/熊线 (红色/绿色虚线) - EMA(X1, 99) ===
+    bull = ema(x1, 99)
+    # 熊线: 当牛线 > 决策线时显示牛线值，否则为空
+    bear = bull.where(bull > result['decision_line'], np.nan)
+
+    result['bear_line'] = bear  # 牛线(显示为熊线名，兼容前端)
 
     # === 轨道线 (青色实线) ===
-    # 同花顺牛熊线高阶的轨道线 = 典型价的10日移动平均
-    # 典型价 TP = (HIGH + LOW + CLOSE) / 3
-    typical_price = (high + low + close) / 3
-    result['orbit_line'] = typical_price.rolling(10).mean()
+    # 上轨: EMA(H, 5), 下轨: EMA(L, 5)
+    # 自适应: 根据最近一次交叉决定显示上轨还是下轨
+    sg1 = ema(high, 5)   # 上轨
+    xg1 = ema(low, 5)    # 下轨
 
-    # === 支撑位/压力位 (红色水平线) ===
-    lookback = 60  # 回看60日
-    result['support'] = low.rolling(lookback).min()
-    result['resistance'] = high.rolling(lookback).max()
+    # 判断方向: CS=上次close上穿上轨距今天数, CX=上次close下穿下轨距今天数
+    # CROSS(close, sg1): close从下往上穿过sg1 (上穿)
+    cross_up = (close > sg1) & (close.shift(1) <= sg1.shift(1))
+    # CROSS(xg1, close): xg1从下往上穿过close = close从上往下穿过xg1 (下穿)
+    cross_dn = (xg1 > close) & (xg1.shift(1) <= close.shift(1))
+
+    # 用向量化方式计算方向
+    cs = pd.Series(np.nan, index=df.index)
+    cx = pd.Series(np.nan, index=df.index)
+    last_cross_up = np.nan
+    last_cross_dn = np.nan
+    for i in range(len(df)):
+        if cross_up.iloc[i]:
+            last_cross_up = 0
+        if cross_dn.iloc[i]:
+            last_cross_dn = 0
+        if not np.isnan(last_cross_up):
+            cs.iloc[i] = last_cross_up
+            last_cross_up += 1
+        if not np.isnan(last_cross_dn):
+            cx.iloc[i] = last_cross_dn
+            last_cross_dn += 1
+
+    # DQZT: 1=上穿(看多), -1=下穿(看空), 0=未定
+    dqzt = pd.Series(0, index=df.index)
+    valid = cs.notna() & cx.notna()
+    dqzt[valid] = np.where(cs[valid] < cx[valid], 1, np.where(cx[valid] < cs[valid], -1, 0))
+    dqzt[cs.notna() & cx.isna()] = 1
+    dqzt[cx.notna() & cs.isna()] = -1
+
+    # 轨道线: DQZT<0时显示上轨(SG1), 否则显示下轨(XG1)
+    orbit = pd.Series(np.nan, index=df.index)
+    orbit[dqzt < 0] = sg1[dqzt < 0]
+    orbit[dqzt >= 0] = xg1[dqzt >= 0]
+
+    result['orbit_line'] = orbit
 
     # === 趋势判断 ===
     result['short_trend_up'] = result['decision_line'] > result['decision_line'].shift(1)
-    result['long_trend_up'] = result['bear_line'] > result['bear_line'].shift(1)
+    result['long_trend_up'] = bull > bull.shift(1)
 
     # === 综合信号 ===
     result['bullish_alignment'] = result['short_trend_up'] & result['long_trend_up']
@@ -219,53 +267,41 @@ def calculate_niuxiong_line(df: pd.DataFrame) -> pd.DataFrame:
 
 def generate_buy_signal(df: pd.DataFrame) -> pd.Series:
     """
-    生成买入信号 (匹配同花顺原版)
+    生成买入信号
 
     买入条件:
-    1. 价格触及支撑位
-    2. 价格站上轨道线
-    3. 决策线金叉熊线
+    1. 价格从下方站上轨道线
+    2. 决策线金叉牛线
     """
     signals = pd.Series(False, index=df.index)
 
-    # 条件1: 价格触及支撑位附近
-    touch_support = df['close'] <= df['support'] * 1.02
-
-    # 条件2: 价格从下方站上轨道线
+    # 条件1: 价格从下方站上轨道线
     cross_orbit_up = (df['close'] > df['orbit_line']) & (df['close'].shift(1) <= df['orbit_line'].shift(1))
 
-    # 条件3: 决策线上穿熊线
+    # 条件2: 决策线上穿牛线
     golden_cross = (df['decision_line'] > df['bear_line']) & (df['decision_line'].shift(1) <= df['bear_line'].shift(1))
 
-    # 综合信号
-    signals = touch_support | cross_orbit_up | golden_cross
-
+    signals = cross_orbit_up | golden_cross
     return signals
 
 
 def generate_sell_signal(df: pd.DataFrame) -> pd.Series:
     """
-    生成卖出信号 (匹配同花顺原版)
+    生成卖出信号
 
     卖出条件:
-    1. 价格触及压力位
-    2. 价格跌破轨道线
-    3. 决策线死叉熊线
+    1. 价格从上方跌破轨道线
+    2. 决策线死叉牛线
     """
     signals = pd.Series(False, index=df.index)
 
-    # 条件1: 价格触及压力位附近
-    touch_resistance = df['close'] >= df['resistance'] * 0.98
-
-    # 条件2: 价格从上方跌破轨道线
+    # 条件1: 价格从上方跌破轨道线
     cross_orbit_down = (df['close'] < df['orbit_line']) & (df['close'].shift(1) >= df['orbit_line'].shift(1))
 
-    # 条件3: 决策线下穿熊线
+    # 条件2: 决策线下穿牛线
     death_cross = (df['decision_line'] < df['bear_line']) & (df['decision_line'].shift(1) >= df['bear_line'].shift(1))
 
-    # 综合信号
-    signals = touch_resistance | cross_orbit_down | death_cross
-
+    signals = cross_orbit_down | death_cross
     return signals
 
 
@@ -293,11 +329,9 @@ def get_signal(df: pd.DataFrame) -> dict:
         "date": df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else len(df) - 1,
 
         # 核心指标
-        "decision_line": round(latest['decision_line'], 2),  # 决策线
-        "bear_line": round(latest['bear_line'], 2),          # 熊线
-        "orbit_line": round(latest['orbit_line'], 2),        # 轨道线
-        "support": round(latest['support'], 2),              # 支撑位
-        "resistance": round(latest['resistance'], 2),        # 压力位
+        "decision_line": round(float(latest['decision_line']), 2),
+        "bear_line": round(float(latest['bear_line']), 2) if not pd.isna(latest['bear_line']) else None,
+        "orbit_line": round(float(latest['orbit_line']), 2) if not pd.isna(latest['orbit_line']) else None,
 
         # 趋势
         "short_trend": "上涨" if latest['short_trend_up'] else "下跌",
@@ -305,16 +339,16 @@ def get_signal(df: pd.DataFrame) -> dict:
 
         # 综合信号
         "signal": {
-            "bullish": latest['bullish_alignment'],
-            "bearish": latest['bearish_alignment'],
+            "bullish": bool(latest['bullish_alignment']),
+            "bearish": bool(latest['bearish_alignment']),
             "status": "多头排列" if latest['bullish_alignment'] else
                       "空头排列" if latest['bearish_alignment'] else "震荡",
         },
 
         # 买卖信号
         "trading": {
-            "buy": latest['buy_signal'],
-            "sell": latest['sell_signal'],
+            "buy": bool(latest['buy_signal']),
+            "sell": bool(latest['sell_signal']),
             "recommendation": "买入" if latest['buy_signal'] else
                              "卖出" if latest['sell_signal'] else "持有",
         },
@@ -341,32 +375,27 @@ def niuxiong_analysis(df: pd.DataFrame) -> str:
     result = calculate_niuxiong_line(df)
     signal = get_signal(result)
 
+    bear_val = f"{signal['bear_line']}" if signal['bear_line'] else "N/A (牛线<=决策线)"
     report = f"""=== 同花顺牛熊线高阶指标分析 ===
 
-【短期轨道 (EMA10)】
-  EMA1: {signal['short_ema']['ema1']} ({signal['short_ema']['trend']})
-  EMA2: {signal['short_ema']['ema2']}
-  EMA3: {signal['short_ema']['ema3']}
-  EMA4: {signal['short_ema']['ema4']}
-  EMA5: {signal['short_ema']['ema5']}
+【核心指标】
+  决策线 (EMA39): {signal['decision_line']}
+  牛线 (EMA99):   {bear_val}
+  轨道线:          {signal['orbit_line'] if signal['orbit_line'] else 'N/A'}
 
-【长期轨道 (EMA45)】
-  EMA1: {signal['long_ema']['ema1']} ({signal['long_ema']['trend']})
-  EMA2: {signal['long_ema']['ema2']}
-  EMA3: {signal['long_ema']['ema3']}
-  EMA4: {signal['long_ema']['ema4']}
-  EMA5: {signal['long_ema']['ema5']}
-
-【轨道线】
-  压力位: {signal['orbit']['upper']}
-  中轨:   {signal['orbit']['middle']}
-  支撑位: {signal['orbit']['lower']}
+【趋势】
+  短期趋势: {signal['short_trend']}
+  长期趋势: {signal['long_trend']}
 
 【综合信号】
   状态: {signal['signal']['status']}
   多头排列: {'是' if signal['signal']['bullish'] else '否'}
   空头排列: {'是' if signal['signal']['bearish'] else '否'}
-  轨道收敛: {'是' if signal['signal']['converging'] else '否'}
+
+【交易建议】
+  买入信号: {'是' if signal['trading']['buy'] else '否'}
+  卖出信号: {'是' if signal['trading']['sell'] else '否'}
+  建议: {signal['trading']['recommendation']}
 """
 
     return report
@@ -465,16 +494,19 @@ def format_analysis_report(analysis: dict) -> str:
     str
         格式化的报告文本
     """
+    nx = analysis['niuxiong']
+    bear_val = f"{nx['bear_line']}" if nx.get('bear_line') else "N/A"
     report = f"""=== 多指标联动分析报告 ===
 日期: {analysis['date']}
 
 【牛熊线指标】
-  状态: {analysis['niuxiong']['signal']['status']}
-  短期趋势: {analysis['niuxiong']['short_ema']['trend']}
-  长期趋势: {analysis['niuxiong']['long_ema']['trend']}
-  压力位: {analysis['niuxiong']['orbit']['upper']}
-  支撑位: {analysis['niuxiong']['orbit']['lower']}
-  交易建议: {analysis['niuxiong']['trading']['recommendation']}
+  状态: {nx['signal']['status']}
+  短期趋势: {nx['short_trend']}
+  长期趋势: {nx['long_trend']}
+  决策线: {nx['decision_line']}
+  牛线: {bear_val}
+  轨道线: {nx['orbit_line'] if nx.get('orbit_line') else 'N/A'}
+  交易建议: {nx['trading']['recommendation']}
 
 【MACD】
   DIF: {analysis['macd']['dif']}
@@ -602,15 +634,6 @@ def plot_niuxiong_line(
     ax1.plot(dates, result['orbit_line'], color='#00CED1', linestyle='-',
              linewidth=1.5, label='轨道线', zorder=7)
 
-    # 支撑位 (红色水平线)
-    latest_support = result['support'].iloc[-1]
-    ax1.axhline(y=latest_support, color='red', linestyle='-', linewidth=1.5,
-                alpha=0.8, label=f'支撑位 {latest_support:.2f}')
-
-    # 压力位 (红色水平线)
-    latest_resistance = result['resistance'].iloc[-1]
-    ax1.axhline(y=latest_resistance, color='red', linestyle='-', linewidth=1.5,
-                alpha=0.8, label=f'压力位 {latest_resistance:.2f}')
 
     # === 买卖信号标记 ===
     if show_signals:

@@ -665,8 +665,6 @@ class NiuxiongPoint(BaseModel):
     decision_line: Optional[float] = None
     bear_line: Optional[float] = None
     orbit_line: Optional[float] = None
-    support: Optional[float] = None
-    resistance: Optional[float] = None
     buy_signal: bool = False
     sell_signal: bool = False
 
@@ -2615,10 +2613,8 @@ def get_niuxiong(
             date=date_str,
             close=float(row["close"]),
             decision_line=round(float(row["decision_line"]), 2) if pd.notna(row["decision_line"]) else None,
-            bear_line=round(float(row["bear_line"]), 2) if pd.notna(row["bear_line"]) else None,
-            orbit_line=round(float(row["orbit_line"]), 2) if pd.notna(row["orbit_line"]) else None,
-            support=round(float(row["support"]), 2) if pd.notna(row["support"]) else None,
-            resistance=round(float(row["resistance"]), 2) if pd.notna(row["resistance"]) else None,
+            bear_line=round(float(row["bear_line"]), 2) if pd.notna(row.get("bear_line", np.nan)) else None,
+            orbit_line=round(float(row["orbit_line"]), 2) if pd.notna(row.get("orbit_line", np.nan)) else None,
             buy_signal=bool(row.get("buy_signal", False)),
             sell_signal=bool(row.get("sell_signal", False)),
         ))

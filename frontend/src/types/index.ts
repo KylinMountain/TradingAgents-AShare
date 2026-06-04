@@ -308,8 +308,6 @@ export interface NiuxiongPoint {
     decision_line?: number | null
     bear_line?: number | null
     orbit_line?: number | null
-    support?: number | null
-    resistance?: number | null
     buy_signal?: boolean
     sell_signal?: boolean
 }
