@@ -38,6 +38,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
+import numpy as np
 
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
@@ -656,6 +657,25 @@ class KlineResponse(BaseModel):
     start_date: str
     end_date: str
     candles: List[Dict[str, Any]]
+
+
+class NiuxiongPoint(BaseModel):
+    date: str
+    close: float
+    decision_line: Optional[float] = None
+    bear_line: Optional[float] = None
+    orbit_line: Optional[float] = None
+    support: Optional[float] = None
+    resistance: Optional[float] = None
+    buy_signal: bool = False
+    sell_signal: bool = False
+
+
+class NiuxiongResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[NiuxiongPoint]
+    signal: Optional[Dict[str, Any]] = None
 
 
 # Report API Models
@@ -2541,6 +2561,81 @@ def get_kline(
         start_date=start,
         end_date=end,
         candles=candles,
+    )
+
+
+@app.get("/v1/market/niuxiong", response_model=NiuxiongResponse)
+def get_niuxiong(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> NiuxiongResponse:
+    """牛熊线高阶指标接口"""
+    from tradingagents.indicators import calculate_niuxiong_line, get_signal, fetch_realtime_data, fetch_realtime_quote
+
+    # Normalize symbol to 6-digit code for mootdx
+    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+
+    try:
+        df = fetch_realtime_data(code, days=250)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    result = calculate_niuxiong_line(df)
+    signal = get_signal(result)
+
+    # Convert numpy/pandas types to native Python for JSON serialization
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    # Filter by date range if provided
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        result = result[result.index <= end_date]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(NiuxiongPoint(
+            date=date_str,
+            close=float(row["close"]),
+            decision_line=round(float(row["decision_line"]), 2) if pd.notna(row["decision_line"]) else None,
+            bear_line=round(float(row["bear_line"]), 2) if pd.notna(row["bear_line"]) else None,
+            orbit_line=round(float(row["orbit_line"]), 2) if pd.notna(row["orbit_line"]) else None,
+            support=round(float(row["support"]), 2) if pd.notna(row["support"]) else None,
+            resistance=round(float(row["resistance"]), 2) if pd.notna(row["resistance"]) else None,
+            buy_signal=bool(row.get("buy_signal", False)),
+            sell_signal=bool(row.get("sell_signal", False)),
+        ))
+
+    # Get stock name from quote
+    name = None
+    try:
+        quote = fetch_realtime_quote(code)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return NiuxiongResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
     )
 
 

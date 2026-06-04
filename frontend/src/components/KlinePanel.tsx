@@ -6,12 +6,16 @@ import {
     ColorType,
     IChartApi,
     ISeriesApi,
+    LineData,
+    LineSeries,
+    LineStyle,
     MouseEventParams,
+    Time,
     createChart,
 } from 'lightweight-charts'
-import { Activity, CandlestickChart } from 'lucide-react'
+import { Activity, CandlestickChart, TrendingUp } from 'lucide-react'
 import { api } from '@/services/api'
-import type { KlineCandle } from '@/types'
+import type { KlineCandle, NiuxiongPoint } from '@/types'
 import { useAnalysisStore } from '@/stores/analysisStore'
 
 interface KlinePanelProps {
@@ -81,11 +85,15 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+    const niuxiongSeriesRefs = useRef<Record<string, ISeriesApi<'Line'>>>({})
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'))
     const [candles, setCandles] = useState<KlineCandle[]>([])
     const [activeCandle, setActiveCandle] = useState<KlineCandle | null>(null)
+    const [showNiuxiong, setShowNiuxiong] = useState(true)
+    const showNiuxiongRef = useRef(true)
+    const [niuxiongData, setNiuxiongData] = useState<NiuxiongPoint[]>([])
     const candlesRef = useRef<KlineCandle[]>([])
 
     const range = useMemo(() => {
@@ -96,6 +104,25 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             end: toDateText(end),
         }
     }, [])
+
+    const updateNiuxiongSeries = (points: NiuxiongPoint[]) => {
+        const seriesMap = niuxiongSeriesRefs.current
+        if (!seriesMap.decision_line || !showNiuxiongRef.current) return
+
+        const keys = ['decision_line', 'bear_line', 'orbit_line'] as const
+        for (const key of keys) {
+            const lineData: LineData[] = []
+            for (const p of points) {
+                const val = p[key]
+                if (val == null) continue
+                const time = toBusinessDay(p.date)
+                if (!time) continue
+                lineData.push({ time: time as Time, value: val })
+            }
+            seriesMap[key]?.setData(lineData)
+        }
+        chartRef.current?.timeScale().fitContent()
+    }
 
     // Listen for theme changes
     useEffect(() => {
@@ -159,8 +186,29 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             borderVisible: false,
         })
 
+        // Niuxiong indicator line series
+        const niuxiongColors: Record<string, { color: string; lineWidth: 1 | 2; lineStyle: LineStyle; title: string }> = {
+            decision_line: { color: '#eab308', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '决策线' },
+            bear_line: { color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '熊线' },
+            orbit_line: { color: '#06b6d4', lineWidth: 2, lineStyle: LineStyle.Solid, title: '轨道线' },
+        }
+        const seriesMap: Record<string, ISeriesApi<'Line'>> = {}
+        for (const [key, cfg] of Object.entries(niuxiongColors)) {
+            const s = chart.addSeries(LineSeries, {
+                color: cfg.color,
+                lineWidth: cfg.lineWidth,
+                lineStyle: cfg.lineStyle,
+                priceLineVisible: false,
+                lastValueVisible: false,
+                crosshairMarkerVisible: false,
+            })
+            seriesMap[key] = s
+        }
+        niuxiongSeriesRefs.current = seriesMap
+
         chartRef.current = chart
         seriesRef.current = series
+
         if (candlesRef.current.length) {
             const existingData: CandlestickData[] = candlesRef.current.flatMap((c) => {
                 const time = toBusinessDay((c.date || '').slice(0, 10))
@@ -223,8 +271,11 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
             setLoading(true)
             setError(null)
             try {
-                const resp = await api.getKline(symbol, range.start, range.end)
-                const data: CandlestickData[] = resp.candles.flatMap((c) => {
+                const [klineResp, niuxiongResp] = await Promise.all([
+                    api.getKline(symbol, range.start, range.end),
+                    api.getNiuxiong(symbol, range.start, range.end).catch(() => null),
+                ])
+                const data: CandlestickData[] = klineResp.candles.flatMap((c) => {
                     const time = toBusinessDay((c.date || '').slice(0, 10))
                     const open = Number(c.open)
                     const high = Number(c.high)
@@ -236,10 +287,17 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                 })
 
                 if (cancelled) return
-                setCandles(resp.candles)
-                candlesRef.current = resp.candles
-                setActiveCandle(resp.candles.length ? resp.candles[resp.candles.length - 1] : null)
+                setCandles(klineResp.candles)
+                candlesRef.current = klineResp.candles
+                setActiveCandle(klineResp.candles.length ? klineResp.candles[klineResp.candles.length - 1] : null)
                 seriesRef.current?.setData(data)
+
+                // Update niuxiong overlay
+                if (niuxiongResp?.points) {
+                    setNiuxiongData(niuxiongResp.points)
+                    updateNiuxiongSeries(niuxiongResp.points)
+                }
+
                 chartRef.current?.timeScale().fitContent()
                 if (!data.length) {
                     setError('暂无可用K线数据')
@@ -311,10 +369,43 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                             {item.label}
                         </button>
                     ))}
+                    <button
+                        onClick={() => {
+                            const next = !showNiuxiongRef.current
+                            showNiuxiongRef.current = next
+                            setShowNiuxiong(next)
+                            if (next) {
+                                updateNiuxiongSeries(niuxiongData)
+                            } else {
+                                for (const s of Object.values(niuxiongSeriesRefs.current)) {
+                                    s.setData([])
+                                }
+                            }
+                        }}
+                        className={`text-xs px-2 py-1 rounded border transition-colors flex items-center gap-1 ${showNiuxiong
+                                ? 'border-cyan-500 text-cyan-500 bg-cyan-50 dark:bg-cyan-500/10'
+                                : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-400 dark:hover:border-slate-500'
+                            }`}
+                    >
+                        <TrendingUp className="w-3 h-3" />
+                        牛熊线
+                    </button>
                 </div>
             </div>
             <div className="relative flex-1 min-h-0 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 overflow-hidden">
                 <div ref={containerRef} className="absolute inset-0" />
+                {showNiuxiong && niuxiongData.length > 0 && (() => {
+                    const last = niuxiongData[niuxiongData.length - 1]
+                    return (
+                        <div className="absolute left-3 top-3 text-xs px-2 py-1.5 rounded bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 flex flex-col gap-0.5">
+                            <div className="flex items-center gap-4">
+                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-yellow-400" style={{ borderTop: '1px dashed #eab308' }} />决策线 <span className="text-yellow-500 font-medium">{last.decision_line ?? '--'}</span></span>
+                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-green-500" style={{ borderTop: '1px dashed #22c55e' }} />熊线 <span className="text-green-500 font-medium">{last.bear_line ?? '--'}</span></span>
+                                <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-cyan-500" />轨道线 <span className="text-cyan-500 font-medium">{last.orbit_line ?? '--'}</span></span>
+                            </div>
+                        </div>
+                    )
+                })()}
                 {loading && (
                     <div className="absolute right-3 top-3 text-xs px-2 py-1 rounded bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-400 flex items-center gap-1">
                         <Activity className="w-3 h-3 animate-pulse" />

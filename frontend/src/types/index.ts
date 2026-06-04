@@ -302,6 +302,25 @@ export interface KlineResponse {
     candles: KlineCandle[]
 }
 
+export interface NiuxiongPoint {
+    date: string
+    close: number
+    decision_line?: number | null
+    bear_line?: number | null
+    orbit_line?: number | null
+    support?: number | null
+    resistance?: number | null
+    buy_signal?: boolean
+    sell_signal?: boolean
+}
+
+export interface NiuxiongResponse {
+    symbol: string
+    name?: string | null
+    points: NiuxiongPoint[]
+    signal?: Record<string, any> | null
+}
+
 // Structured extraction types
 export interface RiskItem {
     name: string
