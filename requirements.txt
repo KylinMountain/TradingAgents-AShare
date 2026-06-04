@@ -21,3 +21,4 @@ PyJWT
 cryptography
 json-repair
 markdown
+easytrader
