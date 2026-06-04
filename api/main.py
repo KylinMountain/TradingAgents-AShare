@@ -2604,7 +2604,9 @@ def get_niuxiong(
     if start_date:
         result = result[result.index >= start_date]
     if end_date:
-        result = result[result.index <= end_date]
+        # Use end-of-day to include today's bar (index has timestamps like 15:00:00)
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
 
     points = []
     for idx, row in result.iterrows():
