@@ -171,7 +171,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                         position: p.buy_signal ? ('belowBar' as const) : ('aboveBar' as const),
                         color: p.buy_signal ? '#ef4444' : '#22c55e',
                         shape: p.buy_signal ? ('arrowUp' as const) : ('arrowDown' as const),
-                        text: p.buy_signal ? 'B' : 'S',
+                        text: p.buy_signal ? 'G信号' : 'S信号',
                     }
                 })
                 .filter(Boolean)
@@ -531,10 +531,10 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                                         <span className="text-slate-500">乖离 {lastGs.zj_bias > 0 ? '+' : ''}{lastGs.zj_bias}%</span>
                                     )}
                                     {lastGs.buy_signal && (
-                                        <span className="text-red-500 font-bold">B 买入</span>
+                                        <span className="text-red-500 font-bold">G信号</span>
                                     )}
                                     {lastGs.sell_signal && (
-                                        <span className="text-green-500 font-bold">S 卖出</span>
+                                        <span className="text-green-500 font-bold">S信号</span>
                                     )}
                                 </div>
                             )}
