@@ -19,6 +19,7 @@ import type { RadarPoint } from '@/types'
 
 interface RadarPanelProps {
     symbol: string
+    onChartReady?: (chart: IChartApi) => void
 }
 
 function toBusinessDay(value: string): BusinessDay | null {
@@ -27,7 +28,7 @@ function toBusinessDay(value: string): BusinessDay | null {
     return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }
 }
 
-export default function RadarPanel({ symbol }: RadarPanelProps) {
+export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const avgSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
@@ -126,6 +127,7 @@ export default function RadarPanel({ symbol }: RadarPanelProps) {
         oversoldRef.current = oversoldLine
         histRefs.current = { up: upHist, down: downHist }
         chartRef.current = chart
+        onChartReady?.(chart)
 
         const onResize = () => {
             if (!containerRef.current || !chartRef.current) return

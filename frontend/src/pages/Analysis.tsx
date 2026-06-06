@@ -10,6 +10,7 @@ import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
 import { useAnalysisStore } from '@/stores/analysisStore'
+import { useSyncedCharts } from '@/hooks/useSyncedCharts'
 
 function mapDecision(decision?: string): 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch' | undefined {
     if (!decision) return undefined
@@ -46,6 +47,7 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
 }
 
 export default function Analysis() {
+    const { registerKlineChart, registerRadarChart } = useSyncedCharts()
     const [searchParams] = useSearchParams()
     const querySymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
     const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '000001.SH')
@@ -108,10 +110,11 @@ export default function Analysis() {
                             onSymbolChange={(symbol) => {
                                 setActiveSymbol(symbol)
                             }}
+                            onChartReady={registerKlineChart}
                         />
                     </div>
 
-                    <RadarPanel symbol={activeSymbol} />
+                    <RadarPanel symbol={activeSymbol} onChartReady={registerRadarChart} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 

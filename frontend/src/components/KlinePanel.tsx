@@ -22,6 +22,7 @@ import { useAnalysisStore } from '@/stores/analysisStore'
 interface KlinePanelProps {
     symbol: string
     onSymbolChange?: (symbol: string) => void
+    onChartReady?: (chart: IChartApi) => void
 }
 
 function toDateText(date: Date): string {
@@ -81,7 +82,7 @@ const INDEX_PRESETS = [
     { symbol: '899050.BJ', label: '北证50' },
 ] as const
 
-export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) {
+export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: KlinePanelProps) {
     const currentAnalysisSymbol = useAnalysisStore((state) => state.currentSymbol)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
@@ -310,6 +311,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
         chartRef.current = chart
         seriesRef.current = series
         markersRef.current = createSeriesMarkers(series)
+        onChartReady?.(chart)
 
         if (candlesRef.current.length) {
             const existingData: CandlestickData[] = candlesRef.current.flatMap((c) => {
