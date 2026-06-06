@@ -377,6 +377,20 @@ class ApiService {
     async runAccuracyBackfill(): Promise<any> {
         return this.request<any>('/v1/accuracy/backfill', { method: 'POST' })
     }
+
+    // Generic methods for admin and other modules
+    async get<T>(endpoint: string): Promise<T> {
+        return this.request<T>(endpoint)
+    }
+    async post<T>(endpoint: string, data?: any): Promise<T> {
+        return this.request<T>(endpoint, {
+            method: 'POST',
+            body: data ? JSON.stringify(data) : undefined,
+        })
+    }
+    async delete<T>(endpoint: string): Promise<T> {
+        return this.request<T>(endpoint, { method: 'DELETE' })
+    }
 }
 
 export const api = new ApiService()

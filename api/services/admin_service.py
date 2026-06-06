@@ -58,6 +58,28 @@ def delete_user(db: Session, user_id: str) -> bool:
     return True
 
 
+def create_user(db: Session, email: str, is_admin: bool = False) -> UserDB:
+    from uuid import uuid4
+    email = email.strip().lower()
+    existing = db.query(UserDB).filter(UserDB.email == email).first()
+    if existing:
+        return existing
+    now = datetime.now(timezone.utc)
+    user = UserDB(
+        id=str(uuid4()),
+        email=email,
+        is_active=True,
+        is_admin=is_admin,
+        is_banned=False,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def set_admin(db: Session, user_id: str, admin: bool = True) -> Optional[UserDB]:
     user = db.query(UserDB).filter(UserDB.id == user_id).first()
     if not user:

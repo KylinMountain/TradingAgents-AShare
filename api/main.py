@@ -3997,6 +3997,11 @@ def request_login_code(request: AuthRequestCodeRequest):
     if not re.match(r"^[^@\s]+@[^@\s.]+\.[^@\s.]+$", email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     with get_db_ctx() as db:
+        user = auth_service.get_user_by_email(db, email)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=403, detail="该邮箱未授权，请联系管理员")
+        if user.is_banned:
+            raise HTTPException(status_code=403, detail="账号已被封禁")
         code = auth_service.upsert_login_code(db, email)
     # DB session 已释放，SMTP 不会阻塞连接池
     dev_code = auth_service.send_login_code(email, code)
@@ -4013,6 +4018,8 @@ def verify_login_code(body: AuthVerifyCodeRequest, request: Request, db: Session
         existing = auth_service.get_user_by_email(db, body.email)
         if existing and existing.is_banned:
             raise HTTPException(status_code=403, detail="账号已被封禁")
+        if existing and not existing.is_active:
+            raise HTTPException(status_code=403, detail="该邮箱未授权，请联系管理员")
         raise HTTPException(status_code=400, detail="验证码错误或已过期")
     access_token = auth_service.create_access_token(user)
     return AuthVerifyCodeResponse(access_token=access_token, user=user)
@@ -4049,6 +4056,25 @@ class AdminUserListResponse(BaseModel):
 
 class AdminBanRequest(BaseModel):
     reason: Optional[str] = None
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: str
+    is_admin: bool = False
+
+
+@app.post("/v1/admin/users", response_model=AdminUserResponse)
+def admin_create_user(
+    body: AdminCreateUserRequest,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    user = admin_service.create_user(db, email=body.email, is_admin=body.is_admin)
+    return AdminUserResponse(
+        id=user.id, email=user.email, is_active=user.is_active,
+        is_admin=user.is_admin, is_banned=user.is_banned, ban_reason=user.ban_reason,
+        created_at=user.created_at, last_login_at=user.last_login_at, last_login_ip=user.last_login_ip,
+    )
 
 
 @app.get("/v1/admin/users", response_model=AdminUserListResponse)

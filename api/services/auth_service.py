@@ -165,25 +165,17 @@ def verify_login_code(db: Session, email: str, code: str, purpose: str = "login"
     code_row.consumed_at = now
     user = get_user_by_email(db, email)
     if not user:
-        user = UserDB(
-            id=str(uuid4()),
-            email=email,
-            is_active=True,
-            is_admin=False,
-            is_banned=False,
-            created_at=now,
-            updated_at=now,
-            last_login_at=now,
-            last_login_ip=client_ip,
-        )
-        db.add(user)
-    else:
-        if user.is_banned:
-            db.commit()
-            return None
-        user.last_login_at = now
-        user.last_login_ip = client_ip
-        user.updated_at = now
+        db.commit()
+        return None
+    if user.is_banned:
+        db.commit()
+        return None
+    if not user.is_active:
+        db.commit()
+        return None
+    user.last_login_at = now
+    user.last_login_ip = client_ip
+    user.updated_at = now
     db.commit()
     db.refresh(user)
     return user

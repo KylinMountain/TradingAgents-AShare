@@ -22,6 +22,10 @@ export default function Admin() {
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [showAddModal, setShowAddModal] = useState(false)
+    const [newEmail, setNewEmail] = useState('')
+    const [newIsAdmin, setNewIsAdmin] = useState(false)
+    const [adding, setAdding] = useState(false)
 
     useEffect(() => {
         if (!user) return
@@ -32,9 +36,9 @@ export default function Admin() {
         setLoading(true)
         setError('')
         try {
-            const resp = await api.get('/v1/admin/users?limit=200')
-            setUsers(resp.data.users)
-            setTotal(resp.data.total)
+            const resp = await api.get<{ users: AdminUser[]; total: number }>('/v1/admin/users?limit=200')
+            setUsers(resp.users)
+            setTotal(resp.total)
         } catch (e: any) {
             if (e?.response?.status === 403) {
                 setError('你没有管理员权限')
@@ -93,6 +97,22 @@ export default function Admin() {
         }
     }
 
+    const handleAddUser = async () => {
+        if (!newEmail.trim()) return
+        setAdding(true)
+        try {
+            await api.post('/v1/admin/users', { email: newEmail.trim(), is_admin: newIsAdmin })
+            setShowAddModal(false)
+            setNewEmail('')
+            setNewIsAdmin(false)
+            loadUsers()
+        } catch (e: any) {
+            alert(e?.message || '添加失败')
+        } finally {
+            setAdding(false)
+        }
+    }
+
     if (error) {
         return (
             <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
@@ -109,7 +129,10 @@ export default function Admin() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-white">用户管理</h1>
-                    <span className="text-sm text-slate-500">共 {total} 个用户</span>
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-slate-500">共 {total} 个用户</span>
+                        <button onClick={() => setShowAddModal(true)} className="px-3 py-1.5 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors">添加授权邮箱</button>
+                    </div>
                 </div>
 
                 {loading ? (
@@ -183,6 +206,32 @@ export default function Admin() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                )}
+
+                {showAddModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowAddModal(false)}>
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+                            <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">添加授权邮箱</h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-slate-500 mb-1">邮箱</label>
+                                    <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                                        placeholder="user@example.com"
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input type="checkbox" id="add-is-admin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)}
+                                        className="rounded border-slate-300" />
+                                    <label htmlFor="add-is-admin" className="text-sm text-slate-600 dark:text-slate-400">设为管理员</label>
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-2 mt-6">
+                                <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700">取消</button>
+                                <button onClick={handleAddUser} disabled={adding || !newEmail.trim()}
+                                    className="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-colors">{adding ? '添加中...' : '确认添加'}</button>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
