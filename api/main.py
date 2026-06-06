@@ -4220,6 +4220,18 @@ def admin_get_query_logs(
     )
 
 
+@app.post("/v1/admin/query-logs/cleanup")
+def admin_cleanup_query_logs(
+    keep_days: int = 30,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+    deleted = db.query(UserQueryLogDB).filter(UserQueryLogDB.created_at < cutoff).delete()
+    db.commit()
+    return {"deleted": deleted, "keep_days": keep_days}
+
+
 @app.get("/v1/config", response_model=UserRuntimeConfigResponse)
 def get_runtime_config(
     db: Session = Depends(get_db),

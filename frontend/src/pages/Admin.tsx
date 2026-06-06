@@ -76,6 +76,17 @@ export default function Admin() {
         }
     }
 
+    const handleCleanupLogs = async () => {
+        if (!confirm('确定要清理30天前的查询日志吗？')) return
+        try {
+            const resp = await api.post<{ deleted: number }>('/v1/admin/query-logs/cleanup', { keep_days: 30 })
+            alert(`已清理 ${resp.deleted} 条记录`)
+            loadLogs()
+        } catch {
+            alert('清理失败')
+        }
+    }
+
     const handleBan = async (userId: string) => {
         const reason = prompt('请输入封禁原因（可选）:')
         try {
@@ -265,7 +276,10 @@ export default function Admin() {
                 <div className="mt-8">
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">查询日志</h2>
-                        <span className="text-sm text-slate-500">共 {logsTotal} 条记录</span>
+                        <div className="flex items-center gap-3">
+                            <span className="text-sm text-slate-500">共 {logsTotal} 条记录</span>
+                            <button onClick={handleCleanupLogs} className="px-3 py-1.5 text-xs rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 transition-colors">清理30天前</button>
+                        </div>
                     </div>
                     {logsLoading ? (
                         <div className="text-center py-10 text-slate-400">加载中...</div>
