@@ -583,10 +583,10 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                                         <span className="text-slate-500">乖离 {lastGs.zj_bias > 0 ? '+' : ''}{lastGs.zj_bias}%</span>
                                     )}
                                     {lastGs.buy_signal && (
-                                        <span className="text-red-500 font-bold">G 买入</span>
+                                        <span className="text-red-500 font-bold">G 信号</span>
                                     )}
                                     {lastGs.sell_signal && (
-                                        <span className="text-green-500 font-bold">S 卖出</span>
+                                        <span className="text-green-500 font-bold">S 信号</span>
                                     )}
                                 </div>
                             )}
