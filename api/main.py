@@ -42,7 +42,7 @@ import numpy as np
 
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
-from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service, admin_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -835,6 +835,7 @@ class LatestAnnouncementResponse(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
+    is_admin: bool = False
     created_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
     email_report_enabled: bool = True
@@ -4009,6 +4010,9 @@ def request_login_code(request: AuthRequestCodeRequest):
 def verify_login_code(body: AuthVerifyCodeRequest, request: Request, db: Session = Depends(get_db)):
     user = auth_service.verify_login_code(db, body.email, body.code, client_ip=_get_real_ip(request))
     if not user:
+        existing = auth_service.get_user_by_email(db, body.email)
+        if existing and existing.is_banned:
+            raise HTTPException(status_code=403, detail="账号已被封禁")
         raise HTTPException(status_code=400, detail="验证码错误或已过期")
     access_token = auth_service.create_access_token(user)
     return AuthVerifyCodeResponse(access_token=access_token, user=user)
@@ -4017,6 +4021,118 @@ def verify_login_code(body: AuthVerifyCodeRequest, request: Request, db: Session
 @app.get("/v1/auth/me", response_model=UserResponse)
 def get_me(current_user: UserDB = Depends(_require_web_user)):
     return current_user
+
+
+# ─── Admin Routes ────────────────────────────────────────────────
+def _require_admin(current_user: UserDB = Depends(_require_web_user)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return current_user
+
+
+class AdminUserResponse(BaseModel):
+    id: str
+    email: str
+    is_active: bool
+    is_admin: bool
+    is_banned: bool
+    ban_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    last_login_ip: Optional[str] = None
+
+
+class AdminUserListResponse(BaseModel):
+    users: list[AdminUserResponse]
+    total: int
+
+
+class AdminBanRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@app.get("/v1/admin/users", response_model=AdminUserListResponse)
+def admin_list_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    users = admin_service.get_all_users(db, skip=skip, limit=limit)
+    total = admin_service.get_user_count(db)
+    return AdminUserListResponse(
+        users=[AdminUserResponse(
+            id=u.id, email=u.email, is_active=u.is_active,
+            is_admin=u.is_admin, is_banned=u.is_banned, ban_reason=u.ban_reason,
+            created_at=u.created_at, last_login_at=u.last_login_at, last_login_ip=u.last_login_ip,
+        ) for u in users],
+        total=total,
+    )
+
+
+@app.post("/v1/admin/users/{user_id}/ban")
+def admin_ban_user(
+    user_id: str,
+    body: AdminBanRequest,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    user = admin_service.ban_user(db, user_id, reason=body.reason)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+@app.post("/v1/admin/users/{user_id}/unban")
+def admin_unban_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    user = admin_service.unban_user(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+@app.delete("/v1/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    if _admin.id == user_id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    ok = admin_service.delete_user(db, user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+@app.post("/v1/admin/users/{user_id}/set-admin")
+def admin_set_admin(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    user = admin_service.set_admin(db, user_id, admin=True)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
+
+
+@app.post("/v1/admin/users/{user_id}/revoke-admin")
+def admin_revoke_admin(
+    user_id: str,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    if _admin.id == user_id:
+        raise HTTPException(status_code=400, detail="不能撤销自己的管理员权限")
+    user = admin_service.set_admin(db, user_id, admin=False)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"ok": True}
 
 
 @app.get("/v1/config", response_model=UserRuntimeConfigResponse)

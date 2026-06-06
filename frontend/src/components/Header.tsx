@@ -267,6 +267,20 @@ export default function Header() {
                                             </div>
                                             模型设置
                                         </button>
+                                        {user?.is_admin && (
+                                            <button
+                                                onClick={() => {
+                                                    setMenuOpen(false)
+                                                    navigate('/admin')
+                                                }}
+                                                className="w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors"
+                                            >
+                                                <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                                                    <Megaphone className="w-4 h-4" />
+                                                </div>
+                                                用户管理
+                                            </button>
+                                        )}
                                     </div>
                                     <div className="p-2 border-t border-slate-100 dark:border-slate-900">
                                         <button

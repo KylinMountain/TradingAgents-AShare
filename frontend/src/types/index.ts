@@ -692,6 +692,7 @@ export interface WecomWarmupResponse {
 export interface AuthUser {
     id: string
     email: string
+    is_admin?: boolean
     created_at?: string
     last_login_at?: string
 }

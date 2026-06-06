@@ -13,6 +13,7 @@ import Login from './pages/Login'
 import Feedback from './pages/Feedback'
 import Sponsor from './pages/Sponsor'
 import Thanks from './pages/Thanks'
+import Admin from './pages/Admin'
 import { useAuthStore } from './stores/authStore'
 
 const ONLINE_HOST = 'app.510168.xyz'
@@ -63,6 +64,7 @@ function App() {
                   <Route path="/portfolio" element={<Portfolio />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/feedback" element={<Feedback />} />
+                  <Route path="/admin" element={<Admin />} />
                 </Routes>
               </Layout>
             </RequireAuth>

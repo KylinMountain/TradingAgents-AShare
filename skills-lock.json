@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-browser": {
+      "source": "vercel-labs/agent-browser",
+      "sourceType": "github",
+      "skillPath": "skills/agent-browser/SKILL.md",
+      "computedHash": "228f87d57035100d9dc6efcfc05aafd4b6e3962adacaa04b8217ab2fadb15dc8"
+    },
+    "do": {
+      "source": "thedotmack/claude-mem",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/do/SKILL.md",
+      "computedHash": "ac80a2338872768e8d9e24bcad9d7a379019afa062167a20b525c4562405a2a3"
+    },
+    "make-plan": {
+      "source": "thedotmack/claude-mem",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/make-plan/SKILL.md",
+      "computedHash": "828c96bc3eab1c8c46db001b3a6a71fe07dfb32814081678ddfe067ba0978664"
+    },
+    "mem-search": {
+      "source": "thedotmack/claude-mem",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/mem-search/SKILL.md",
+      "computedHash": "6058bee763732e6c85f77523e97ad27f476e73ee44fbfdcf105a218ef1dd52e0"
+    },
+    "smart-explore": {
+      "source": "thedotmack/claude-mem",
+      "sourceType": "github",
+      "skillPath": "plugin/skills/smart-explore/SKILL.md",
+      "computedHash": "9a1725dd93477d0b1c698f3b47734dc10491c6edeb89cb728d2f33ab4ac35fce"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "6b526d013e28073246a36f99b529bc43745d30832ecfa8217b359c34f260ca6b"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "d8e7d3afe37dcc8a97b99ffb5afdb4d0919ae0092ea8b68f44eb201f035e33ac"
+    }
+  }
+}

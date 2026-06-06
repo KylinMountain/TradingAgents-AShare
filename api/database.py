@@ -131,6 +131,12 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
             if "wecom_report_enabled" not in columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN wecom_report_enabled BOOLEAN NOT NULL DEFAULT 1"))
+            if "is_admin" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
+            if "is_banned" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_banned BOOLEAN NOT NULL DEFAULT 0"))
+            if "ban_reason" not in columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN ban_reason VARCHAR(500)"))
             llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
             if "wecom_webhook_encrypted" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
@@ -324,6 +330,9 @@ class UserDB(Base):
     id = Column(String(36), primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False, server_default="0")
+    is_banned = Column(Boolean, default=False, nullable=False, server_default="0")
+    ban_reason = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime, nullable=True)
