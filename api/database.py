@@ -145,6 +145,23 @@ def _ensure_user_schema() -> None:
     except Exception as e:
         logger.error("Failed to ensure user schema: %s", e)
 
+    # Create user_query_logs table if not exists
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_query_logs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(64) NOT NULL,
+                    email VARCHAR(255),
+                    query_text TEXT,
+                    symbol VARCHAR(20),
+                    created_at DATETIME
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_query_logs_user_id ON user_query_logs(user_id)"))
+    except Exception as e:
+        logger.error("Failed to ensure user_query_logs schema: %s", e)
+
     _migrate_tokens_to_hashed()
     _migrate_api_keys_reencrypt()
 
@@ -515,5 +532,18 @@ class ImportedPortfolioPositionDB(Base):
     __table_args__ = (
         UniqueConstraint('user_id', 'source', 'symbol', name='uq_imported_portfolio_user_source_symbol'),
     )
+
+
+class UserQueryLogDB(Base):
+    """Log of user stock queries for admin review."""
+
+    __tablename__ = "user_query_logs"
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    email = Column(String(255), nullable=True)
+    query_text = Column(Text, nullable=True)
+    symbol = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

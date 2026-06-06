@@ -15,6 +15,15 @@ interface AdminUser {
     last_login_ip?: string
 }
 
+interface QueryLog {
+    id: string
+    user_id: string
+    email?: string
+    query_text?: string
+    symbol?: string
+    created_at?: string
+}
+
 export default function Admin() {
     const user = useAuthStore(s => s.user)
     const navigate = useNavigate()
@@ -26,10 +35,14 @@ export default function Admin() {
     const [newEmail, setNewEmail] = useState('')
     const [newIsAdmin, setNewIsAdmin] = useState(false)
     const [adding, setAdding] = useState(false)
+    const [logs, setLogs] = useState<QueryLog[]>([])
+    const [logsTotal, setLogsTotal] = useState(0)
+    const [logsLoading, setLogsLoading] = useState(true)
 
     useEffect(() => {
         if (!user) return
         loadUsers()
+        loadLogs()
     }, [user])
 
     const loadUsers = async () => {
@@ -47,6 +60,19 @@ export default function Admin() {
             }
         } finally {
             setLoading(false)
+        }
+    }
+
+    const loadLogs = async () => {
+        setLogsLoading(true)
+        try {
+            const resp = await api.get<{ logs: QueryLog[]; total: number }>('/v1/admin/query-logs?limit=100')
+            setLogs(resp.logs)
+            setLogsTotal(resp.total)
+        } catch {
+            // ignore
+        } finally {
+            setLogsLoading(false)
         }
     }
 
@@ -234,6 +260,48 @@ export default function Admin() {
                         </div>
                     </div>
                 )}
+
+                {/* Query Logs Section */}
+                <div className="mt-8">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-bold text-slate-900 dark:text-white">查询日志</h2>
+                        <span className="text-sm text-slate-500">共 {logsTotal} 条记录</span>
+                    </div>
+                    {logsLoading ? (
+                        <div className="text-center py-10 text-slate-400">加载中...</div>
+                    ) : logs.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400">暂无查询记录</div>
+                    ) : (
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                                        <th className="text-left px-4 py-3 text-slate-500 font-medium">时间</th>
+                                        <th className="text-left px-4 py-3 text-slate-500 font-medium">用户</th>
+                                        <th className="text-left px-4 py-3 text-slate-500 font-medium">查询内容</th>
+                                        <th className="text-left px-4 py-3 text-slate-500 font-medium">股票代码</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {logs.map(log => (
+                                        <tr key={log.id} className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                                            <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                                                {log.created_at ? new Date(log.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-900 dark:text-white">{log.email || '-'}</td>
+                                            <td className="px-4 py-3 text-slate-600 dark:text-slate-400 max-w-xs truncate">{log.query_text || '-'}</td>
+                                            <td className="px-4 py-3">
+                                                {log.symbol ? (
+                                                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{log.symbol}</span>
+                                                ) : '-'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )

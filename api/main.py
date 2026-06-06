@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 import numpy as np
 
-from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, UserQueryLogDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service, admin_service
 
@@ -3011,6 +3011,19 @@ async def analyze(
         "job.created",
         {"job_id": job_id, "symbol": request.symbol, "trade_date": request.trade_date},
     )
+    # Log user query
+    try:
+        with get_db_ctx() as db:
+            db.add(UserQueryLogDB(
+                id=uuid4().hex,
+                user_id=current_user.id,
+                email=current_user.email,
+                query_text=request.symbol,
+                symbol=request.symbol,
+            ))
+            db.commit()
+    except Exception:
+        pass
     if request.dry_run:
         await _run_job(job_id, request, True, True, current_user.id, "api")
         final_status = _get_job(job_id).get("status", "completed")
@@ -3355,6 +3368,19 @@ async def chat_completions(
                     "job.created",
                     {"job_id": job_id, "symbol": analyze_req.symbol, "trade_date": analyze_req.trade_date},
                 )
+                # Log user query
+                try:
+                    with get_db_ctx() as db:
+                        db.add(UserQueryLogDB(
+                            id=uuid4().hex,
+                            user_id=current_user.id,
+                            email=current_user.email,
+                            query_text=text,
+                            symbol=analyze_req.symbol,
+                        ))
+                        db.commit()
+                except Exception:
+                    pass
                 await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
             except Exception as exc:
                 _log(f"[chat] _extract_and_run failed: {exc}")
@@ -4159,6 +4185,39 @@ def admin_revoke_admin(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return {"ok": True}
+
+
+class QueryLogResponse(BaseModel):
+    id: str
+    user_id: str
+    email: Optional[str] = None
+    query_text: Optional[str] = None
+    symbol: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class QueryLogListResponse(BaseModel):
+    logs: list[QueryLogResponse]
+    total: int
+
+
+@app.get("/v1/admin/query-logs", response_model=QueryLogListResponse)
+def admin_get_query_logs(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin: UserDB = Depends(_require_admin),
+):
+    query = db.query(UserQueryLogDB).order_by(UserQueryLogDB.created_at.desc())
+    total = query.count()
+    logs = query.offset(skip).limit(limit).all()
+    return QueryLogListResponse(
+        logs=[QueryLogResponse(
+            id=l.id, user_id=l.user_id, email=l.email,
+            query_text=l.query_text, symbol=l.symbol, created_at=l.created_at,
+        ) for l in logs],
+        total=total,
+    )
 
 
 @app.get("/v1/config", response_model=UserRuntimeConfigResponse)

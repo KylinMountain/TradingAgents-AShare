@@ -43,6 +43,12 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return children
 }
 
+function RequireAdmin({ children }: { children: JSX.Element }) {
+  const { user } = useAuthStore()
+  if (!user?.is_admin) return <Navigate to="/" replace />
+  return children
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -62,7 +68,7 @@ function App() {
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />
-                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/settings" element={<RequireAdmin><Settings /></RequireAdmin>} />
                   <Route path="/feedback" element={<Feedback />} />
                   <Route path="/admin" element={<Admin />} />
                 </Routes>
