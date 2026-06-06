@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Megaphone } from 'lucide-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { Announcement } from '@/types'
