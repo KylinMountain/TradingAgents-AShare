@@ -20,7 +20,7 @@ SERVER = "119.23.155.192"
 USER = "root"
 PASSWORD = "Qq121918="
 REMOTE_DIR = "/opt/tradingagents"
-HEALTH_CHECK_TIMEOUT = 60  # 最长等待秒数
+HEALTH_CHECK_TIMEOUT = 120  # 最长等待秒数 (uvicorn 冷启动含数据加载约 60-90s)
 HEALTH_CHECK_INTERVAL = 3   # 轮询间隔
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -104,12 +104,11 @@ def main():
 
 def wait_for_health():
     """轮询直到服务返回 200，最多等 HEALTH_CHECK_TIMEOUT 秒"""
-    url = f"http://{SERVER}/"
+    url = f"http://{SERVER}/v1/market/kline?symbol=000001.SH&start_date=2021-06-01&end_date=2026-06-07&period=daily"
     deadline = time.time() + HEALTH_CHECK_TIMEOUT
     while time.time() < deadline:
         try:
-            req = urllib.request.Request(url, method="HEAD")
-            resp = urllib.request.urlopen(req, timeout=5)
+            resp = urllib.request.urlopen(url, timeout=10)
             if resp.status == 200:
                 return True
         except Exception:
