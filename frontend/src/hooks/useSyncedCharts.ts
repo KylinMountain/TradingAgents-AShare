@@ -3,7 +3,15 @@ import type { IChartApi, Time, TimeRangeChangeEventHandler } from 'lightweight-c
 
 /**
  * 同步两个 lightweight-charts 图表的可见时间范围（缩放/滚动双向同步）。
- * 使用时间值同步而非逻辑索引，确保不同数据量的图表时间轴对齐。
+ *
+ * 事件驱动 + 直接逻辑范围复制：用 subscribeVisibleTimeRangeChange 检测缩放，
+ * 然后读取源图表的当前可见逻辑范围，直接应用到目标图表。
+ *
+ * 为什么不用 setVisibleRange：
+ * 它会自动裁剪到目标图表数据边界，无法缩小超出数据范围。
+ * 为什么不用 timeToIndex 做映射：
+ * 它也会钳制到数据边界，同样无法处理缩小超出数据的情况。
+ * 直接复制源图表的逻辑范围，既不受数据边界限制，也足够简单可靠。
  */
 export function useSyncedCharts() {
     const klineChartRef = useRef<IChartApi | null>(null)
@@ -19,7 +27,6 @@ export function useSyncedCharts() {
         const radar = radarChartRef.current
         if (!kline || !radar) return
 
-        // 清理旧订阅
         if (handlersRef.current.klineHandler) {
             kline.timeScale().unsubscribeVisibleTimeRangeChange(handlersRef.current.klineHandler)
         }
@@ -27,19 +34,29 @@ export function useSyncedCharts() {
             radar.timeScale().unsubscribeVisibleTimeRangeChange(handlersRef.current.radarHandler)
         }
 
-        // K线 → 雷达
-        const klineHandler: TimeRangeChangeEventHandler<Time> = (range: { from: Time; to: Time } | null) => {
-            if (syncingRef.current || !range) return
+        // K线 → 雷达：读取K线当前逻辑范围，直接应用到雷达
+        const klineHandler: TimeRangeChangeEventHandler<Time> = (_range) => {
+            if (syncingRef.current) return
+            const src = klineChartRef.current
+            const dst = radarChartRef.current
+            if (!src || !dst) return
+            const logical = src.timeScale().getVisibleLogicalRange()
+            if (!logical) return
             syncingRef.current = true
-            try { radar.timeScale().setVisibleRange(range) } catch {}
+            try { dst.timeScale().setVisibleLogicalRange(logical) } catch {}
             syncingRef.current = false
         }
 
-        // 雷达 → K线
-        const radarHandler: TimeRangeChangeEventHandler<Time> = (range: { from: Time; to: Time } | null) => {
-            if (syncingRef.current || !range) return
+        // 雷达 → K线：同上，方向相反
+        const radarHandler: TimeRangeChangeEventHandler<Time> = (_range) => {
+            if (syncingRef.current) return
+            const src = radarChartRef.current
+            const dst = klineChartRef.current
+            if (!src || !dst) return
+            const logical = src.timeScale().getVisibleLogicalRange()
+            if (!logical) return
             syncingRef.current = true
-            try { kline.timeScale().setVisibleRange(range) } catch {}
+            try { dst.timeScale().setVisibleLogicalRange(logical) } catch {}
             syncingRef.current = false
         }
 
