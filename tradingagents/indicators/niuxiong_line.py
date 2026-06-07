@@ -1046,13 +1046,13 @@ def calculate_radar_indicator(df: pd.DataFrame) -> pd.DataFrame:
     radar_top = (
         (avg > 2) &
         (info == 0) & (info_prev1 == 1) &
-        ((info_prev2 + info_prev3) == 2)
+        (info_prev2 == 1)
     )
 
     # 下(TZ): 信息由1→0 + 连续2日上升 + 走弱 + 平均线>1
     radar_down = (
         (info == 0) & (info_prev1 == 1) &
-        ((info_prev2 + info_prev3) == 2) &
+        (info_prev2 == 1) &
         (weak == 1) &
         (avg > 1)
     )
