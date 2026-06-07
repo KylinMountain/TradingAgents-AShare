@@ -360,6 +360,8 @@ export interface RadarResponse {
 
 export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
 
+export type KlinePeriod = 'daily' | 'weekly' | 'monthly'
+
 // Structured extraction types
 export interface RiskItem {
     name: string

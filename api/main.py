@@ -2440,7 +2440,120 @@ def _normalize_kline_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+def _df_to_candles(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Convert a normalized DataFrame to candle dicts."""
+    candles: List[Dict[str, Any]] = []
+    prev_close: float | None = None
+    for _, row in df.iterrows():
+        close = float(row["Close"])
+        change = float(row["Change"]) if "Change" in df.columns and pd.notna(row.get("Change")) else (close - prev_close if prev_close is not None else None)
+        change_pct = (
+            float(row["ChangePercent"])
+            if "ChangePercent" in df.columns and pd.notna(row.get("ChangePercent"))
+            else ((change / prev_close) * 100 if prev_close not in (None, 0) and change is not None else None)
+        )
+        candles.append({
+            "date": row["Date"].strftime("%Y-%m-%d"),
+            "open": float(row["Open"]),
+            "high": float(row["High"]),
+            "low": float(row["Low"]),
+            "close": close,
+            "volume": float(row["Volume"]) if "Volume" in df.columns and pd.notna(row.get("Volume")) else None,
+            "amount": float(row["Amount"]) if "Amount" in df.columns and pd.notna(row.get("Amount")) else None,
+            "change": round(change, 2) if change is not None else None,
+            "change_percent": round(change_pct, 2) if change_pct is not None else None,
+            "turnover_rate": float(row["TurnoverRate"]) if "TurnoverRate" in df.columns and pd.notna(row.get("TurnoverRate")) else None,
+        })
+        prev_close = close
+    return candles
+
+
+_KLINE_PERIOD_MAP = {
+    "daily":   {"category": 4, "akshare_period": "daily"},
+    "weekly":  {"category": 5, "akshare_period": "weekly"},
+    "monthly": {"category": 6, "akshare_period": "monthly"},
+}
+
+# 指标接口根据周期动态获取日线天数（聚合后覆盖显示范围）
+_indicator_days_map = {"daily": 250, "weekly": 520, "monthly": 1300}
+
+
+def _aggregate_daily_df(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """将日线 DataFrame 聚合为周线或月线（供指标计算使用）"""
+    if period == "daily" or df.empty:
+        return df
+
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"] if "date" in df.columns else df.index)
+
+    if period == "weekly":
+        df["group"] = df["date"].dt.isocalendar().year.astype(str) + "-W" + df["date"].dt.isocalendar().week.astype(str).str.zfill(2)
+    else:  # monthly
+        df["group"] = df["date"].dt.strftime("%Y-%m")
+
+    agg = df.groupby("group").agg(
+        open=("open", "first"),
+        high=("high", "max"),
+        low=("low", "min"),
+        close=("close", "last"),
+        volume=("volume", "sum") if "volume" in df.columns else ("close", "first"),
+        # 保留每组最后一个交易日的日期，用于前端解析
+        _last_date=("date", "last"),
+    ).reset_index()
+
+    # 用最后一个交易日的 YYYY-MM-DD 格式作为日期（前端 toBusinessDay 需要）
+    agg["date"] = agg["_last_date"].dt.strftime("%Y-%m-%d")
+    agg = agg.drop(columns=["group", "_last_date"])
+    agg = agg.set_index("date")
+    return agg
+
+
+def _aggregate_candles(candles: List[Dict[str, Any]], period: str) -> List[Dict[str, Any]]:
+    """将日K线聚合为周K或月K"""
+    if not candles or period == "daily":
+        return candles
+
+    from collections import OrderedDict
+    groups: OrderedDict[str, List[Dict[str, Any]]] = OrderedDict()
+
+    for c in candles:
+        d = c["date"]
+        dt = pd.Timestamp(d)
+        if period == "weekly":
+            # ISO week: 2026-W23
+            key = f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+        else:  # monthly
+            key = f"{dt.year}-{dt.month:02d}"
+        groups.setdefault(key, []).append(c)
+
+    result = []
+    for key, bars in groups.items():
+        first = bars[0]
+        last = bars[-1]
+        high = max(b["high"] for b in bars)
+        low = min(b["low"] for b in bars)
+        volume = sum(b["volume"] for b in bars if b.get("volume") is not None) or None
+        amount = sum(b["amount"] for b in bars if b.get("amount") is not None) or None
+        prev_close = result[-1]["close"] if result else None
+        close = last["close"]
+        change = close - prev_close if prev_close is not None else None
+        change_pct = (change / prev_close * 100) if prev_close not in (None, 0) and change is not None else None
+        result.append({
+            "date": last["date"],
+            "open": first["open"],
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+            "amount": amount,
+            "change": round(change, 2) if change is not None else None,
+            "change_percent": round(change_pct, 2) if change_pct is not None else None,
+            "turnover_rate": None,
+        })
+    return result
+
+
+def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str = "daily") -> List[Dict[str, Any]]:
     import akshare as ak  # type: ignore
 
     symbol_key = symbol.upper()
@@ -2450,9 +2563,9 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
 
     yyyymmdd_start = start_date.replace("-", "")
     yyyymmdd_end = end_date.replace("-", "")
-    last_exc: Exception | None = None
 
-    for fetcher in (
+    # 始终先获取日线数据，再按需聚合
+    fetchers = (
         lambda: ak.stock_zh_index_daily_em(
             symbol=vendor_symbol,
             start_date=yyyymmdd_start,
@@ -2465,7 +2578,9 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
             start_date=yyyymmdd_start,
             end_date=yyyymmdd_end,
         ),
-    ):
+    )
+
+    for fetcher in fetchers:
         try:
             raw_df = fetcher()
             df = _normalize_kline_df(raw_df)
@@ -2499,7 +2614,7 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
                     }
                 )
                 prev_close = close
-            return candles
+            return _aggregate_candles(candles, period)
         except Exception as exc:
             last_exc = exc
             continue
@@ -2567,7 +2682,9 @@ def get_kline(
     symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
 ) -> KlineResponse:
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
     end = end_date or cn_today_str()
     if start_date:
         start = start_date
@@ -2575,7 +2692,7 @@ def get_kline(
         start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=120)).strftime("%Y-%m-%d")
 
     if _is_cn_index_symbol(symbol):
-        candles = _fetch_index_kline(symbol, start, end)
+        candles = _fetch_index_kline(symbol, start, end, period=period)
     else:
         # Normalize symbol (convert "阳光电源" -> "300274.SZ")
         original = symbol
@@ -2588,10 +2705,31 @@ def get_kline(
                     f"expected formats: '300394.SZ' / 'AAPL' / '00700.HK'"
                 ),
             )
-        config = _build_runtime_config({})
-        set_config(config)
-        raw = route_to_vendor("get_stock_data", symbol, start, end)
-        candles = _parse_stock_csv(raw)
+        if period != "daily":
+            # Non-daily: try akshare with period, fallback to daily + aggregation
+            import akshare as ak  # type: ignore
+            code = symbol.split(".")[0]
+            akshare_period = _KLINE_PERIOD_MAP[period]["akshare_period"]
+            candles = []
+            try:
+                raw_df = ak.stock_zh_a_hist(symbol=code, period=akshare_period, start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq")
+                df = _normalize_kline_df(raw_df)
+                if not df.empty:
+                    candles = _df_to_candles(df)
+            except Exception:
+                pass
+            if not candles:
+                # Fallback: fetch daily and aggregate
+                config = _build_runtime_config({})
+                set_config(config)
+                raw = route_to_vendor("get_stock_data", symbol, start, end)
+                daily_candles = _parse_stock_csv(raw)
+                candles = _aggregate_candles(daily_candles, period)
+        else:
+            config = _build_runtime_config({})
+            set_config(config)
+            raw = route_to_vendor("get_stock_data", symbol, start, end)
+            candles = _parse_stock_csv(raw)
     if not candles:
         raise HTTPException(status_code=404, detail="no kline data")
     return KlineResponse(
@@ -2607,18 +2745,24 @@ def get_niuxiong(
     symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
 ) -> NiuxiongResponse:
     """牛熊线高阶指标接口"""
     from tradingagents.indicators import calculate_niuxiong_line, get_signal, fetch_realtime_data, fetch_realtime_quote
 
-    # Normalize symbol to 6-digit code for mootdx
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
     code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=250)
+        df = fetch_realtime_data(code, days=days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
+    # 非日线：先聚合成周/月线，再计算指标（与通达信/同花顺一致）
+    if period != "daily":
+        df = _aggregate_daily_df(df, period)
+        df.index = pd.to_datetime(df.index)
     result = calculate_niuxiong_line(df)
     signal = get_signal(result)
 
@@ -2684,17 +2828,23 @@ def get_gs_strategy(
     symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
 ) -> GSResponse:
     """GS策略指标接口"""
     from tradingagents.indicators import calculate_gs_strategy, get_gs_signal, fetch_realtime_data, fetch_realtime_quote
 
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
     code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=250)
+        df = fetch_realtime_data(code, days=days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
+    if period != "daily":
+        df = _aggregate_daily_df(df, period)
+        df.index = pd.to_datetime(df.index)
     result = calculate_gs_strategy(df)
     signal = get_gs_signal(result)
 
@@ -2772,23 +2922,34 @@ def get_radar(
     symbol: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
 ) -> RadarResponse:
     """主力趋势雷达指标接口"""
     from tradingagents.indicators import calculate_radar_indicator, get_radar_signal, fetch_realtime_data, fetch_realtime_quote
 
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
     code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=250)
+        df = fetch_realtime_data(code, days=days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
-    # 保存日期索引，重置索引避免重复日期索引导致 pandas align 错误
-    dates = df.index.to_series().reset_index(drop=True)
-    df = df.reset_index(drop=True)
+    try:
+        if period != "daily":
+            df = _aggregate_daily_df(df, period)
+            df.index = pd.to_datetime(df.index)
 
-    result = calculate_radar_indicator(df)
-    signal = get_radar_signal(result)
+        # 保存日期索引，重置索引避免重复日期索引导致 pandas align 错误
+        dates = df.index.to_series().reset_index(drop=True)
+        df = df.reset_index(drop=True)
+
+        result = calculate_radar_indicator(df)
+        signal = get_radar_signal(result)
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"指标计算失败: {type(e).__name__}: {e} -- {traceback.format_exc()[-300:]}")
 
     def _to_native(obj):
         if isinstance(obj, dict):
@@ -2807,14 +2968,16 @@ def get_radar(
 
     signal = _to_native(signal)
 
-    # 使用保存的日期进行过滤
+    # 使用保存的日期进行过滤（聚合后索引是字符串，统一转 Timestamp 比较）
+    dates_dt = pd.to_datetime(dates)
     if start_date:
-        mask = dates >= pd.Timestamp(start_date)
+        mask = dates_dt >= pd.Timestamp(start_date)
         result = result[mask.values].reset_index(drop=True)
         dates = dates[mask.values].reset_index(drop=True)
+        dates_dt = dates_dt[mask.values].reset_index(drop=True)
     if end_date:
         end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        mask = dates <= end_dt
+        mask = dates_dt <= end_dt
         result = result[mask.values].reset_index(drop=True)
         dates = dates[mask.values].reset_index(drop=True)
 
@@ -3301,9 +3464,9 @@ async def chat_completions(
                 symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = \
                     await _ai_extract_symbol_and_date_streaming(text, config, job_id)
 
-                if not symbol:
+                if not symbol or not _RESOLVABLE_SYMBOL_RE.match(symbol):
                     _emit_job_event(job_id, "job.failed", {
-                        "error": "抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 600519.SH）或可识别的公司名称。"
+                        "error": f"抱歉，无法识别股票标的 {symbol or '未知'}。请输入有效的代码（如 600519.SH）或可识别的公司名称。"
                     })
                     return
 
@@ -3397,8 +3560,8 @@ async def chat_completions(
     symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = \
         await asyncio.to_thread(_ai_extract_symbol_and_date, text, config)
 
-    if not symbol:
-        raise HTTPException(status_code=400, detail="抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 600519.SH）或可识别的公司名称。")
+    if not symbol or not _RESOLVABLE_SYMBOL_RE.match(symbol):
+        raise HTTPException(status_code=400, detail=f"抱歉，无法识别股票标的 {symbol or '未知'}。请输入有效的代码（如 600519.SH）或可识别的公司名称。")
 
     pre_intent = {
         "raw_query": text,

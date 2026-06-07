@@ -18,6 +18,7 @@ import type {
     RiskItem,
     KeyMetric,
     DebateMessage,
+    KlinePeriod,
 } from '@/types'
 
 export interface ChatMessage {
@@ -83,6 +84,9 @@ interface AnalysisState {
     // Current analysis horizon (for badge display)
     currentHorizon: string | null
 
+    // K-line period
+    klinePeriod: KlinePeriod
+
     // Actions
     setCurrentJobId: (jobId: string | null) => void
     setCurrentSymbol: (symbol: string) => void
@@ -108,6 +112,7 @@ interface AnalysisState {
     setIsConnected: (isConnected: boolean) => void
     setAnalysisRunState: (state: 'idle' | 'running' | 'completed' | 'failed', error?: string | null) => void
     setCurrentHorizon: (horizon: string | null) => void
+    setKlinePeriod: (period: KlinePeriod) => void
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
     setMessageContent: (id: string, content: string) => void
@@ -191,6 +196,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     analysisRunState: 'idle',
     analysisRunError: null,
     currentHorizon: null,
+    klinePeriod: 'daily',
 
     setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
 
@@ -405,6 +411,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         analysisRunState: 'idle',
         analysisRunError: null,
         currentHorizon: null,
+        klinePeriod: 'daily',
     }),
 
     addLog: (log) => set((state) => ({
@@ -435,6 +442,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
 
     setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
 
+    setKlinePeriod: (klinePeriod) => set({ klinePeriod }),
+
     reset: () => set((state) => ({
         currentJobId: null,
         currentSymbol: state.currentSymbol,
@@ -464,6 +473,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     storage: createJSONStorage(() => debouncedStorage),
     partialize: (state) => ({
         currentSymbol: state.currentSymbol,
+        klinePeriod: state.klinePeriod,
         report: state.report,
         riskItems: state.riskItems,
         keyMetrics: state.keyMetrics,

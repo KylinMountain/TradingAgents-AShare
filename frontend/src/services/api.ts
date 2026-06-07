@@ -75,31 +75,35 @@ class ApiService {
         return this.request(`/v1/jobs/${jobId}/result`)
     }
 
-    async getKline(symbol: string, startDate?: string, endDate?: string): Promise<KlineResponse> {
+    async getKline(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<KlineResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
+        if (period) params.append('period', period)
         return this.request<KlineResponse>(`/v1/market/kline?${params}`)
     }
 
-    async getNiuxiong(symbol: string, startDate?: string, endDate?: string): Promise<NiuxiongResponse> {
+    async getNiuxiong(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<NiuxiongResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
+        if (period) params.append('period', period)
         return this.request<NiuxiongResponse>(`/v1/market/niuxiong?${params}`)
     }
 
-    async getGsStrategy(symbol: string, startDate?: string, endDate?: string): Promise<GSResponse> {
+    async getGsStrategy(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<GSResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
+        if (period) params.append('period', period)
         return this.request<GSResponse>(`/v1/market/gs-strategy?${params}`)
     }
 
-    async getRadar(symbol: string, startDate?: string, endDate?: string): Promise<RadarResponse> {
+    async getRadar(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<RadarResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
+        if (period) params.append('period', period)
         return this.request<RadarResponse>(`/v1/market/radar?${params}`)
     }
 

@@ -10,25 +10,36 @@ import {
     LineSeries,
     LineStyle,
     Time,
+    UTCTimestamp,
     createChart,
     createSeriesMarkers,
 } from 'lightweight-charts'
 import { Radar } from 'lucide-react'
 import { api } from '@/services/api'
 import type { RadarPoint } from '@/types'
+import { useAnalysisStore } from '@/stores/analysisStore'
+import type { KlinePeriod } from '@/types'
 
 interface RadarPanelProps {
     symbol: string
     onChartReady?: (chart: IChartApi) => void
 }
 
-function toBusinessDay(value: string): BusinessDay | null {
+function toChartTime(value: string, period: KlinePeriod): Time | null {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
     if (!m) return null
-    return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }
+    const year = Number(m[1])
+    const month = Number(m[2])
+    const day = Number(m[3])
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+    if (period === 'daily') {
+        return { year, month, day } as BusinessDay
+    }
+    return (Date.UTC(year, month - 1, day) / 1000) as UTCTimestamp
 }
 
 export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
+    const klinePeriod = useAnalysisStore((state) => state.klinePeriod)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const avgSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
@@ -38,15 +49,18 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
     const oversoldRef = useRef<ISeriesApi<'Line'> | null>(null)
     const histRefs = useRef<Record<string, ISeriesApi<'Histogram'>>>({})
     const markersRef = useRef<any>(null)
+    const radarCacheRef = useRef<RadarPoint[]>([])
+    const radarPeriodRef = useRef<KlinePeriod>('daily')
     const [radarData, setRadarData] = useState<RadarPoint[]>([])
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'))
 
     const range = useMemo(() => {
         const end = new Date()
-        const start = new Date(end.getTime() - 180 * 24 * 60 * 60 * 1000)
+        const rangeDays = klinePeriod === 'daily' ? 180 : klinePeriod === 'weekly' ? 730 : 1825
+        const start = new Date(end.getTime() - rangeDays * 24 * 60 * 60 * 1000)
         const toText = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         return { start: toText(start), end: toText(end) }
-    }, [])
+    }, [klinePeriod])
 
     // Theme observer
     useEffect(() => {
@@ -120,6 +134,54 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
         const markers = createSeriesMarkers(avgSeries)
         markersRef.current = markers
 
+        // Immediately apply cached data if chart is recreated for same period
+        if (radarCacheRef.current.length && radarPeriodRef.current === klinePeriod) {
+            const pts = radarCacheRef.current
+            const avgData: LineData[] = []
+            const waveData: LineData[] = []
+            const upHistData: HistogramData[] = []
+            const downHistData: HistogramData[] = []
+            let prevAvg: number | null = null
+            for (const p of pts) {
+                if (p.radar_avg == null) continue
+                const t = toChartTime(p.date, klinePeriod)
+                if (!t) continue
+                avgData.push({ time: t, value: p.radar_avg })
+                if (p.radar_wave != null) {
+                    waveData.push({ time: t, value: p.radar_wave })
+                }
+                if (prevAvg !== null) {
+                    const diff = p.radar_avg - prevAvg
+                    if (diff >= 0) upHistData.push({ time: t, value: diff })
+                    else downHistData.push({ time: t, value: diff })
+                }
+                prevAvg = p.radar_avg
+            }
+            avgSeries.setData(avgData)
+            waveSeries.setData(waveData)
+            upHist.setData(upHistData)
+            downHist.setData(downHistData)
+            if (avgData.length > 0) {
+                zeroLine.setData(avgData.map(d => ({ time: d.time, value: 0 })))
+                overboughtLine.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
+                oversoldLine.setData(avgData.map(d => ({ time: d.time, value: 0.5 })))
+            }
+            const signalMarkers = pts
+                .filter(p => p.radar_buy || p.radar_sell || p.radar_top || p.radar_down)
+                .map(p => {
+                    const t = toChartTime(p.date, klinePeriod)
+                    if (!t) return null
+                    if (p.radar_buy) return { time: t, position: 'belowBar' as const, color: '#ef4444', shape: 'arrowUp' as const, text: '底' }
+                    if (p.radar_sell) return { time: t, position: 'belowBar' as const, color: '#f59e0b', shape: 'arrowUp' as const, text: '升' }
+                    if (p.radar_top) return { time: t, position: 'aboveBar' as const, color: '#22c55e', shape: 'arrowDown' as const, text: '顶' }
+                    if (p.radar_down) return { time: t, position: 'aboveBar' as const, color: '#06b6d4', shape: 'arrowDown' as const, text: '下' }
+                    return null
+                })
+                .filter(Boolean)
+            markers.setMarkers(signalMarkers as any)
+            chart.timeScale().fitContent()
+        }
+
         avgSeriesRef.current = avgSeries
         waveSeriesRef.current = waveSeries
         zeroLineRef.current = zeroLine
@@ -146,87 +208,87 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
             oversoldRef.current = null
             histRefs.current = {}
         }
-    }, [isDark])
+    }, [isDark, klinePeriod])
 
-    // Load data
+    // Load data and apply to series
     useEffect(() => {
         let cancelled = false
-        api.getRadar(symbol, range.start, range.end)
-            .then(resp => {
+        const load = async () => {
+            if (!avgSeriesRef.current || !histRefs.current.up) return
+            try {
+                const resp = await api.getRadar(symbol, range.start, range.end, klinePeriod)
                 if (cancelled || !resp?.points) return
+                if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
+
                 setRadarData(resp.points)
-            })
-            .catch(() => {})
+                radarCacheRef.current = resp.points
+                radarPeriodRef.current = klinePeriod
+
+                const avgSeries = avgSeriesRef.current
+                const waveSeries = waveSeriesRef.current
+                const histSeries = histRefs.current
+                if (!avgSeries || !histSeries.up) return
+
+                const avgData: LineData[] = []
+                const waveData: LineData[] = []
+                const upHistData: HistogramData[] = []
+                const downHistData: HistogramData[] = []
+
+                let prevAvg: number | null = null
+                for (const p of resp.points) {
+                    if (p.radar_avg == null) continue
+                    const time = toChartTime(p.date, klinePeriod)
+                    if (!time) continue
+
+                    avgData.push({ time, value: p.radar_avg })
+                    if (p.radar_wave != null) {
+                        waveData.push({ time, value: p.radar_wave })
+                    }
+
+                    if (prevAvg !== null) {
+                        const diff = p.radar_avg - prevAvg
+                        const entry = { time, value: diff }
+                        if (diff >= 0) upHistData.push(entry)
+                        else downHistData.push(entry)
+                    }
+                    prevAvg = p.radar_avg
+                }
+
+                avgSeries.setData(avgData)
+                waveSeries?.setData(waveData)
+                histSeries.up.setData(upHistData)
+                histSeries.down.setData(downHistData)
+
+                if (zeroLineRef.current && avgData.length > 0) {
+                    zeroLineRef.current.setData(avgData.map(d => ({ time: d.time, value: 0 })))
+                }
+                if (overboughtRef.current && avgData.length > 0) {
+                    overboughtRef.current.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
+                }
+                if (oversoldRef.current && avgData.length > 0) {
+                    oversoldRef.current.setData(avgData.map(d => ({ time: d.time, value: 0.5 })))
+                }
+
+                const signalMarkers = resp.points
+                    .filter(p => p.radar_buy || p.radar_sell || p.radar_top || p.radar_down)
+                    .map(p => {
+                        const time = toChartTime(p.date, klinePeriod)
+                        if (!time) return null
+                        if (p.radar_buy) return { time, position: 'belowBar' as const, color: '#ef4444', shape: 'arrowUp' as const, text: '底' }
+                        if (p.radar_sell) return { time, position: 'belowBar' as const, color: '#f59e0b', shape: 'arrowUp' as const, text: '升' }
+                        if (p.radar_top) return { time, position: 'aboveBar' as const, color: '#22c55e', shape: 'arrowDown' as const, text: '顶' }
+                        if (p.radar_down) return { time, position: 'aboveBar' as const, color: '#06b6d4', shape: 'arrowDown' as const, text: '下' }
+                        return null
+                    })
+                    .filter(Boolean)
+
+                markersRef.current?.setMarkers(signalMarkers as any)
+                chartRef.current?.timeScale().fitContent()
+            } catch {}
+        }
+        load()
         return () => { cancelled = true }
-    }, [symbol, range.start, range.end])
-
-    // Update series
-    useEffect(() => {
-        const avgSeries = avgSeriesRef.current
-        const waveSeries = waveSeriesRef.current
-        const histSeries = histRefs.current
-        if (!avgSeries || !histSeries.up || !radarData.length) return
-
-        const avgData: LineData[] = []
-        const waveData: LineData[] = []
-        const upHistData: HistogramData[] = []
-        const downHistData: HistogramData[] = []
-
-        let prevAvg: number | null = null
-        for (const p of radarData) {
-            if (p.radar_avg == null) continue
-            const time = toBusinessDay(p.date)
-            if (!time) continue
-
-            avgData.push({ time: time as Time, value: p.radar_avg })
-            if (p.radar_wave != null) {
-                waveData.push({ time: time as Time, value: p.radar_wave })
-            }
-
-            if (prevAvg !== null) {
-                const diff = p.radar_avg - prevAvg
-                const entry = { time: time as Time, value: diff }
-                if (diff >= 0) upHistData.push(entry)
-                else downHistData.push(entry)
-            }
-            prevAvg = p.radar_avg
-        }
-
-        avgSeries.setData(avgData)
-        waveSeries?.setData(waveData)
-        histSeries.up.setData(upHistData)
-        histSeries.down.setData(downHistData)
-
-        // Zero line at 0
-        if (zeroLineRef.current && avgData.length > 0) {
-            zeroLineRef.current.setData(avgData.map(d => ({ time: d.time, value: 0 })))
-        }
-        // Overbought line at 3.2
-        if (overboughtRef.current && avgData.length > 0) {
-            overboughtRef.current.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
-        }
-        // Oversold line at 0.5
-        if (oversoldRef.current && avgData.length > 0) {
-            oversoldRef.current.setData(avgData.map(d => ({ time: d.time, value: 0.5 })))
-        }
-
-        // Signal markers
-        const signalMarkers = radarData
-            .filter(p => p.radar_buy || p.radar_sell || p.radar_top || p.radar_down)
-            .map(p => {
-                const time = toBusinessDay(p.date)
-                if (!time) return null
-                if (p.radar_buy) return { time: time as Time, position: 'belowBar' as const, color: '#ef4444', shape: 'arrowUp' as const, text: '底' }
-                if (p.radar_sell) return { time: time as Time, position: 'belowBar' as const, color: '#f59e0b', shape: 'arrowUp' as const, text: '升' }
-                if (p.radar_top) return { time: time as Time, position: 'aboveBar' as const, color: '#22c55e', shape: 'arrowDown' as const, text: '顶' }
-                if (p.radar_down) return { time: time as Time, position: 'aboveBar' as const, color: '#06b6d4', shape: 'arrowDown' as const, text: '下' }
-                return null
-            })
-            .filter(Boolean)
-
-        markersRef.current?.setMarkers(signalMarkers as any)
-        chartRef.current?.timeScale().fitContent()
-    }, [radarData])
+    }, [symbol, range.start, range.end, klinePeriod])
 
     const lastPoint = radarData.length ? radarData[radarData.length - 1] : null
 

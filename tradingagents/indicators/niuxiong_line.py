@@ -32,7 +32,7 @@ def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
-def fetch_realtime_data(symbol: str, days: int = 120) -> pd.DataFrame:
+def fetch_realtime_data(symbol: str, days: int = 120, category: int = 4) -> pd.DataFrame:
     """
     获取A股历史K线数据 (使用mootdx，不封IP)
 
@@ -42,6 +42,8 @@ def fetch_realtime_data(symbol: str, days: int = 120) -> pd.DataFrame:
         股票代码，如 '000001', '600519'
     days : int
         获取的历史天数
+    category : int
+        K线周期: 4=日K, 5=周K, 6=月K
 
     Returns
     -------
@@ -52,9 +54,8 @@ def fetch_realtime_data(symbol: str, days: int = 120) -> pd.DataFrame:
 
     client = Quotes.factory(market='std')
 
-    # 获取日K线 (category=4)
     # mootdx 返回的是最近N条数据，需要多取一些确保覆盖
-    klines = client.bars(symbol=symbol, category=4, offset=days + 50)
+    klines = client.bars(symbol=symbol, category=category, offset=days + 50)
 
     if klines is None or klines.empty:
         raise ValueError(f"未获取到 {symbol} 的K线数据")

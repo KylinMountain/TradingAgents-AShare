@@ -11,12 +11,13 @@ import {
     LineStyle,
     MouseEventParams,
     Time,
+    UTCTimestamp,
     createChart,
     createSeriesMarkers,
 } from 'lightweight-charts'
 import { Activity, CandlestickChart, TrendingUp } from 'lucide-react'
 import { api } from '@/services/api'
-import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode } from '@/types'
+import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode, KlinePeriod } from '@/types'
 import { useAnalysisStore } from '@/stores/analysisStore'
 
 interface KlinePanelProps {
@@ -32,14 +33,17 @@ function toDateText(date: Date): string {
     return `${y}-${m}-${d}`
 }
 
-function toBusinessDay(value: string): BusinessDay | null {
+function toChartTime(value: string, period: KlinePeriod): Time | null {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
     if (!m) return null
     const year = Number(m[1])
     const month = Number(m[2])
     const day = Number(m[3])
     if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
-    return { year, month, day }
+    if (period === 'daily') {
+        return { year, month, day } as BusinessDay
+    }
+    return (Date.UTC(year, month - 1, day) / 1000) as UTCTimestamp
 }
 
 const SYMBOL_NAME_MAP: Record<string, string> = {
@@ -84,6 +88,8 @@ const INDEX_PRESETS = [
 
 export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: KlinePanelProps) {
     const currentAnalysisSymbol = useAnalysisStore((state) => state.currentSymbol)
+    const klinePeriod = useAnalysisStore((state) => state.klinePeriod)
+    const setKlinePeriod = useAnalysisStore((state) => state.setKlinePeriod)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -102,15 +108,17 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
     const [showGsLines, setShowGsLines] = useState(false)
     const showGsLinesRef = useRef(false)
     const candlesRef = useRef<KlineCandle[]>([])
+    const candlesPeriodRef = useRef<KlinePeriod>('daily')
 
     const range = useMemo(() => {
         const end = new Date()
-        const start = new Date(end.getTime() - 180 * 24 * 60 * 60 * 1000)
+        const rangeDays = klinePeriod === 'daily' ? 180 : klinePeriod === 'weekly' ? 730 : 1825
+        const start = new Date(end.getTime() - rangeDays * 24 * 60 * 60 * 1000)
         return {
             start: toDateText(start),
             end: toDateText(end),
         }
-    }, [])
+    }, [klinePeriod])
 
     const updateNiuxiongSeries = (points: NiuxiongPoint[]) => {
         const seriesMap = niuxiongSeriesRefs.current
@@ -126,9 +134,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                 for (const p of points) {
                     const val = p[key]
                     if (val == null) continue
-                    const time = toBusinessDay(p.date)
+                    const time = toChartTime(p.date, klinePeriod)
                     if (!time) continue
-                    lineData.push({ time: time as Time, value: val })
+                    lineData.push({ time, value: val })
                 }
             }
             seriesMap[key]?.setData(lineData)
@@ -139,9 +147,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         if (showNx) {
             for (const p of points) {
                 if (p.orbit_line == null) continue
-                const time = toBusinessDay(p.date)
+                const time = toChartTime(p.date, klinePeriod)
                 if (!time) continue
-                orbitData.push({ time: time as Time, value: p.orbit_line })
+                orbitData.push({ time, value: p.orbit_line })
             }
         }
         seriesMap.orbit_line?.setData(orbitData)
@@ -162,9 +170,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         if (showLines) {
             for (const p of points) {
                 if (p.bb_line == null) continue
-                const time = toBusinessDay(p.date)
+                const time = toChartTime(p.date, klinePeriod)
                 if (!time) continue
-                bbData.push({ time: time as Time, value: p.bb_line })
+                bbData.push({ time, value: p.bb_line })
             }
         }
         seriesMap.gs_bb.setData(bbData)
@@ -174,9 +182,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         if (showLines) {
             for (const p of points) {
                 if (p.a_line == null) continue
-                const time = toBusinessDay(p.date)
+                const time = toChartTime(p.date, klinePeriod)
                 if (!time) continue
-                aData.push({ time: time as Time, value: p.a_line })
+                aData.push({ time, value: p.a_line })
             }
         }
         seriesMap.gs_a.setData(aData)
@@ -186,10 +194,10 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
             const markers = points
                 .filter(p => p.buy_signal || p.sell_signal)
                 .map(p => {
-                    const time = toBusinessDay(p.date)
+                    const time = toChartTime(p.date, klinePeriod)
                     if (!time) return null
                     return {
-                        time: time as Time,
+                        time,
                         position: p.buy_signal ? ('belowBar' as const) : ('aboveBar' as const),
                         color: p.buy_signal ? '#ef4444' : '#22c55e',
                         shape: p.buy_signal ? ('arrowUp' as const) : ('arrowDown' as const),
@@ -245,12 +253,21 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                 borderColor: isDark ? '#334155' : '#cbd5e1',
                 timeVisible: true,
                 rightOffset: 6,
-                tickMarkFormatter: (time: BusinessDay | string) => {
-                    if (typeof time !== 'object') return String(time)
-                    const y = String(time.year)
-                    const m = String(time.month).padStart(2, '0')
-                    const d = String(time.day).padStart(2, '0')
-                    return `${y}/${m}/${d}`
+                tickMarkFormatter: (time: Time) => {
+                    if (typeof time === 'number') {
+                        const d = new Date(time * 1000)
+                        const y = d.getUTCFullYear()
+                        const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+                        const day = String(d.getUTCDate()).padStart(2, '0')
+                        return `${y}/${m}/${day}`
+                    }
+                    if (typeof time === 'object') {
+                        const y = String(time.year)
+                        const m = String(time.month).padStart(2, '0')
+                        const d = String(time.day).padStart(2, '0')
+                        return `${y}/${m}/${d}`
+                    }
+                    return String(time)
                 },
             },
             crosshair: {
@@ -313,9 +330,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         markersRef.current = createSeriesMarkers(series)
         onChartReady?.(chart)
 
-        if (candlesRef.current.length) {
+        if (candlesRef.current.length && candlesPeriodRef.current === klinePeriod) {
             const existingData: CandlestickData[] = candlesRef.current.flatMap((c) => {
-                const time = toBusinessDay((c.date || '').slice(0, 10))
+                const time = toChartTime((c.date || '').slice(0, 10), klinePeriod)
                 const open = Number(c.open)
                 const high = Number(c.high)
                 const low = Number(c.low)
@@ -335,9 +352,15 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
             }
             const pointData = param.seriesData.get(seriesRef.current) as CandlestickData | undefined
             if (!pointData) return
-            const time = typeof pointData.time === 'object'
-                ? `${pointData.time.year}-${String(pointData.time.month).padStart(2, '0')}-${String(pointData.time.day).padStart(2, '0')}`
-                : String(pointData.time)
+            let time: string
+            if (typeof pointData.time === 'number') {
+                const d = new Date(pointData.time * 1000)
+                time = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+            } else if (typeof pointData.time === 'object') {
+                time = `${pointData.time.year}-${String(pointData.time.month).padStart(2, '0')}-${String(pointData.time.day).padStart(2, '0')}`
+            } else {
+                time = String(pointData.time)
+            }
             const matched = candlesRef.current.find(c => c.date === time)
             if (matched) setActiveCandle(matched)
         }
@@ -365,7 +388,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
             chartRef.current = null
             seriesRef.current = null
         }
-    }, [isDark])
+    }, [isDark, klinePeriod])
 
     useEffect(() => {
         let cancelled = false
@@ -376,12 +399,12 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
             setError(null)
             try {
                 const [klineResp, niuxiongResp, gsResp] = await Promise.all([
-                    api.getKline(symbol, range.start, range.end),
-                    api.getNiuxiong(symbol, range.start, range.end).catch(() => null),
-                    api.getGsStrategy(symbol, range.start, range.end).catch(() => null),
+                    api.getKline(symbol, range.start, range.end, klinePeriod),
+                    api.getNiuxiong(symbol, range.start, range.end, klinePeriod).catch(() => null),
+                    api.getGsStrategy(symbol, range.start, range.end, klinePeriod).catch(() => null),
                 ])
                 const data: CandlestickData[] = klineResp.candles.flatMap((c: KlineCandle) => {
-                    const time = toBusinessDay((c.date || '').slice(0, 10))
+                    const time = toChartTime((c.date || '').slice(0, 10), klinePeriod)
                     const open = Number(c.open)
                     const high = Number(c.high)
                     const low = Number(c.low)
@@ -392,8 +415,10 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                 })
 
                 if (cancelled) return
+                if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
                 setCandles(klineResp.candles)
                 candlesRef.current = klineResp.candles
+                candlesPeriodRef.current = klinePeriod
                 setActiveCandle(klineResp.candles.length ? klineResp.candles[klineResp.candles.length - 1] : null)
                 seriesRef.current?.setData(data)
 
@@ -429,7 +454,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         return () => {
             cancelled = true
         }
-    }, [range.end, range.start, symbol])
+    }, [range.end, range.start, symbol, klinePeriod])
 
     const panelCandle = activeCandle ?? (candles.length ? candles[candles.length - 1] : null)
     const panelChange = panelCandle?.change ?? (panelCandle ? panelCandle.close - panelCandle.open : null)
@@ -456,6 +481,24 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                             <span className="text-slate-500 dark:text-slate-400">高/低 {formatNumber(panelCandle?.high)} / {formatNumber(panelCandle?.low)}</span>
                             <span className="text-slate-500 dark:text-slate-400">量 {formatVolume(panelCandle?.volume)}</span>
                             <span className="text-slate-500 dark:text-slate-400">换手 {panelCandle?.turnover_rate == null ? '--' : `${formatNumber(panelCandle.turnover_rate)}%`}</span>
+                            <div className="w-px h-3 bg-slate-300 dark:bg-slate-600" />
+                            {([
+                                { value: 'daily' as KlinePeriod, label: '日K' },
+                                { value: 'weekly' as KlinePeriod, label: '周K' },
+                                { value: 'monthly' as KlinePeriod, label: '月K' },
+                            ]).map((item) => (
+                                <button
+                                    key={item.value}
+                                    onClick={() => setKlinePeriod(item.value)}
+                                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+                                        klinePeriod === item.value
+                                            ? 'border-purple-500 text-purple-500 bg-purple-50 dark:bg-purple-500/10'
+                                            : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
+                                    }`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
                         </div>
                     </div>
                 </div>
