@@ -2496,7 +2496,7 @@ def _aggregate_daily_df(df: pd.DataFrame, period: str) -> pd.DataFrame:
         high=("high", "max"),
         low=("low", "min"),
         close=("close", "last"),
-        volume=("volume", "sum") if "volume" in df.columns else ("close", "first"),
+        volume=("volume", "sum"),
         # 保留每组最后一个交易日的日期，用于前端解析
         _last_date=("date", "last"),
     ).reset_index()
