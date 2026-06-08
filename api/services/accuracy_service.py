@@ -22,36 +22,28 @@ logger = logging.getLogger(__name__)
 
 
 def _get_trading_days_after(start_date: str, n_days: int) -> str:
-    """Get the date N trading days after start_date using akshare calendar."""
-    try:
-        import akshare as ak
-        df = ak.tool_trade_date_hist_sina()
-        if df is None or df.empty or "trade_date" not in df.columns:
-            raise ValueError("empty trade date table")
-        dates = sorted(
-            pd.Timestamp(d).strftime("%Y-%m-%d")
-            for d in pd.to_datetime(df["trade_date"], errors="coerce")
-            if str(d) != "NaT"
-        )
-        # Find index of start_date or the next trading day
+    """Get the date N trading days after start_date using cached trade calendar."""
+    from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
+    dates, _ = _load_cn_trade_dates()
+    if dates:
+        date_strs = [d.strftime("%Y-%m-%d") for d in dates]
         idx = 0
-        for i, d in enumerate(dates):
+        for i, d in enumerate(date_strs):
             if d >= start_date:
                 idx = i
                 break
         target_idx = idx + n_days
-        if target_idx < len(dates):
-            return dates[target_idx]
-        return dates[-1]
-    except Exception:
-        # Fallback: use calendar days approximation (skip weekends)
-        d = datetime.strptime(start_date, "%Y-%m-%d")
-        added = 0
-        while added < n_days:
-            d += timedelta(days=1)
-            if d.weekday() < 5:
-                added += 1
-        return d.strftime("%Y-%m-%d")
+        if target_idx < len(date_strs):
+            return date_strs[target_idx]
+        return date_strs[-1]
+    # Fallback: use calendar days approximation (skip weekends)
+    d = datetime.strptime(start_date, "%Y-%m-%d")
+    added = 0
+    while added < n_days:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            added += 1
+    return d.strftime("%Y-%m-%d")
 
 
 def _get_price_on_date(symbol: str, date_str: str) -> Optional[float]:

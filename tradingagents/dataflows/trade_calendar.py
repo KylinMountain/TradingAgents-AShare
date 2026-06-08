@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 import re
-from datetime import date, datetime, time
-from functools import lru_cache
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 CN_TZ = ZoneInfo("Asia/Shanghai")
+
+_trade_dates_cache: tuple[list[date], set[date]] | None = None
+_trade_dates_cache_time: datetime | None = None
+_TRADE_DATES_CACHE_TTL = timedelta(hours=1)
 
 
 def now_cn() -> datetime:
@@ -22,8 +27,13 @@ def _parse_date(date_str: str) -> date:
     return datetime.strptime(date_str, "%Y-%m-%d").date()
 
 
-@lru_cache(maxsize=1)
 def _load_cn_trade_dates() -> tuple[list[date], set[date]]:
+    global _trade_dates_cache, _trade_dates_cache_time
+    now = datetime.now()
+    if _trade_dates_cache is not None and _trade_dates_cache_time is not None:
+        if now - _trade_dates_cache_time < _TRADE_DATES_CACHE_TTL:
+            return _trade_dates_cache
+
     try:
         import akshare as ak  # type: ignore
 
@@ -35,9 +45,13 @@ def _load_cn_trade_dates() -> tuple[list[date], set[date]]:
             for pd_dt in pd.to_datetime(df["trade_date"], errors="coerce")
             if str(pd_dt) != "NaT"
         )
-        return dates, set(dates)
-    except Exception:
-        # Fallback: no holiday calendar, only weekend rule.
+        _trade_dates_cache = (dates, set(dates))
+        _trade_dates_cache_time = now
+        return _trade_dates_cache
+    except Exception as e:
+        logger.warning("交易日历加载失败，降级为仅周末过滤: %s", e)
+        if _trade_dates_cache is not None:
+            return _trade_dates_cache
         return [], set()
 
 
