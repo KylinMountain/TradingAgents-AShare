@@ -3237,6 +3237,44 @@ def get_ai_gravity(
     return code
 
 
+def _normalize_ths_code(code: str) -> str:
+    """Normalize TongHuaShun format code to standard format.
+
+    Handles formats like:
+    - 'sh600519' -> '600519.SH'
+    - 'sz000001' -> '000001.SZ'
+    - '600519' -> '600519.SH'
+    - '000001' -> '000001.SZ'
+    """
+    code = code.strip().upper()
+
+    # Already has exchange suffix
+    if '.' in code:
+        parts = code.split('.')
+        if len(parts) == 2 and len(parts[1]) == 2:
+            return code
+        # Handle SS -> SH
+        if parts[1] == 'SS':
+            return f"{parts[0]}.SH"
+
+    # Handle sh/sz prefix
+    if code.startswith('SH'):
+        return f"{code[2:]}.SH"
+    if code.startswith('SZ'):
+        return f"{code[2:]}.SZ"
+    if code.startswith('BJ'):
+        return f"{code[2:]}.BJ"
+
+    # Bare 6-digit code
+    m = re.search(r'(\d{6})', code)
+    if m:
+        num = m.group(1)
+        market = "SH" if num.startswith(("5", "6", "9")) else "SZ"
+        return f"{num}.{market}"
+
+    return code
+
+
 @app.get("/v1/market/hot-stocks")
 def get_hot_stocks(source: str = "em", limit: int = 30) -> Dict:
     """Return hot A-share stocks from different sources.
