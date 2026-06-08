@@ -2613,8 +2613,23 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
     yyyymmdd_start = start_date.replace("-", "")
     yyyymmdd_end = end_date.replace("-", "")
 
-    # 始终先获取日线数据，再按需聚合；Tencent 最可靠（东方财富在部分网络环境不可用）
+    # Tushare 最快（~0.1s），优先使用
+    def _fetch_tushare_index():
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada")
+        ts.set_token(token)
+        pro = ts.pro_api()
+        raw = pro.index_daily(ts_code=symbol_key, start_date=yyyymmdd_start, end_date=yyyymmdd_end)
+        if raw is None or raw.empty:
+            return None
+        raw = raw.rename(columns={"trade_date": "Date", "vol": "Volume", "close": "Close",
+                                   "open": "Open", "high": "High", "low": "Low",
+                                   "amount": "Amount", "change": "Change", "pct_chg": "ChangePercent"})
+        raw["Date"] = pd.to_datetime(raw["Date"], format="%Y%m%d")
+        return raw
+
     fetchers = (
+        _fetch_tushare_index,
         lambda: ak.stock_zh_a_hist_tx(
             symbol=vendor_symbol,
             start_date=yyyymmdd_start,

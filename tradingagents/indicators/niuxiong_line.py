@@ -134,43 +134,68 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     df = None
     last_exc = None
 
-    # 指数符号：Tencent API 最可靠（东方财富在部分网络环境不可用）
+    # 构建 tushare ts_code
     _INDEX_CODES = {"000001", "399001", "399006", "000300", "000688", "000905", "000852", "899050"}
-    if symbol in _INDEX_CODES:
+    is_index = symbol in _INDEX_CODES
+    ts_suffix = f".{exchange.upper()}" if exchange else (".SH" if symbol.startswith(("5", "6", "9")) else ".SZ")
+    ts_code = symbol + ts_suffix
+
+    # 优先级: Tushare(最快) → AkShare 各源
+    def _fetch_tushare():
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada")
+        ts.set_token(token)
+        pro = ts.pro_api()
+        if is_index:
+            raw = pro.index_daily(ts_code=ts_code, start_date=start, end_date=end)
+        else:
+            raw = pro.daily(ts_code=ts_code, start_date=start, end_date=end)
+        if raw is None or raw.empty:
+            return None
+        raw = raw.rename(columns={"trade_date": "date", "vol": "volume"})
+        raw["date"] = pd.to_datetime(raw["date"], format="%Y%m%d")
+        raw = raw.set_index("date").sort_index()
+        return raw
+
+    sources: list[tuple[str, callable]] = [("tushare", _fetch_tushare)]
+
+    if is_index:
         vendor = f"{_market_prefix(symbol)}{symbol}"
-        sources: list[tuple[str, callable]] = [
+        sources += [
             ("tencent_index", lambda: ak.stock_zh_a_hist_tx(symbol=vendor, start_date=start, end_date=end, adjust="qfq")),
             ("eastmoney_index", lambda: ak.stock_zh_index_daily_em(symbol=vendor, start_date=start, end_date=end)),
-            ("index_hist", lambda: ak.index_zh_a_hist(symbol=symbol, period="daily", start_date=start, end_date=end)),
         ]
     else:
-        # 三级回退：Eastmoney → Sina → Tencent（与 provider 层一致）
-        sources = [
+        sources += [
             ("eastmoney", lambda: ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start, end_date=end, adjust="qfq")),
             ("sina", lambda: ak.stock_zh_a_daily(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
             ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
         ]
 
+    used_source = None
     for source_name, fetcher in sources:
         try:
             df = fetcher()
             if df is not None and not df.empty:
+                used_source = source_name
                 break
         except Exception as exc:
             last_exc = exc
             continue
 
     if df is None or df.empty:
-        raise ValueError(f"未获取到 {symbol} 的K线数据 (eastmoney/sina/tencent all failed): {last_exc}")
+        raise ValueError(f"未获取到 {symbol} 的K线数据 (all sources failed): {last_exc}")
 
-    col_map = {"日期": "date", "开盘": "open", "收盘": "close",
-                "最高": "high", "最低": "low", "成交量": "volume",
-                "成交额": "amount", "换手率": "turnover_rate",
-                "turnover": "turnover_rate"}
-    df = df.rename(columns=col_map)
+    # Tushare 已返回标准格式，跳过后处理
+    if used_source != "tushare":
+        col_map = {"日期": "date", "开盘": "open", "收盘": "close",
+                    "最高": "high", "最低": "low", "成交量": "volume",
+                    "成交额": "amount", "换手率": "turnover_rate",
+                    "turnover": "turnover_rate"}
+        df = df.rename(columns=col_map)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").sort_index()
 
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
     keep_cols = [c for c in ["open", "close", "high", "low", "volume", "amount", "turnover_rate"] if c in df.columns]
     df = df[keep_cols]
 
