@@ -80,12 +80,15 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
         raise ValueError(f"未获取到 {symbol} 的K线数据 (eastmoney/sina/tencent all failed): {last_exc}")
 
     col_map = {"日期": "date", "开盘": "open", "收盘": "close",
-                "最高": "high", "最低": "low", "成交量": "volume"}
+                "最高": "high", "最低": "low", "成交量": "volume",
+                "成交额": "amount", "换手率": "turnover_rate",
+                "turnover": "turnover_rate"}
     df = df.rename(columns=col_map)
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
-    df = df[["open", "close", "high", "low", "volume"]]
+    keep_cols = [c for c in ["open", "close", "high", "low", "volume", "amount", "turnover_rate"] if c in df.columns]
+    df = df[keep_cols]
 
     # 尝试追加当天实时行情
     df = _try_append_today_row(symbol, df)

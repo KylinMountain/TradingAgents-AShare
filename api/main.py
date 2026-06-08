@@ -2735,17 +2735,30 @@ def get_kline(
                 daily_candles = _parse_stock_csv(raw)
                 candles = _aggregate_candles(daily_candles, period)
         else:
-            # Daily: try akshare first (includes turnover_rate), fallback to vendor
-            import akshare as ak  # type: ignore
-            code = symbol.split(".")[0]
-            candles = []
+            # Daily: use fetch_realtime_data (3-level fallback + turnover_rate)
+            from tradingagents.indicators import fetch_realtime_data
+            code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+            days = max(250, (pd.Timestamp(end) - pd.Timestamp(start)).days + 30)
             try:
-                raw_df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq")
-                df = _normalize_kline_df(raw_df)
+                df = fetch_realtime_data(code, days=days, period="daily")
                 if not df.empty:
-                    candles = _df_to_candles(df)
+                    # Convert to candle dicts
+                    candles = []
+                    for idx, row in df.iterrows():
+                        candles.append({
+                            "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
+                            "open": float(row["open"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "close": float(row["close"]),
+                            "volume": int(row["volume"]) if pd.notna(row.get("volume")) else None,
+                            "amount": float(row["amount"]) if "amount" in row.index and pd.notna(row.get("amount")) else None,
+                            "turnover_rate": round(float(row["turnover_rate"]) * 100, 2) if "turnover_rate" in row.index and pd.notna(row.get("turnover_rate")) else None,
+                        })
+                    # Filter to requested date range
+                    candles = [c for c in candles if start <= c["date"] <= end]
             except Exception as e:
-                _log(f"[kline] akshare daily failed for {symbol}: {type(e).__name__}: {e}")
+                _log(f"[kline] fetch_realtime_data daily failed for {symbol}: {type(e).__name__}: {e}")
             if not candles:
                 config = _build_runtime_config({})
                 set_config(config)
