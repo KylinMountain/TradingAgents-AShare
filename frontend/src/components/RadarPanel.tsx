@@ -9,6 +9,7 @@ import {
     LineData,
     LineSeries,
     LineStyle,
+    MouseEventParams,
     Time,
     UTCTimestamp,
     createChart,
@@ -53,6 +54,7 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
     const radarCacheRef = useRef<RadarPoint[]>([])
     const radarPeriodRef = useRef<KlinePeriod>('daily')
     const [radarData, setRadarData] = useState<RadarPoint[]>([])
+    const [hoverData, setHoverData] = useState<{ wave: number | null; avg: number | null } | null>(null)
     const [isDark, setIsDark] = useState(document.documentElement.classList.contains('dark'))
 
     const range = useMemo(() => {
@@ -208,6 +210,20 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
         chartRef.current = chart
         onChartReady?.(chart)
 
+        const handleCrosshairMove = (param: MouseEventParams) => {
+            if (!param.time) {
+                setHoverData(null)
+                return
+            }
+            const waveValue = param.seriesData.get(waveSeries) as LineData | undefined
+            const avgValue = param.seriesData.get(avgSeries) as LineData | undefined
+            setHoverData({
+                wave: waveValue?.value ?? null,
+                avg: avgValue?.value ?? null,
+            })
+        }
+        chart.subscribeCrosshairMove(handleCrosshairMove)
+
         const onResize = () => {
             if (!containerRef.current || !chartRef.current) return
             chartRef.current.applyOptions({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight })
@@ -216,6 +232,7 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
 
         return () => {
             window.removeEventListener('resize', onResize)
+            chart.unsubscribeCrosshairMove(handleCrosshairMove)
             chartRef.current?.remove()
             chartRef.current = null
             avgSeriesRef.current = null
@@ -323,12 +340,12 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
                         <span className="flex items-center gap-1">
                             <span className="inline-block w-3 h-0.5 bg-blue-400" />
                             <span className="text-slate-500 dark:text-slate-400">波动线</span>
-                            <span className="text-blue-400 font-medium">{lastPoint.radar_wave ?? '--'}</span>
+                            <span className="text-blue-400 font-medium">{hoverData?.wave?.toFixed(2) ?? lastPoint.radar_wave ?? '--'}</span>
                         </span>
                         <span className="flex items-center gap-1">
                             <span className="inline-block w-3 h-0.5 bg-yellow-400" />
                             <span className="text-slate-500 dark:text-slate-400">平均线</span>
-                            <span className="text-yellow-500 font-medium">{lastPoint.radar_avg ?? '--'}</span>
+                            <span className="text-yellow-500 font-medium">{hoverData?.avg?.toFixed(2) ?? lastPoint.radar_avg ?? '--'}</span>
                         </span>
                         <span className="flex items-center gap-1">
                             <span className="inline-block w-3 h-0.5 bg-slate-500" />
