@@ -367,7 +367,8 @@ def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
 
 
 _cn_stock_map_loaded_at: float = 0  # timestamp of last load
-_STOCK_MAP_TTL = 7 * 86400  # 7 days
+_STOCK_MAP_TTL = 7 * 86400  # 7 days (successful load)
+_STOCK_MAP_FAIL_TTL = 300   # 5 minutes (failed load, retry sooner)
 
 
 def _load_cn_stock_map() -> Dict[str, str]:
@@ -379,14 +380,18 @@ def _load_cn_stock_map() -> Dict[str, str]:
     global _cn_stock_map, _cn_stock_reverse_map, _cn_stock_map_loaded_at
     import time as _time
     now = _time.time()
-    if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) > _STOCK_MAP_TTL:
-        _cn_stock_map = None  # expire cache
-        _cn_stock_reverse_map = None
+    if _cn_stock_map is not None:
+        ttl = _STOCK_MAP_FAIL_TTL if (not _cn_stock_map) else _STOCK_MAP_TTL
+        if (now - _cn_stock_map_loaded_at) > ttl:
+            _cn_stock_map = None  # expire cache
+            _cn_stock_reverse_map = None
     if _cn_stock_map is not None:
         return _cn_stock_map
     with _cn_stock_map_lock:
-        if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
-            return _cn_stock_map
+        if _cn_stock_map is not None:
+            ttl = _STOCK_MAP_FAIL_TTL if (not _cn_stock_map) else _STOCK_MAP_TTL
+            if (now - _cn_stock_map_loaded_at) <= ttl:
+                return _cn_stock_map
         result: Dict[str, str] = {}
         try:
             import akshare as ak
@@ -423,6 +428,9 @@ def _load_cn_stock_map() -> Dict[str, str]:
             if _cn_stock_map is None:
                 _cn_stock_map = {}
                 _cn_stock_reverse_map = {}
+            # Set _loaded_at so we don't retry on every request; use a short
+            # cooldown (5 min) instead of the full 7-day TTL for empty cache.
+            _cn_stock_map_loaded_at = now
     return _cn_stock_map
 
 
