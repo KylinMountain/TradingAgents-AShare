@@ -353,13 +353,56 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 f"cn_akshare is temporarily unavailable for price history (eastmoney/sina/tencent all failed): {em_last_exc}"
             ) from em_last_exc
 
+    def _fetch_realtime_row_sina(self, symbol: str) -> pd.DataFrame:
+        import urllib.request
+
+        sina_symbol = self._sina_symbol(symbol)
+        url = f"http://hq.sinajs.cn/list={sina_symbol}"
+        req = urllib.request.Request(url, headers={
+            "Referer": "https://finance.sina.com.cn",
+            "User-Agent": "Mozilla/5.0",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read().decode(resp.headers.get_content_charset() or "gbk")
+        except Exception:
+            return pd.DataFrame()
+
+        m = re.search(r'hq_str_\w+="(.+)"', raw)
+        if not m:
+            return pd.DataFrame()
+        parts = m.group(1).split(",")
+        if len(parts) < 32:
+            return pd.DataFrame()
+
+        try:
+            date_val = pd.to_datetime(parts[30], errors="coerce")
+            if pd.isna(date_val):
+                date_val = pd.to_datetime(cn_today_str())
+            row = {
+                "Date": pd.to_datetime(date_val).normalize(),
+                "Open": pd.to_numeric(parts[1], errors="coerce"),
+                "High": pd.to_numeric(parts[4], errors="coerce"),
+                "Low": pd.to_numeric(parts[5], errors="coerce"),
+                "Close": pd.to_numeric(parts[3], errors="coerce"),
+                "Volume": pd.to_numeric(parts[8], errors="coerce"),
+            }
+        except (ValueError, IndexError):
+            return pd.DataFrame()
+        rt = pd.DataFrame([row]).dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        return rt
+
     def _fetch_realtime_row_unlocked(self, symbol: str) -> pd.DataFrame:
-        ak = self._ak()
-        spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol))
+        try:
+            ak = self._ak()
+            spot = ak.stock_individual_spot_xq(symbol=self._xq_symbol(symbol))
+        except Exception:
+            return self._fetch_realtime_row_sina(symbol)
+
         if spot is None or spot.empty:
-            return pd.DataFrame()
+            return self._fetch_realtime_row_sina(symbol)
         if not {"item", "value"}.issubset(set(spot.columns)):
-            return pd.DataFrame()
+            return self._fetch_realtime_row_sina(symbol)
         kv = dict(zip(spot["item"].astype(str), spot["value"]))
 
         date_val = pd.to_datetime(kv.get("时间"), errors="coerce")
@@ -374,6 +417,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
             "Volume": pd.to_numeric(kv.get("成交量"), errors="coerce"),
         }
         rt = pd.DataFrame([row]).dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        if rt.empty:
+            return self._fetch_realtime_row_sina(symbol)
         return rt
 
     def _fetch_realtime_row(self, symbol: str) -> pd.DataFrame:
