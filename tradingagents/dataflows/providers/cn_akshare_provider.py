@@ -986,3 +986,220 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return f"雪球热搜前20：\n{df.head(20).to_string(index=False)}"
         except Exception as exc:
             return f"雪球热搜数据获取失败：{type(exc).__name__}: {exc}"
+
+    # ── 新增数据源：北向资金、融资融券、大宗交易、龙虎榜席位、机构调研、股东增减持、限售解禁、股权质押 ──
+
+    def get_hsgt_individual(self, symbol: str) -> str:
+        """获取个股北向资金持仓历史（沪/深港通）。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_hsgt_individual_em(symbol=code)
+            if df is None or df.empty:
+                return f"{symbol} 北向资金持仓数据暂不可用。"
+            # 数据时效性检查：该 API 数据更新滞后，若最新日期超过 30 天视为过期
+            date_col = None
+            for col in df.columns:
+                if "日期" in str(col):
+                    date_col = col
+                    break
+            if date_col is not None:
+                latest = str(df[date_col].max())
+                from datetime import datetime, timedelta
+                try:
+                    latest_dt = datetime.strptime(latest[:10], "%Y-%m-%d")
+                    if (datetime.now() - latest_dt).days > 30:
+                        return f"{symbol} 北向资金持仓数据已过期（最新：{latest[:10]}），无近期数据。"
+                except (ValueError, TypeError):
+                    pass
+            recent = df.tail(10)
+            return f"{symbol} 北向资金持仓（近10日）：\n{recent.to_string(index=False)}"
+        except Exception as exc:
+            return f"北向资金数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_hsgt_flow(self) -> str:
+        """获取沪/深股通近期整体净流入趋势。"""
+        try:
+            ak = self._ak()
+            results = []
+            for channel in ("沪股通", "深股通"):
+                with AKSHARE_CALL_LOCK:
+                    df = ak.stock_hsgt_hist_em(symbol=channel)
+                if df is not None and not df.empty:
+                    recent = df.tail(5)
+                    results.append(f"【{channel}】\n{recent.to_string(index=False)}")
+            if not results:
+                return "北向资金整体流入数据暂不可用。"
+            return "北向资金整体净流入趋势（近5日）：\n" + "\n\n".join(results)
+        except Exception as exc:
+            return f"北向资金流入数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_margin_detail(self, symbol: str, date: str) -> str:
+        """获取个股融资融券明细（自动合并沪深交易所）。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            date_str = date.replace("-", "")
+            frames = []
+            for api_fn in (ak.stock_margin_detail_sse, ak.stock_margin_detail_szse):
+                try:
+                    with AKSHARE_CALL_LOCK:
+                        df = api_fn(date=date_str)
+                    if df is not None and not df.empty and len(df.columns) > 0:
+                        frames.append(df)
+                except Exception:
+                    continue
+            if not frames:
+                return f"{symbol} 在 {date} 融资融券数据暂不可用（非交易日或数据未更新）。"
+            combined = pd.concat(frames, ignore_index=True)
+            code_col = None
+            for col in combined.columns:
+                if "证券" in str(col) and "代码" in str(col):
+                    code_col = col
+                    break
+            if code_col:
+                filtered = combined[combined[code_col].astype(str).str.contains(code)]
+            else:
+                filtered = combined
+            if filtered.empty:
+                return f"{symbol} 在 {date} 无融资融券记录。"
+            return f"{symbol} 融资融券明细（{date}）：\n{filtered.head(5).to_string(index=False)}"
+        except Exception as exc:
+            return f"融资融券数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_block_trades(self, symbol: str, start_date: str, end_date: str) -> str:
+        """获取个股大宗交易明细。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            sd = start_date.replace("-", "")
+            ed = end_date.replace("-", "")
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_dzjy_mrmx(symbol="A股", start_date=sd, end_date=ed)
+            if df is None or df.empty:
+                return f"{symbol} 在 {start_date}~{end_date} 无大宗交易数据。"
+            code_col = None
+            for col in df.columns:
+                if "证券" in str(col) and "代码" in str(col):
+                    code_col = col
+                    break
+            if code_col:
+                filtered = df[df[code_col].astype(str).str.contains(code)]
+            else:
+                filtered = df
+            if filtered.empty:
+                return f"{symbol} 在 {start_date}~{end_date} 无大宗交易记录。"
+            return f"{symbol} 大宗交易明细（{start_date}~{end_date}）：\n{filtered.tail(10).to_string(index=False)}"
+        except Exception as exc:
+            return f"大宗交易数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_lhb_institution_stats(self, symbol: str, start_date: str, end_date: str) -> str:
+        """获取龙虎榜机构买卖统计。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            sd = start_date.replace("-", "")
+            ed = end_date.replace("-", "")
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_lhb_jgmmtj_em(start_date=sd, end_date=ed)
+            if df is None or df.empty:
+                return f"{symbol} 在 {start_date}~{end_date} 无机构买卖统计数据。"
+            code_col = None
+            for col in df.columns:
+                if "证券" in str(col) and "代码" in str(col):
+                    code_col = col
+                    break
+            if code_col:
+                filtered = df[df[code_col].astype(str).str.contains(code)]
+            else:
+                filtered = df
+            if filtered.empty:
+                return f"{symbol} 在 {start_date}~{end_date} 无机构买卖统计记录。"
+            return f"{symbol} 龙虎榜机构买卖统计（{start_date}~{end_date}）：\n{filtered.to_string(index=False)}"
+        except Exception as exc:
+            return f"龙虎榜机构统计获取失败：{type(exc).__name__}: {exc}"
+
+    def get_lhb_active_seats(self, start_date: str, end_date: str) -> str:
+        """获取龙虎榜活跃营业部排行（市场级）。"""
+        try:
+            ak = self._ak()
+            sd = start_date.replace("-", "")
+            ed = end_date.replace("-", "")
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_lhb_hyyyb_em(start_date=sd, end_date=ed)
+            if df is None or df.empty:
+                return f"{start_date}~{end_date} 活跃营业部数据暂不可用。"
+            return f"龙虎榜活跃营业部排行（{start_date}~{end_date}，前10）：\n{df.head(10).to_string(index=False)}"
+        except Exception as exc:
+            return f"龙虎榜活跃营业部获取失败：{type(exc).__name__}: {exc}"
+
+    def get_research_reports(self, symbol: str) -> str:
+        """获取个股机构研报列表（含评级和盈利预测）。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_research_report_em(symbol=code)
+            if df is None or df.empty:
+                return f"{symbol} 机构研报数据暂不可用。"
+            recent = df.head(5)
+            return f"{symbol} 机构研报（最近5篇）：\n{recent.to_string(index=False)}"
+        except Exception as exc:
+            return f"机构研报数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_shareholder_changes(self, symbol: str) -> str:
+        """获取个股股东增减持记录。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_shareholder_change_ths(symbol=code)
+            if df is None or df.empty:
+                return f"{symbol} 股东增减持数据暂不可用。"
+            recent = df.head(5)
+            return f"{symbol} 股东增减持记录（最近5条）：\n{recent.to_string(index=False)}"
+        except Exception as exc:
+            return f"股东增减持数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_restricted_release(self, symbol: str) -> str:
+        """获取个股限售解禁时间表。"""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_restricted_release_queue_sina(symbol=code)
+            if df is None or df.empty:
+                return f"{symbol} 限售解禁数据暂不可用。"
+            # 数据时效性检查：若解禁日期全部早于当年，视为过期
+            date_col = None
+            for col in df.columns:
+                if "解禁" in str(col) and "日期" in str(col):
+                    date_col = col
+                    break
+            if date_col is not None:
+                latest = str(df[date_col].max())
+                from datetime import datetime
+                try:
+                    latest_dt = datetime.strptime(latest[:10], "%Y-%m-%d")
+                    if latest_dt.year < datetime.now().year:
+                        return f"{symbol} 限售解禁数据已过期（最新解禁：{latest[:10]}），无近期数据。"
+                except (ValueError, TypeError):
+                    pass
+            recent = df.head(5)
+            return f"{symbol} 限售解禁计划（最近5批）：\n{recent.to_string(index=False)}"
+        except Exception as exc:
+            return f"限售解禁数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_pledge_ratio(self, date: str) -> str:
+        """获取全市场股权质押比率。"""
+        try:
+            ak = self._ak()
+            date_str = date.replace("-", "")
+            with AKSHARE_CALL_LOCK:
+                result = ak.stock_gpzy_pledge_ratio_em(date=date_str)
+            if result is None or (hasattr(result, 'empty') and result.empty):
+                return f"{date} 股权质押数据暂不可用（非交易日或数据未更新）。"
+            return f"全市场股权质押比率（{date}，前20高质押比例）：\n{result.head(20).to_string(index=False)}"
+        except Exception:
+            return f"{date} 股权质押数据暂不可用（非交易日或数据未更新）。"

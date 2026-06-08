@@ -31,15 +31,24 @@ def create_fundamentals_analyst(llm, data_collector=None):
         if pool is not None:
             outputs = {k: pool.get(k, "无数据") for k in
                        ["fundamentals", "balance_sheet", "cashflow", "income_statement"]}
+            outputs["research_reports"] = pool.get("research_reports", "无数据")
+            outputs["shareholder_changes"] = pool.get("shareholder_changes", "无数据")
+            outputs["restricted_release"] = pool.get("restricted_release", "无数据")
+            outputs["pledge_ratio"] = pool.get("pledge_ratio", "无数据")
         else:
             from tradingagents.agents.utils.agent_utils import (
                 get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement,
+                get_research_reports, get_shareholder_changes, get_restricted_release, get_pledge_ratio,
             )
             tasks = {
                 "fundamentals": _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
                 "balance_sheet": _safe(get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "cashflow": _safe(get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "income_statement": _safe(get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
+                "research_reports": _safe(get_research_reports, {"symbol": ticker}),
+                "shareholder_changes": _safe(get_shareholder_changes, {"symbol": ticker}),
+                "restricted_release": _safe(get_restricted_release, {"symbol": ticker}),
+                "pledge_ratio": _safe(get_pledge_ratio, {"date": current_date}),
             }
             keys = list(tasks.keys())
             results = await asyncio.gather(*[tasks[k] for k in keys])
@@ -53,7 +62,11 @@ def create_fundamentals_analyst(llm, data_collector=None):
                 f"【get_fundamentals】\n{outputs['fundamentals']}\n\n"
                 f"【get_balance_sheet】\n{outputs['balance_sheet']}\n\n"
                 f"【get_cashflow】\n{outputs['cashflow']}\n\n"
-                f"【get_income_statement】\n{outputs['income_statement']}\n"
+                f"【get_income_statement】\n{outputs['income_statement']}\n\n"
+                f"【机构研报】\n{outputs['research_reports']}\n\n"
+                f"【股东增减持】\n{outputs['shareholder_changes']}\n\n"
+                f"【限售解禁】\n{outputs['restricted_release']}\n\n"
+                f"【股权质押】\n{outputs['pledge_ratio']}\n"
             )),
         ]
 

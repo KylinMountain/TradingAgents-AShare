@@ -25,6 +25,16 @@ from tradingagents.agents.utils.agent_utils import (
     get_lhb_detail,
     get_zt_pool,
     get_hot_stocks_xq,
+    get_hsgt_individual,
+    get_hsgt_flow,
+    get_margin_detail,
+    get_block_trades,
+    get_lhb_institution_stats,
+    get_lhb_active_seats,
+    get_research_reports,
+    get_shareholder_changes,
+    get_restricted_release,
+    get_pledge_ratio,
 )
 
 INDICATORS = [
@@ -285,6 +295,21 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         "balance_sheet": (get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
         "cashflow": (get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
         "income_statement": (get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": trade_date}),
+    })
+
+    # 新增数据源：北向资金、融资融券、大宗交易、龙虎榜席位、机构调研、股东增减持、限售解禁、股权质押
+    week_ago = (end_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+    tasks.update({
+        "hsgt_individual": (get_hsgt_individual, {"symbol": ticker}),
+        "hsgt_flow": (get_hsgt_flow, {}),
+        "margin_detail": (get_margin_detail, {"symbol": ticker, "date": trade_date}),
+        "block_trades": (get_block_trades, {"symbol": ticker, "start_date": week_ago, "end_date": trade_date}),
+        "lhb_institution_stats": (get_lhb_institution_stats, {"symbol": ticker, "start_date": week_ago, "end_date": trade_date}),
+        "lhb_active_seats": (get_lhb_active_seats, {"start_date": week_ago, "end_date": trade_date}),
+        "research_reports": (get_research_reports, {"symbol": ticker}),
+        "shareholder_changes": (get_shareholder_changes, {"symbol": ticker}),
+        "restricted_release": (get_restricted_release, {"symbol": ticker}),
+        "pledge_ratio": (get_pledge_ratio, {"date": trade_date}),
     })
 
     results: Dict[str, Any] = {}
