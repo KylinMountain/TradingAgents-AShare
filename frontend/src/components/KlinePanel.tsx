@@ -110,6 +110,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
     const showGsLinesRef = useRef(false)
     const candlesRef = useRef<KlineCandle[]>([])
     const candlesPeriodRef = useRef<KlinePeriod>('daily')
+    const [stockName, setStockName] = useState<string | null>(null)
 
     const range = useMemo(() => {
         const end = new Date()
@@ -418,6 +419,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                 if (cancelled) return
                 if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
                 setCandles(klineResp.candles)
+                setStockName(klineResp.name || null)
                 candlesRef.current = klineResp.candles
                 candlesPeriodRef.current = klinePeriod
                 setActiveCandle(klineResp.candles.length ? klineResp.candles[klineResp.candles.length - 1] : null)
@@ -475,7 +477,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                 <div className="min-w-0 flex items-center gap-3">
                     <CandlestickChart className="w-5 h-5 text-cyan-500" />
                     <div className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{getDisplayName(symbol)} K线</h2>
+                        <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{stockName ? `${stockName}（${symbol}）` : getDisplayName(symbol)} K线</h2>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                             <span className="text-slate-500 dark:text-slate-400">{panelCandle?.date || '--'}</span>
                             <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>收盘 {formatNumber(panelCandle?.close)}</span>

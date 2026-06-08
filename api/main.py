@@ -662,6 +662,7 @@ class ChatCompletionRequest(UserContextInput):
 
 class KlineResponse(BaseModel):
     symbol: str
+    name: Optional[str] = None
     start_date: str
     end_date: str
     candles: List[Dict[str, Any]]
@@ -2740,8 +2741,18 @@ def get_kline(
             candles = _parse_stock_csv(raw)
     if not candles:
         raise HTTPException(status_code=404, detail="no kline data")
+    # 获取股票中文名称
+    stock_name = None
+    try:
+        from tradingagents.indicators import fetch_realtime_quote
+        code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+        quote = fetch_realtime_quote(code)
+        stock_name = quote.get("name")
+    except Exception:
+        pass
     return KlineResponse(
         symbol=symbol,
+        name=stock_name,
         start_date=start,
         end_date=end,
         candles=candles,
