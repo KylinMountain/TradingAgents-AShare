@@ -2735,10 +2735,22 @@ def get_kline(
                 daily_candles = _parse_stock_csv(raw)
                 candles = _aggregate_candles(daily_candles, period)
         else:
-            config = _build_runtime_config({})
-            set_config(config)
-            raw = route_to_vendor("get_stock_data", symbol, start, end)
-            candles = _parse_stock_csv(raw)
+            # Daily: try akshare first (includes turnover_rate), fallback to vendor
+            import akshare as ak  # type: ignore
+            code = symbol.split(".")[0]
+            candles = []
+            try:
+                raw_df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq")
+                df = _normalize_kline_df(raw_df)
+                if not df.empty:
+                    candles = _df_to_candles(df)
+            except Exception:
+                pass
+            if not candles:
+                config = _build_runtime_config({})
+                set_config(config)
+                raw = route_to_vendor("get_stock_data", symbol, start, end)
+                candles = _parse_stock_csv(raw)
     if not candles:
         raise HTTPException(status_code=404, detail="no kline data")
     # 获取股票中文名称
