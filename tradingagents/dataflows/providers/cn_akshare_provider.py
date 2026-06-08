@@ -1,3 +1,4 @@
+import logging as _logging
 import re
 import time
 import threading
@@ -9,6 +10,8 @@ from stockstats import wrap
 
 from .base import BaseMarketDataProvider
 from ..trade_calendar import cn_market_phase, cn_no_data_reason, cn_today_str, is_cn_trading_day
+
+logger = _logging.getLogger(__name__)
 
 
 # ── akshare 并发控制 ──
@@ -29,8 +32,6 @@ def set_scheduled_task_context(value: bool = True) -> contextvars.Token:
     """标记当前上下文为定时任务（会通过 asyncio.to_thread 自动传播到工作线程）"""
     return _is_scheduled_task.set(value)
 
-
-import logging as _logging
 
 _lock_logger = _logging.getLogger(__name__)
 
@@ -333,8 +334,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 )
                 out = self._normalize_hist_df(df)
                 return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Sina hist fallback failed for %s: %s", symbol, exc)
 
             # Source 3: Tencent
             try:
@@ -346,8 +347,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 )
                 out = self._normalize_hist_df(df)
                 return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Tencent hist fallback failed for %s: %s", symbol, exc)
 
             raise NotImplementedError(
                 f"cn_akshare is temporarily unavailable for price history (eastmoney/sina/tencent all failed): {em_last_exc}"
@@ -467,7 +468,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
             merged = pd.concat([hist_df, rt], ignore_index=True)
             merged = merged.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
             return merged.reset_index(drop=True)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to append realtime row for %s: %s", symbol, exc)
             return hist_df
 
     def get_stock_data(self, symbol: str, start_date: str, end_date: str) -> str:
@@ -854,7 +856,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 timeout=5,
             )
             resp.encoding = "gbk"
-        except Exception:
+        except Exception as exc:
+            logger.debug("Sina realtime quotes fetch failed: %s", exc)
             return json.dumps({})
 
         result: dict[str, dict] = {}
