@@ -389,6 +389,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
             chartRef.current?.remove()
             chartRef.current = null
             seriesRef.current = null
+            // Cleanup sub-chart
         }
     }, [isDark, klinePeriod])
 
