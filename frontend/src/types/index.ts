@@ -359,6 +359,20 @@ export interface RadarResponse {
     signal?: Record<string, any> | null
 }
 
+export interface PositionPoint {
+    date: string
+    close: number
+    position_index?: number | null
+    zone?: string | null
+}
+
+export interface PositionResponse {
+    symbol: string
+    name?: string | null
+    points: PositionPoint[]
+    signal?: Record<string, any> | null
+}
+
 export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
 
 export type KlinePeriod = 'daily' | 'weekly' | 'monthly'

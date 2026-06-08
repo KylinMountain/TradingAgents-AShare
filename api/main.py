@@ -724,6 +724,35 @@ class RadarResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+class PositionPoint(BaseModel):
+    date: str
+    close: float
+    position_index: Optional[float] = None
+    zone: Optional[str] = None
+
+
+class PositionResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[PositionPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
+class AiGravityPoint(BaseModel):
+    date: str
+    close: float
+    ai_gravity: Optional[float] = None
+    willingness: Optional[float] = None
+    buy_signal: bool = False
+
+
+class AiGravityResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[AiGravityPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 # Report API Models
 class ReportCreateRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
@@ -2484,7 +2513,7 @@ _KLINE_PERIOD_MAP = {
 }
 
 # 指标接口根据周期动态获取日线天数（聚合后覆盖显示范围，周线多取确保聚合后数据点足够）
-_indicator_days_map = {"daily": 250, "weekly": 700, "monthly": 1500}
+_indicator_days_map = {"daily": 500, "weekly": 700, "monthly": 1500}
 
 
 def _aggregate_daily_df(df: pd.DataFrame, period: str) -> pd.DataFrame:
@@ -2737,10 +2766,9 @@ def get_kline(
         else:
             # Daily: use fetch_realtime_data (3-level fallback + turnover_rate)
             from tradingagents.indicators import fetch_realtime_data
-            code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
             days = max(250, (pd.Timestamp(end) - pd.Timestamp(start)).days + 30)
             try:
-                df = fetch_realtime_data(code, days=days, period="daily")
+                df = fetch_realtime_data(symbol, days=days, period="daily")
                 if not df.empty:
                     # Convert to candle dicts
                     candles = []
@@ -2770,8 +2798,7 @@ def get_kline(
     stock_name = None
     try:
         from tradingagents.indicators import fetch_realtime_quote
-        code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-        quote = fetch_realtime_quote(code)
+        quote = fetch_realtime_quote(symbol)
         stock_name = quote.get("name")
     except Exception:
         pass
@@ -2795,11 +2822,10 @@ def get_niuxiong(
     from tradingagents.indicators import calculate_niuxiong_line, get_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days, period=period)
+        df = fetch_realtime_data(symbol, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
@@ -2854,7 +2880,7 @@ def get_niuxiong(
     # Get stock name from quote
     name = None
     try:
-        quote = fetch_realtime_quote(code)
+        quote = fetch_realtime_quote(symbol)
         name = quote.get("name")
     except Exception:
         pass
@@ -2878,11 +2904,10 @@ def get_gs_strategy(
     from tradingagents.indicators import calculate_gs_strategy, get_gs_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days, period=period)
+        df = fetch_realtime_data(symbol, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
@@ -2948,7 +2973,7 @@ def get_gs_strategy(
 
     name = None
     try:
-        quote = fetch_realtime_quote(code)
+        quote = fetch_realtime_quote(symbol)
         name = quote.get("name")
     except Exception:
         pass
@@ -2972,11 +2997,10 @@ def get_radar(
     from tradingagents.indicators import calculate_radar_indicator, get_radar_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days, period=period)
+        df = fetch_realtime_data(symbol, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
@@ -3042,7 +3066,7 @@ def get_radar(
 
     name = None
     try:
-        quote = fetch_realtime_quote(code)
+        quote = fetch_realtime_quote(symbol)
         name = quote.get("name")
     except Exception:
         pass
@@ -3055,7 +3079,148 @@ def get_radar(
     )
 
 
-def _normalize_ths_code(code: str) -> str:
+@app.get("/v1/market/position", response_model=PositionResponse)
+def get_position(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
+) -> PositionResponse:
+    """超买超卖位置指标接口"""
+    from tradingagents.indicators import calculate_position_index, get_position_signal, fetch_realtime_data, fetch_realtime_quote
+
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
+    days = _indicator_days_map.get(period, 250)
+
+    try:
+        df = fetch_realtime_data(symbol, days=days, period=period)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    if period != "daily":
+        df = _aggregate_daily_df(df, period)
+        df.index = pd.to_datetime(df.index)
+
+    # 滚动周期：日线14，周线3（≈14周≈日线14*5/7），月线1（≈14月≈日线14/30*12）
+    pos_period = {"daily": 14, "weekly": 18, "monthly": 36}.get(period, 14)
+    result = calculate_position_index(df, period=pos_period)
+    signal = get_position_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(PositionPoint(
+            date=date_str,
+            close=float(row["close"]),
+            position_index=round(float(row["position_index"]), 2) if pd.notna(row["position_index"]) else None,
+            zone=row.get("zone", "unknown"),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return PositionResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
+
+
+@app.get("/v1/market/ai-gravity", response_model=AiGravityResponse)
+def get_ai_gravity(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
+) -> AiGravityResponse:
+    """AI引力波指标接口"""
+    from tradingagents.indicators import calculate_ai_gravity, get_ai_gravity_signal, fetch_realtime_quote
+
+    try:
+        result = calculate_ai_gravity(symbol, days=250)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    if result.empty:
+        raise HTTPException(status_code=404, detail="无数据")
+
+    signal = get_ai_gravity_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(AiGravityPoint(
+            date=date_str,
+            close=float(row["close"]),
+            ai_gravity=round(float(row["ai_gravity"]), 2) if pd.notna(row["ai_gravity"]) else 0,
+            willingness=round(float(row["willingness"]), 2) if pd.notna(row["willingness"]) else 0,
+            buy_signal=bool(row["buy_signal"]),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return AiGravityResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
     """Convert THS/XQ code like SH601xxx → 601xxx.SH"""
     code = str(code).strip()
     if code.upper().startswith("SH"):

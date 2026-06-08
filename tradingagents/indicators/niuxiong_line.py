@@ -23,6 +23,7 @@
 """
 
 import re
+import os
 import pandas as pd
 import numpy as np
 from typing import Optional
@@ -57,14 +58,31 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days + 150)).strftime("%Y%m%d")
 
+    # 处理带后缀的代码：000001.SH → 000001, 市场前缀由后缀决定
+    exchange = None
+    if symbol.upper().endswith(".SH"):
+        exchange = "sh"
+        symbol = symbol[:-3]
+    elif symbol.upper().endswith(".SZ"):
+        exchange = "sz"
+        symbol = symbol[:-3]
+    elif symbol.upper().endswith(".BJ"):
+        exchange = "bj"
+        symbol = symbol[:-3]
+
+    def _market_prefix(s):
+        if exchange:
+            return exchange
+        return "sh" if s.startswith(("5", "6", "9")) else "sz"
+
     df = None
     last_exc = None
 
     # 三级回退：Eastmoney → Sina → Tencent（与 provider 层一致）
     sources: list[tuple[str, callable]] = [
         ("eastmoney", lambda: ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start, end_date=end, adjust="qfq")),
-        ("sina", lambda: ak.stock_zh_a_daily(symbol=f"sh{symbol}" if symbol.startswith(("5","6","9")) else f"sz{symbol}", start_date=start, end_date=end, adjust="qfq")),
-        ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"sh{symbol}" if symbol.startswith(("5","6","9")) else f"sz{symbol}", start_date=start, end_date=end, adjust="qfq")),
+        ("sina", lambda: ak.stock_zh_a_daily(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
+        ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
     ]
 
     for source_name, fetcher in sources:
@@ -159,7 +177,7 @@ def fetch_realtime_quote(symbol: str) -> dict:
     Parameters
     ----------
     symbol : str
-        股票代码
+        股票代码，支持带后缀 (000001.SH) 或不带 (000001)
 
     Returns
     -------
@@ -168,8 +186,14 @@ def fetch_realtime_quote(symbol: str) -> dict:
     """
     import urllib.request
 
-    # 判断市场前缀
-    if symbol.startswith(("6", "9")):
+    # 保留后缀判断市场
+    if symbol.endswith(".SH") or symbol.endswith(".sh"):
+        code = f"sh{symbol[:-3]}"
+    elif symbol.endswith(".SZ") or symbol.endswith(".sz"):
+        code = f"sz{symbol[:-3]}"
+    elif symbol.endswith(".BJ") or symbol.endswith(".bj"):
+        code = f"bj{symbol[:-3]}"
+    elif symbol.startswith(("6", "9")):
         code = f"sh{symbol}"
     elif symbol.startswith("8"):
         code = f"bj{symbol}"
@@ -1052,7 +1076,13 @@ def calculate_radar_indicator(df: pd.DataFrame) -> pd.DataFrame:
     h = np.array(df['high'], dtype=np.float64)
     l = np.array(df['low'], dtype=np.float64)
     c = np.array(df['close'], dtype=np.float64)
-    v = np.array(df['volume'], dtype=np.float64)
+    # 指数数据可能没有 volume 列，用 amount 作为替代
+    if 'volume' in df.columns:
+        v = np.array(df['volume'], dtype=np.float64)
+    elif 'amount' in df.columns:
+        v = np.array(df['amount'], dtype=np.float64)
+    else:
+        v = np.ones(len(c), dtype=np.float64)  # fallback: 全1，不影响信号判断
     n = len(c)
 
     # 核心计算
@@ -1168,3 +1198,182 @@ def get_radar_signal(df: pd.DataFrame) -> dict:
     }
 
     return signal
+
+
+# ============================================================
+# AI引力波指标 (基于同花顺公式移植，使用Level-1资金流数据)
+# ============================================================
+
+def fetch_fund_flow_data(symbol: str, days: int = 120) -> pd.DataFrame:
+    """
+    获取个股资金流向历史数据 (Tushare数据源，AkShare回退)
+
+    Parameters
+    ----------
+    symbol : str
+        股票代码，如 '000001', '600519'
+    days : int
+        获取的历史天数
+
+    Returns
+    -------
+    pd.DataFrame
+        包含 date, main_net (主力净流入) 列的 DataFrame
+    """
+    from datetime import datetime, timedelta
+
+    # 方案1: Tushare (资金流数据更稳定)
+    try:
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada")
+        ts.set_token(token)
+        pro = ts.pro_api()
+
+        # 转换代码格式: 000001 -> 000001.SZ
+        if "." not in symbol:
+            suffix = ".SH" if symbol.startswith(("5", "6", "9")) else ".SZ"
+            ts_code = symbol + suffix
+        else:
+            ts_code = symbol
+
+        end = datetime.now().strftime("%Y%m%d")
+        start = (datetime.now() - timedelta(days=days + 30)).strftime("%Y%m%d")
+
+        df = pro.moneyflow(ts_code=ts_code, start_date=start, end_date=end)
+        if df is not None and not df.empty:
+            df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d")
+            df = df.sort_values("trade_date").set_index("trade_date")
+            # 主力净流入 = 超大单净买入 + 大单净买入 (单位: 万元)
+            for col in ["buy_elg_amount", "sell_elg_amount", "buy_lg_amount", "sell_lg_amount"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            df["main_net"] = (df["buy_elg_amount"] + df["buy_lg_amount"]) - (df["sell_elg_amount"] + df["sell_lg_amount"])
+            df.index.name = "date"
+            return df[["main_net"]].tail(days)
+    except Exception:
+        pass
+
+    # 方案2: AkShare 回退
+    try:
+        import akshare as ak
+        market = "sh" if symbol.startswith(("5", "6", "9")) else "sz"
+        df = ak.stock_individual_fund_flow(stock=symbol, market=market)
+        if df is not None and not df.empty:
+            col_map = {"日期": "date", "主力净流入-净额": "main_net"}
+            available = {k: v for k, v in col_map.items() if k in df.columns}
+            df = df.rename(columns=available)
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                df["main_net"] = pd.to_numeric(df["main_net"], errors="coerce")
+                return df[["main_net"]].tail(days)
+    except Exception:
+        pass
+
+    return pd.DataFrame(columns=["main_net"])
+
+
+def calculate_ai_gravity(symbol: str, days: int = 120) -> pd.DataFrame:
+    """
+    计算AI引力波指标
+
+    基于同花顺AI引力波公式，使用东方财富资金流数据替代Level-2机构数据。
+    核心逻辑：资金流意愿 + MA10趋势 → 买入信号
+
+    Parameters
+    ----------
+    symbol : str
+        股票代码
+    days : int
+        计算天数
+
+    Returns
+    -------
+    pd.DataFrame
+        包含引力波信号列的 DataFrame
+    """
+    # 获取K线数据
+    kline = fetch_realtime_data(symbol, days=days)
+    if kline is None or kline.empty:
+        return pd.DataFrame()
+
+    # 获取资金流数据
+    fund_flow = fetch_fund_flow_data(symbol, days=days)
+
+    # 对齐日期
+    if not fund_flow.empty and "main_net" in fund_flow.columns:
+        kline["main_net"] = fund_flow["main_net"].reindex(kline.index, method="ffill")
+    else:
+        kline["main_net"] = 0.0
+
+    result = kline.copy()
+    close = result["close"]
+
+    # === MA10 ===
+    ma10 = close.rolling(10).mean()
+    result["ma10"] = ma10
+
+    # === 资金流意愿 (替代同花顺的 jgjrda/jgrda) ===
+    main_net = result["main_net"].fillna(0)
+
+    # 去噪：连续多日资金流完全相同（数据未更新）时置零
+    unchanged = (main_net == main_net.shift(1)) & (main_net == main_net.shift(2)) & (main_net == main_net.shift(3))
+    willingness = pd.Series(0.0, index=result.index)
+    willingness[~unchanged] = main_net[~unchanged]
+
+    # 限制范围 [-100, 100]
+    willingness = willingness.clip(-100, 100)
+    result["willingness"] = willingness
+
+    # === 持股规则：MA10上升 + 意愿累计≥0 ===
+    ma10_rising = (ma10 >= ma10.shift(1))
+    willingness_sum = willingness.rolling(10).sum()
+    holding_rule = (ma10_rising.rolling(3).sum() >= 2) & (willingness_sum >= 0)
+
+    result["holding_rule"] = holding_rule.astype(float)
+
+    # === 买入信号 ===
+    signal = holding_rule.astype(int)
+    first_buy = (signal == 1) & (signal.shift(1) == 0)
+    continue_hold = (signal == 1) & (signal.shift(1) == 1)
+    buy_signal = first_buy | continue_hold
+
+    result["buy_signal"] = buy_signal
+
+    # === 资金深度 (信号强度) ===
+    depth = willingness * 2
+    depth = depth.clip(-100, 100)
+    depth_ma = depth.rolling(3).mean()
+    result["gravity_depth"] = depth_ma
+
+    # === 最终输出：买入时显示资金深度，否则为0 ===
+    result["ai_gravity"] = np.where(buy_signal, depth_ma, 0.0)
+
+    return result
+
+
+def get_ai_gravity_signal(df: pd.DataFrame) -> dict:
+    """
+    获取最新一天的AI引力波信号
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        calculate_ai_gravity 返回的 DataFrame
+
+    Returns
+    -------
+    dict
+        信号字典
+    """
+    if df.empty or len(df) < 2:
+        return {"error": "数据不足"}
+
+    latest = df.iloc[-1]
+
+    return {
+        "date": df.index[-1].strftime("%Y-%m-%d") if isinstance(df.index, pd.DatetimeIndex) else str(df.index[-1])[:10],
+        "ai_gravity": round(float(latest["ai_gravity"]), 2) if pd.notna(latest["ai_gravity"]) else 0,
+        "buy_signal": bool(latest["buy_signal"]),
+        "willingness": round(float(latest["willingness"]), 2) if pd.notna(latest["willingness"]) else 0,
+        "gravity_depth": round(float(latest["gravity_depth"]), 2) if pd.notna(latest["gravity_depth"]) else 0,
+    }

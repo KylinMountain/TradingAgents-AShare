@@ -6,6 +6,7 @@ import ReportViewer from '@/components/ReportViewer'
 import ChatCopilotPanel from '@/components/ChatCopilotPanel'
 import KlinePanel from '@/components/KlinePanel'
 import RadarPanel from '@/components/RadarPanel'
+import PositionPanel from '@/components/PositionPanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
@@ -47,7 +48,7 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
 }
 
 export default function Analysis() {
-    const { registerKlineChart, registerRadarChart, syncNow } = useSyncedCharts()
+    const { registerKlineChart, registerSubChart, syncNow } = useSyncedCharts()
     const [searchParams] = useSearchParams()
     const querySymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
     const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '000001.SH')
@@ -115,7 +116,9 @@ export default function Analysis() {
                         />
                     </div>
 
-                    <RadarPanel symbol={activeSymbol} onChartReady={registerRadarChart} onSyncNow={syncNow} />
+                    <RadarPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('radar', c)} onSyncNow={syncNow} />
+
+                    <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 
