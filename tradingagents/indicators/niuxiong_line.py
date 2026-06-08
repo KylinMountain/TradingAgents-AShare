@@ -134,12 +134,22 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     df = None
     last_exc = None
 
-    # 三级回退：Eastmoney → Sina → Tencent（与 provider 层一致）
-    sources: list[tuple[str, callable]] = [
-        ("eastmoney", lambda: ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start, end_date=end, adjust="qfq")),
-        ("sina", lambda: ak.stock_zh_a_daily(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
-        ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
-    ]
+    # 指数符号：Tencent API 最可靠（东方财富在部分网络环境不可用）
+    _INDEX_CODES = {"000001", "399001", "399006", "000300", "000688", "000905", "000852", "899050"}
+    if symbol in _INDEX_CODES:
+        vendor = f"{_market_prefix(symbol)}{symbol}"
+        sources: list[tuple[str, callable]] = [
+            ("tencent_index", lambda: ak.stock_zh_a_hist_tx(symbol=vendor, start_date=start, end_date=end, adjust="qfq")),
+            ("eastmoney_index", lambda: ak.stock_zh_index_daily_em(symbol=vendor, start_date=start, end_date=end)),
+            ("index_hist", lambda: ak.index_zh_a_hist(symbol=symbol, period="daily", start_date=start, end_date=end)),
+        ]
+    else:
+        # 三级回退：Eastmoney → Sina → Tencent（与 provider 层一致）
+        sources = [
+            ("eastmoney", lambda: ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start, end_date=end, adjust="qfq")),
+            ("sina", lambda: ak.stock_zh_a_daily(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
+            ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"{_market_prefix(symbol)}{symbol}", start_date=start, end_date=end, adjust="qfq")),
+        ]
 
     for source_name, fetcher in sources:
         try:

@@ -2591,6 +2591,10 @@ def _aggregate_candles(candles: List[Dict[str, Any]], period: str) -> List[Dict[
     return result
 
 
+_index_kline_cache: Dict[str, tuple] = {}
+_INDEX_KLINE_CACHE_TTL = 60  # seconds
+
+
 def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str = "daily") -> List[Dict[str, Any]]:
     import akshare as ak  # type: ignore
 
@@ -2599,11 +2603,24 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
     if not vendor_symbol:
         return []
 
+    # 缓存 key: symbol + start + end + period
+    cache_key = f"{symbol_key}:{start_date}:{end_date}:{period}"
+    now = time.time()
+    cached = _index_kline_cache.get(cache_key)
+    if cached and now - cached[0] < _INDEX_KLINE_CACHE_TTL:
+        return cached[1]
+
     yyyymmdd_start = start_date.replace("-", "")
     yyyymmdd_end = end_date.replace("-", "")
 
-    # 始终先获取日线数据，再按需聚合
+    # 始终先获取日线数据，再按需聚合；Tencent 最可靠（东方财富在部分网络环境不可用）
     fetchers = (
+        lambda: ak.stock_zh_a_hist_tx(
+            symbol=vendor_symbol,
+            start_date=yyyymmdd_start,
+            end_date=yyyymmdd_end,
+            adjust="qfq",
+        ),
         lambda: ak.stock_zh_index_daily_em(
             symbol=vendor_symbol,
             start_date=yyyymmdd_start,
@@ -2652,7 +2669,14 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
                     }
                 )
                 prev_close = close
-            return _aggregate_candles(candles, period)
+            result = _aggregate_candles(candles, period)
+            _index_kline_cache[cache_key] = (now, result)
+            # 清理过期缓存
+            if len(_index_kline_cache) > 100:
+                expired = [k for k, (t, _) in _index_kline_cache.items() if now - t >= _INDEX_KLINE_CACHE_TTL]
+                for k in expired:
+                    _index_kline_cache.pop(k, None)
+            return result
         except Exception as exc:
             last_exc = exc
             continue
