@@ -24,9 +24,59 @@
 
 import re
 import os
+import time
+import threading
 import pandas as pd
 import numpy as np
 from typing import Optional
+
+# ---------- TTL 内存缓存 ----------
+_kline_cache: dict[str, tuple[float, pd.DataFrame]] = {}
+_kline_cache_lock = threading.Lock()
+_KLINE_CACHE_TTL = 60  # 秒
+
+_quote_cache: dict[str, tuple[float, dict]] = {}
+_quote_cache_lock = threading.Lock()
+_QUOTE_CACHE_TTL = 30  # 秒
+
+
+def _get_cached_kline(key: str) -> pd.DataFrame | None:
+    with _kline_cache_lock:
+        entry = _kline_cache.get(key)
+        if entry and time.monotonic() - entry[0] < _KLINE_CACHE_TTL:
+            return entry[1].copy()
+        _kline_cache.pop(key, None)
+    return None
+
+
+def _set_cached_kline(key: str, df: pd.DataFrame) -> None:
+    with _kline_cache_lock:
+        _kline_cache[key] = (time.monotonic(), df.copy())
+        # 清理过期条目，防止内存泄漏
+        if len(_kline_cache) > 200:
+            now = time.monotonic()
+            expired = [k for k, (t, _) in _kline_cache.items() if now - t >= _KLINE_CACHE_TTL]
+            for k in expired:
+                _kline_cache.pop(k, None)
+
+
+def _get_cached_quote(key: str) -> dict | None:
+    with _quote_cache_lock:
+        entry = _quote_cache.get(key)
+        if entry and time.monotonic() - entry[0] < _QUOTE_CACHE_TTL:
+            return dict(entry[1])
+        _quote_cache.pop(key, None)
+    return None
+
+
+def _set_cached_quote(key: str, data: dict) -> None:
+    with _quote_cache_lock:
+        _quote_cache[key] = (time.monotonic(), dict(data))
+        if len(_quote_cache) > 200:
+            now = time.monotonic()
+            expired = [k for k, (t, _) in _quote_cache.items() if now - t >= _QUOTE_CACHE_TTL]
+            for k in expired:
+                _quote_cache.pop(k, None)
 
 
 def ema(series: pd.Series, period: int) -> pd.Series:
@@ -54,6 +104,12 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     """
     import akshare as ak
     from datetime import datetime, timedelta
+
+    # 检查缓存（key 包含原始 symbol，因为 suffix 影响数据源选择）
+    cache_key = f"{symbol}:{days}:{period}"
+    cached = _get_cached_kline(cache_key)
+    if cached is not None:
+        return cached
 
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days + 150)).strftime("%Y%m%d")
@@ -113,10 +169,14 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
 
     # 日线直接返回 days 行
     if period == "daily":
-        return df.tail(days)
+        result = df.tail(days)
+        _set_cached_kline(cache_key, result)
+        return result
     # 周线/月线返回更多数据确保聚合后点数足够（周线约5天/周，月线约22天/月）
     extra_factor = 6 if period == "weekly" else 25
-    return df.tail(days * extra_factor)
+    result = df.tail(days * extra_factor)
+    _set_cached_kline(cache_key, result)
+    return result
 
 
 def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
@@ -184,6 +244,11 @@ def fetch_realtime_quote(symbol: str) -> dict:
     dict
         实时行情数据
     """
+    # 检查缓存
+    cached = _get_cached_quote(symbol)
+    if cached is not None:
+        return cached
+
     import urllib.request
 
     # 保留后缀判断市场
@@ -214,7 +279,7 @@ def fetch_realtime_quote(symbol: str) -> dict:
         if len(vals) < 53:
             continue
 
-        return {
+        result = {
             "symbol": symbol,
             "name": vals[1],
             "price": float(vals[3]) if vals[3] else 0,
@@ -231,6 +296,8 @@ def fetch_realtime_quote(symbol: str) -> dict:
             "pb": float(vals[46]) if vals[46] else 0,
             "mcap_yi": float(vals[44]) if vals[44] else 0,
         }
+        _set_cached_quote(symbol, result)
+        return result
 
     return {"error": f"未找到股票 {symbol}"}
 
