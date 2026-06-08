@@ -2744,8 +2744,8 @@ def get_kline(
                 df = _normalize_kline_df(raw_df)
                 if not df.empty:
                     candles = _df_to_candles(df)
-            except Exception:
-                pass
+            except Exception as e:
+                _log(f"[kline] akshare daily failed for {symbol}: {type(e).__name__}: {e}")
             if not candles:
                 config = _build_runtime_config({})
                 set_config(config)
