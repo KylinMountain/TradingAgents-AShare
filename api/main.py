@@ -2482,8 +2482,8 @@ _KLINE_PERIOD_MAP = {
     "monthly": {"category": 6, "akshare_period": "monthly"},
 }
 
-# 指标接口根据周期动态获取日线天数（聚合后覆盖显示范围）
-_indicator_days_map = {"daily": 250, "weekly": 520, "monthly": 1300}
+# 指标接口根据周期动态获取日线天数（聚合后覆盖显示范围，周线多取确保聚合后数据点足够）
+_indicator_days_map = {"daily": 250, "weekly": 700, "monthly": 1500}
 
 
 def _aggregate_daily_df(df: pd.DataFrame, period: str) -> pd.DataFrame:
@@ -2763,7 +2763,7 @@ def get_niuxiong(
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days)
+        df = fetch_realtime_data(code, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
@@ -2846,7 +2846,7 @@ def get_gs_strategy(
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days)
+        df = fetch_realtime_data(code, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 
@@ -2940,7 +2940,7 @@ def get_radar(
     days = _indicator_days_map.get(period, 250)
 
     try:
-        df = fetch_realtime_data(code, days=days)
+        df = fetch_realtime_data(code, days=days, period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
 

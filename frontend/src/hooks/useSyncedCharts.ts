@@ -6,12 +6,6 @@ import type { IChartApi, Time, TimeRangeChangeEventHandler } from 'lightweight-c
  *
  * 事件驱动 + 直接逻辑范围复制：用 subscribeVisibleTimeRangeChange 检测缩放，
  * 然后读取源图表的当前可见逻辑范围，直接应用到目标图表。
- *
- * 为什么不用 setVisibleRange：
- * 它会自动裁剪到目标图表数据边界，无法缩小超出数据范围。
- * 为什么不用 timeToIndex 做映射：
- * 它也会钳制到数据边界，同样无法处理缩小超出数据的情况。
- * 直接复制源图表的逻辑范围，既不受数据边界限制，也足够简单可靠。
  */
 export function useSyncedCharts() {
     const klineChartRef = useRef<IChartApi | null>(null)
@@ -34,8 +28,7 @@ export function useSyncedCharts() {
             radar.timeScale().unsubscribeVisibleTimeRangeChange(handlersRef.current.radarHandler)
         }
 
-        // K线 → 雷达：读取K线当前逻辑范围，直接应用到雷达
-        const klineHandler: TimeRangeChangeEventHandler<Time> = (_range) => {
+        const klineHandler: TimeRangeChangeEventHandler<Time> = () => {
             if (syncingRef.current) return
             const src = klineChartRef.current
             const dst = radarChartRef.current
@@ -47,8 +40,7 @@ export function useSyncedCharts() {
             syncingRef.current = false
         }
 
-        // 雷达 → K线：同上，方向相反
-        const radarHandler: TimeRangeChangeEventHandler<Time> = (_range) => {
+        const radarHandler: TimeRangeChangeEventHandler<Time> = () => {
             if (syncingRef.current) return
             const src = radarChartRef.current
             const dst = klineChartRef.current

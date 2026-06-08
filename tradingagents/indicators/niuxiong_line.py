@@ -90,7 +90,12 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     # 尝试追加当天实时行情
     df = _try_append_today_row(symbol, df)
 
-    return df.tail(days)
+    # 日线直接返回 days 行
+    if period == "daily":
+        return df.tail(days)
+    # 周线/月线返回更多数据确保聚合后点数足够（周线约5天/周，月线约22天/月）
+    extra_factor = 6 if period == "weekly" else 25
+    return df.tail(days * extra_factor)
 
 
 def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
