@@ -22,6 +22,7 @@
 - 多指标联动 (MACD/KDJ/RSI)
 """
 
+import re
 import pandas as pd
 import numpy as np
 from typing import Optional
@@ -32,9 +33,9 @@ def ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
-def fetch_realtime_data(symbol: str, days: int = 120, category: int = 4) -> pd.DataFrame:
+def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> pd.DataFrame:
     """
-    获取A股历史K线数据 (使用mootdx，不封IP)
+    获取A股历史K线数据 (前复权，Eastmoney → Sina → Tencent 三级回退)
 
     Parameters
     ----------
@@ -42,46 +43,105 @@ def fetch_realtime_data(symbol: str, days: int = 120, category: int = 4) -> pd.D
         股票代码，如 '000001', '600519'
     days : int
         获取的历史天数
-    category : int
-        K线周期: 4=日K, 5=周K, 6=月K
+    period : str
+        K线周期: "daily", "weekly", "monthly"
 
     Returns
     -------
     pd.DataFrame
-        OHLCV 数据
+        OHLCV 数据，日期索引，前复权价格
     """
-    from mootdx.quotes import Quotes
+    import akshare as ak
+    from datetime import datetime, timedelta
 
-    client = Quotes.factory(market='std')
+    end = datetime.now().strftime("%Y%m%d")
+    start = (datetime.now() - timedelta(days=days + 150)).strftime("%Y%m%d")
 
-    # mootdx 返回的是最近N条数据，需要多取一些确保覆盖
-    klines = client.bars(symbol=symbol, category=category, offset=days + 50)
+    df = None
+    last_exc = None
 
-    if klines is None or klines.empty:
-        raise ValueError(f"未获取到 {symbol} 的K线数据")
+    # 三级回退：Eastmoney → Sina → Tencent（与 provider 层一致）
+    sources: list[tuple[str, callable]] = [
+        ("eastmoney", lambda: ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start, end_date=end, adjust="qfq")),
+        ("sina", lambda: ak.stock_zh_a_daily(symbol=f"sh{symbol}" if symbol.startswith(("5","6","9")) else f"sz{symbol}", start_date=start, end_date=end, adjust="qfq")),
+        ("tencent", lambda: ak.stock_zh_a_hist_tx(symbol=f"sh{symbol}" if symbol.startswith(("5","6","9")) else f"sz{symbol}", start_date=start, end_date=end, adjust="qfq")),
+    ]
 
-    # 转换为 DataFrame
-    df = pd.DataFrame(klines)
+    for source_name, fetcher in sources:
+        try:
+            df = fetcher()
+            if df is not None and not df.empty:
+                break
+        except Exception as exc:
+            last_exc = exc
+            continue
 
-    # mootdx 同时返回 vol 和 volume 两列，先删掉 volume 再重命名 vol → volume
-    if 'volume' in df.columns and 'vol' in df.columns:
-        df = df.drop(columns=['volume'])
+    if df is None or df.empty:
+        raise ValueError(f"未获取到 {symbol} 的K线数据 (eastmoney/sina/tencent all failed): {last_exc}")
 
-    df = df.rename(columns={
-        'open': 'open',
-        'close': 'close',
-        'high': 'high',
-        'low': 'low',
-        'vol': 'volume',
-        'amount': 'amount',
-        'datetime': 'date',
-    })
+    col_map = {"日期": "date", "开盘": "open", "收盘": "close",
+                "最高": "high", "最低": "low", "成交量": "volume"}
+    df = df.rename(columns=col_map)
 
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.set_index('date')
-    df = df.sort_index()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    df = df[["open", "close", "high", "low", "volume"]]
+
+    # 尝试追加当天实时行情
+    df = _try_append_today_row(symbol, df)
 
     return df.tail(days)
+
+
+def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+    """尝试追加当天实时行情（Sina API）"""
+    import urllib.request
+    from datetime import datetime
+
+    today = pd.Timestamp.now().normalize()
+    if today in df.index.normalize():
+        return df
+
+    prefix = "sh" if symbol.startswith(("5", "6", "9")) else "sz" if symbol.startswith(("0", "3", "2")) else "bj" if symbol.startswith(("4", "8")) else None
+    if not prefix:
+        return df
+    sina_code = f"{prefix}{symbol}"
+
+    try:
+        req = urllib.request.Request(
+            f"http://hq.sinajs.cn/list={sina_code}",
+            headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = resp.read().decode("gbk")
+    except Exception:
+        return df
+
+    m = re.search(r'hq_str_\w+="(.+)"', raw)
+    if not m:
+        return df
+    parts = m.group(1).split(",")
+    if len(parts) < 32:
+        return df
+
+    try:
+        date_val = pd.to_datetime(parts[30], errors="coerce")
+        if pd.isna(date_val):
+            date_val = today
+        row = pd.DataFrame([{
+            "open": float(parts[1]),
+            "high": float(parts[4]),
+            "low": float(parts[5]),
+            "close": float(parts[3]),
+            "volume": float(parts[8]),
+        }], index=[pd.Timestamp(date_val).normalize()])
+    except (ValueError, IndexError):
+        return df
+
+    if row.index[0] != today:
+        return df
+
+    return pd.concat([df, row]).sort_index()
 
 
 def fetch_realtime_quote(symbol: str) -> dict:
