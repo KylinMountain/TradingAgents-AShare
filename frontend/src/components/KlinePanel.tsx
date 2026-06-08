@@ -24,6 +24,7 @@ interface KlinePanelProps {
     symbol: string
     onSymbolChange?: (symbol: string) => void
     onChartReady?: (chart: IChartApi) => void
+    onSyncNow?: () => void
 }
 
 function toDateText(date: Date): string {
@@ -86,7 +87,7 @@ const INDEX_PRESETS = [
     { symbol: '899050.BJ', label: '北证50' },
 ] as const
 
-export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: KlinePanelProps) {
+export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyncNow }: KlinePanelProps) {
     const currentAnalysisSymbol = useAnalysisStore((state) => state.currentSymbol)
     const klinePeriod = useAnalysisStore((state) => state.klinePeriod)
     const setKlinePeriod = useAnalysisStore((state) => state.setKlinePeriod)
@@ -435,6 +436,8 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
                 }
 
                 chartRef.current?.timeScale().fitContent()
+                // K线数据加载完后触发同步到雷达
+                setTimeout(() => onSyncNow?.(), 200)
                 if (!data.length) {
                     setError('暂无可用K线数据')
                 }
@@ -454,7 +457,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady }: Kli
         return () => {
             cancelled = true
         }
-    }, [range.end, range.start, symbol, klinePeriod])
+    }, [range.end, range.start, symbol, klinePeriod, onSyncNow])
 
     const panelCandle = activeCandle ?? (candles.length ? candles[candles.length - 1] : null)
     const panelChange = panelCandle?.change ?? (panelCandle ? panelCandle.close - panelCandle.open : null)

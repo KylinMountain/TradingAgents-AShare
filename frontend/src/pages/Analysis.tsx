@@ -111,6 +111,7 @@ export default function Analysis() {
                                 setActiveSymbol(symbol)
                             }}
                             onChartReady={registerKlineChart}
+                            onSyncNow={syncNow}
                         />
                     </div>
 
