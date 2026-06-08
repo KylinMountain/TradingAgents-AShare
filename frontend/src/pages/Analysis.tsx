@@ -47,7 +47,7 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
 }
 
 export default function Analysis() {
-    const { registerKlineChart, registerRadarChart } = useSyncedCharts()
+    const { registerKlineChart, registerRadarChart, syncNow } = useSyncedCharts()
     const [searchParams] = useSearchParams()
     const querySymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
     const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '000001.SH')
@@ -114,7 +114,7 @@ export default function Analysis() {
                         />
                     </div>
 
-                    <RadarPanel symbol={activeSymbol} onChartReady={registerRadarChart} />
+                    <RadarPanel symbol={activeSymbol} onChartReady={registerRadarChart} onSyncNow={syncNow} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 

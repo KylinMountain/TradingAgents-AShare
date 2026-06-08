@@ -23,6 +23,7 @@ import type { KlinePeriod } from '@/types'
 interface RadarPanelProps {
     symbol: string
     onChartReady?: (chart: IChartApi) => void
+    onSyncNow?: () => void
 }
 
 function toChartTime(value: string, period: KlinePeriod): Time | null {
@@ -38,7 +39,7 @@ function toChartTime(value: string, period: KlinePeriod): Time | null {
     return (Date.UTC(year, month - 1, day) / 1000) as UTCTimestamp
 }
 
-export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
+export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPanelProps) {
     const klinePeriod = useAnalysisStore((state) => state.klinePeriod)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const chartRef = useRef<IChartApi | null>(null)
@@ -108,7 +109,7 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
                         const y = String(time.year)
                         const m = String(time.month).padStart(2, '0')
                         const d = String(time.day).padStart(2, '0')
-                        return `${y}/${m}/${day}`
+                        return `${y}/${m}/${d}`
                     }
                     return String(time)
                 },
@@ -300,11 +301,13 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
 
                 markersRef.current?.setMarkers(signalMarkers as any)
                 chartRef.current?.timeScale().fitContent()
+                // 初始加载/切换周期后从K线同步一次逻辑范围
+                setTimeout(() => onSyncNow?.(), 100)
             } catch {}
         }
         load()
         return () => { cancelled = true }
-    }, [symbol, range.start, range.end, klinePeriod])
+    }, [symbol, range.start, range.end, klinePeriod, onSyncNow])
 
     const lastPoint = radarData.length ? radarData[radarData.length - 1] : null
 

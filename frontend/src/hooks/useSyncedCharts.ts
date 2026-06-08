@@ -76,5 +76,15 @@ export function useSyncedCharts() {
         setupRangeSync()
     }, [setupRangeSync])
 
-    return { registerKlineChart, registerRadarChart }
+    const syncNow = useCallback(() => {
+        const src = klineChartRef.current
+        const dst = radarChartRef.current
+        if (!src || !dst) return
+        const logical = src.timeScale().getVisibleLogicalRange()
+        if (logical) {
+            try { dst.timeScale().setVisibleLogicalRange(logical) } catch {}
+        }
+    }, [])
+
+    return { registerKlineChart, registerRadarChart, syncNow }
 }
