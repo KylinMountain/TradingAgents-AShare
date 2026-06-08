@@ -96,6 +96,22 @@ export default function RadarPanel({ symbol, onChartReady }: RadarPanelProps) {
                 borderColor: isDark ? '#334155' : '#cbd5e1',
                 timeVisible: true,
                 rightOffset: 6,
+                tickMarkFormatter: (time: Time) => {
+                    if (typeof time === 'number') {
+                        const d = new Date(time * 1000)
+                        const y = d.getUTCFullYear()
+                        const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+                        const day = String(d.getUTCDate()).padStart(2, '0')
+                        return `${y}/${m}/${day}`
+                    }
+                    if (typeof time === 'object') {
+                        const y = String(time.year)
+                        const m = String(time.month).padStart(2, '0')
+                        const d = String(time.day).padStart(2, '0')
+                        return `${y}/${m}/${day}`
+                    }
+                    return String(time)
+                },
             },
             crosshair: {
                 vertLine: { color: isDark ? 'rgba(59, 130, 246, 0.35)' : 'rgba(59, 130, 246, 0.25)' },
