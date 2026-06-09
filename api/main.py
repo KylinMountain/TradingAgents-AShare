@@ -4024,6 +4024,11 @@ def list_reports(
     code_to_name = _get_reverse_stock_map_cached_only()
     for r in reports:
         r.name = code_to_name.get(r.symbol, r.symbol)
+        # 恢复孤儿报告：job不在内存中说明服务器重启过，标记failed
+        if str(r.status or "") in report_service.ACTIVE_REPORT_STATUSES:
+            job_id = str(getattr(r, "id", ""))
+            if job_id and not _get_job(job_id):
+                r = report_service.finalize_orphan_report(db, r)
         _attach_job_runtime_state(r, str(getattr(r, "id", "")))
     return {"total": total, "reports": reports}
 
