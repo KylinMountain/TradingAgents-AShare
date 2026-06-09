@@ -266,6 +266,21 @@ class ApiService {
         await this.request('/v1/portfolio/imports', { method: 'DELETE' })
     }
 
+    async deletePortfolioPosition(symbol: string): Promise<void> {
+        await this.request(`/v1/portfolio/positions/${encodeURIComponent(symbol)}`, { method: 'DELETE' })
+    }
+
+    async updatePortfolioPosition(symbol: string, data: {
+        name?: string
+        current_position?: number
+        average_cost?: number
+    }): Promise<PortfolioPositionInput> {
+        return this.request<PortfolioPositionInput>(`/v1/portfolio/positions/${encodeURIComponent(symbol)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data),
+        })
+    }
+
     async parsePositionImage(file: File): Promise<{ positions: PortfolioPositionInput[] }> {
         const formData = new FormData()
         formData.append('file', file)

@@ -5,6 +5,7 @@ import {
     ChevronUp,
     ImagePlus,
     Loader2,
+    Pencil,
     RefreshCw,
     Save,
     ShieldAlert,
@@ -13,6 +14,7 @@ import {
     TrendingUp,
     Upload,
     Wallet,
+    X,
 } from 'lucide-react'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -53,6 +55,9 @@ export default function TrackingBoardPanel() {
     const [vlmParsing, setVlmParsing] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const navigate = useNavigate()
+    const [editingItem, setEditingItem] = useState<TrackingBoardItem | null>(null)
+    const [editForm, setEditForm] = useState({ symbol: '', name: '', current_position: '', average_cost: '' })
+    const [editSaving, setEditSaving] = useState(false)
 
     const trackingItems = trackingBoard?.items || []
     const trackingRefreshSeconds = trackingBoard?.refresh_interval_seconds || 20
@@ -123,6 +128,90 @@ export default function TrackingBoardPanel() {
         } catch { /* silent */ }
     }, [])
 
+    const handleEdit = useCallback((item: TrackingBoardItem) => {
+        setEditingItem(item)
+        setEditForm({
+            symbol: item.symbol || '',
+            name: item.name || '',
+            current_position: item.current_position?.toString() || '',
+            average_cost: item.average_cost?.toString() || '',
+        })
+    }, [])
+
+    const handleDelete = useCallback(async (symbol: string) => {
+        if (!confirm(`确定删除 ${symbol} 的持仓跟踪？`)) return
+        try {
+            await api.deletePortfolioPosition(symbol)
+            await refreshBoard()
+        } catch (e) {
+            alert(e instanceof Error ? e.message : '删除失败')
+        }
+    }, [refreshBoard])
+
+    const handleEditSave = useCallback(async () => {
+        if (!editingItem) return
+        setEditSaving(true)
+        try {
+            const newSymbol = editForm.symbol.trim().toUpperCase()
+            if (!newSymbol) {
+                alert('股票代码不能为空')
+                return
+            }
+            // Validate symbol format: 6 digits + .SH/.SZ/.BJ
+            if (!/^\d{6}\.(SH|SZ|BJ)$/.test(newSymbol)) {
+                alert('股票代码格式错误，应为 6位数字.SH/.SZ/.BJ')
+                return
+            }
+
+            if (newSymbol !== editingItem.symbol) {
+                // Symbol changed: search for correct name
+                let correctName = editForm.name
+                try {
+                    const searchResult = await api.searchStocks(newSymbol)
+                    const match = searchResult.results.find(r => r.symbol === newSymbol)
+                    if (match?.name) {
+                        correctName = match.name
+                    }
+                } catch {
+                    // Keep user-entered name if search fails
+                }
+
+                // Get all current positions, replace old with new, then sync
+                const currentPositions = trackingItems.map(item => ({
+                    symbol: item.symbol,
+                    name: item.name,
+                    current_position: item.current_position,
+                    average_cost: item.average_cost,
+                }))
+                const newPositions = currentPositions
+                    .filter(p => p.symbol !== editingItem.symbol)
+                    .concat([{
+                        symbol: newSymbol,
+                        name: correctName || editingItem.name,
+                        current_position: editForm.current_position ? parseFloat(editForm.current_position) : editingItem.current_position,
+                        average_cost: editForm.average_cost ? parseFloat(editForm.average_cost) : editingItem.average_cost,
+                    }])
+                await api.syncPortfolioImport({
+                    positions: newPositions,
+                    auto_apply_scheduled: true,
+                })
+            } else {
+                // Same symbol: just update fields
+                await api.updatePortfolioPosition(editingItem.symbol, {
+                    name: editForm.name || undefined,
+                    current_position: editForm.current_position ? parseFloat(editForm.current_position) : undefined,
+                    average_cost: editForm.average_cost ? parseFloat(editForm.average_cost) : undefined,
+                })
+            }
+            setEditingItem(null)
+            await refreshBoard()
+        } catch (e) {
+            alert(e instanceof Error ? e.message : '保存失败')
+        } finally {
+            setEditSaving(false)
+        }
+    }, [editingItem, editForm, refreshBoard])
+
     const parsePositionLines = useCallback((text: string): PortfolioPositionInput[] => {
         const positions: PortfolioPositionInput[] = []
         for (const raw of text.split('\n')) {
@@ -154,7 +243,18 @@ export default function TrackingBoardPanel() {
         setImportSaving(true)
         setImportFeedback(null)
         try {
-            await api.syncPortfolioImport({ positions, auto_apply_scheduled: true })
+            // Merge with existing positions (new positions override same symbols)
+            const existingPositions = trackingItems.map(item => ({
+                symbol: item.symbol,
+                name: item.name,
+                current_position: item.current_position,
+                average_cost: item.average_cost,
+            }))
+            const mergedPositions = [
+                ...existingPositions.filter(p => !positions.some(np => np.symbol === p.symbol)),
+                ...positions,
+            ]
+            await api.syncPortfolioImport({ positions: mergedPositions, auto_apply_scheduled: true })
             setImportFeedback({ tone: 'success', message: `已保存 ${positions.length} 只持仓` })
             setPositionText('')
             setShowImportSection(false)
@@ -164,7 +264,7 @@ export default function TrackingBoardPanel() {
         } finally {
             setImportSaving(false)
         }
-    }, [positionText, parsePositionLines, refreshBoard])
+    }, [positionText, parsePositionLines, refreshBoard, trackingItems])
 
     const handleClearPositions = useCallback(async () => {
         if (!confirm('确定清空所有已导入的持仓吗？')) return
@@ -329,6 +429,8 @@ export default function TrackingBoardPanel() {
                     trackingRefreshing={trackingRefreshing}
                     trackingError={trackingError}
                     lastQuoteTime={lastQuoteTime}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
                 />
             ) : (
                 <DetailedBoardView
@@ -340,6 +442,75 @@ export default function TrackingBoardPanel() {
                     onAnalyze={symbol => navigate(`/analysis?symbol=${symbol}`)}
                     onOpenReport={reportId => navigate(`/reports?report=${reportId}`)}
                 />
+            )}
+
+            {editingItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setEditingItem(null)}>
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800" onClick={e => e.stopPropagation()}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">编辑持仓 — {editingItem.symbol}</h3>
+                            <button onClick={() => setEditingItem(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-1 block text-sm text-slate-500 dark:text-slate-400">股票代码</label>
+                                <input
+                                    type="text"
+                                    value={editForm.symbol}
+                                    onChange={e => setEditForm(f => ({ ...f, symbol: e.target.value }))}
+                                    placeholder="000830.SZ"
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                                />
+                                <p className="mt-1 text-xs text-slate-400">格式：6位数字.SH/.SZ/.BJ</p>
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm text-slate-500 dark:text-slate-400">名称</label>
+                                <input
+                                    type="text"
+                                    value={editForm.name}
+                                    onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm text-slate-500 dark:text-slate-400">持仓数量</label>
+                                <input
+                                    type="number"
+                                    value={editForm.current_position}
+                                    onChange={e => setEditForm(f => ({ ...f, current_position: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-sm text-slate-500 dark:text-slate-400">成本价</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editForm.average_cost}
+                                    onChange={e => setEditForm(f => ({ ...f, average_cost: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                onClick={() => setEditingItem(null)}
+                                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={handleEditSave}
+                                disabled={editSaving}
+                                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {editSaving ? '保存中...' : '保存'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )
@@ -380,17 +551,21 @@ function SimpleBoardView({
     trackingRefreshing,
     trackingError,
     lastQuoteTime,
+    onEdit,
+    onDelete,
 }: {
     items: TrackingBoardItem[]
     trackingRefreshing: boolean
     trackingError: string | null
     lastQuoteTime: string | null
+    onEdit: (item: TrackingBoardItem) => void
+    onDelete: (symbol: string) => void
 }) {
     return (
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1180px]">
-                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr_0.4fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>标的</div>
                         <div>当日 K 线</div>
                         <div>最新价</div>
@@ -401,10 +576,11 @@ function SimpleBoardView({
                         </div>
                         <div>持仓盈亏%</div>
                         <div>成交量 / 成交额</div>
+                        <div className="text-right">操作</div>
                     </div>
 
                     {items.map(item => (
-                        <SimpleTrackingRow key={item.symbol} item={item} />
+                        <SimpleTrackingRow key={item.symbol} item={item} onEdit={onEdit} onDelete={onDelete} />
                     ))}
                 </div>
             </div>
@@ -421,7 +597,7 @@ function SimpleBoardView({
     )
 }
 
-function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
+function SimpleTrackingRow({ item, onEdit, onDelete }: { item: TrackingBoardItem; onEdit: (item: TrackingBoardItem) => void; onDelete: (symbol: string) => void }) {
     const priceChangePct = item.price_change_pct ?? null
     const isUp = (priceChangePct ?? 0) >= 0
     const costToneClass = item.average_cost != null && item.live_price != null && item.average_cost > item.live_price
@@ -436,7 +612,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const rangeAlert = getModelRangeAlert(item)
 
     return (
-        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0 dark:border-slate-700">
+        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr_0.4fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0 dark:border-slate-700">
             <div className="min-w-0">
                 <div className="truncate text-[18px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
@@ -508,6 +684,23 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="self-center space-y-1 text-[15px] text-slate-700 dark:text-slate-200">
                 <div>{formatVolume(item.volume)}</div>
                 <div className="text-[14px] text-slate-500 dark:text-slate-400">{formatAmount(item.amount)}</div>
+            </div>
+
+            <div className="self-center flex items-center justify-end gap-1">
+                <button
+                    onClick={() => onEdit(item)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                    title="编辑"
+                >
+                    <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                    onClick={() => onDelete(item.symbol)}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                    title="删除"
+                >
+                    <Trash2 className="h-4 w-4" />
+                </button>
             </div>
         </div>
     )

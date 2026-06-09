@@ -184,6 +184,65 @@ def build_scheduled_user_context(db: Session, user_id: str, symbol: str) -> dict
     return normalize_user_context(payload)
 
 
+def delete_imported_position(db: Session, user_id: str, symbol: str) -> bool:
+    """Delete a single imported position by symbol. Returns True if deleted."""
+    symbol = _normalize_code(symbol)
+    if not symbol:
+        return False
+    deleted = db.query(ImportedPortfolioPositionDB).filter(
+        ImportedPortfolioPositionDB.user_id == user_id,
+        ImportedPortfolioPositionDB.symbol == symbol,
+    ).delete()
+    db.commit()
+    return deleted > 0
+
+
+def update_imported_position(
+    db: Session,
+    user_id: str,
+    symbol: str,
+    *,
+    name: str | None = None,
+    current_position: float | None = None,
+    available_position: float | None = None,
+    average_cost: float | None = None,
+    market_value: float | None = None,
+) -> dict[str, Any] | None:
+    """Update a single imported position. Returns updated position dict or None."""
+    symbol = _normalize_code(symbol)
+    if not symbol:
+        return None
+    row = db.query(ImportedPortfolioPositionDB).filter(
+        ImportedPortfolioPositionDB.user_id == user_id,
+        ImportedPortfolioPositionDB.symbol == symbol,
+    ).first()
+    if not row:
+        return None
+    if name is not None:
+        row.security_name = name.strip() or None
+    if current_position is not None:
+        row.current_position = current_position
+    if available_position is not None:
+        row.available_position = available_position
+    if average_cost is not None:
+        row.average_cost = average_cost
+    if market_value is not None:
+        row.market_value = market_value
+    row.last_imported_at = datetime.now(timezone.utc)
+    db.commit()
+    return {
+        "symbol": row.symbol,
+        "name": row.security_name or row.symbol,
+        "source": row.source,
+        "current_position": row.current_position,
+        "available_position": row.available_position,
+        "average_cost": row.average_cost,
+        "market_value": row.market_value,
+        "current_position_pct": row.current_position_pct,
+        "last_imported_at": row.last_imported_at.isoformat() if row.last_imported_at else None,
+    }
+
+
 def clear_imported_portfolio(db: Session, user_id: str) -> None:
     """Clear all imported positions for a user, regardless of source."""
     db.query(ImportedPortfolioPositionDB).filter(

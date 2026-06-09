@@ -82,6 +82,8 @@ def _cors_allow_origins() -> list[str]:
         "http://localhost:5175",
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://127.0.0.1:5181",
+        "http://localhost:5181",
     ]
     if not raw:
         return default_origins
@@ -4980,6 +4982,44 @@ def clear_portfolio_import_state(
     db: Session = Depends(get_db),
 ):
     portfolio_import_service.clear_imported_portfolio(db, current_user.id)
+
+
+@app.delete("/v1/portfolio/positions/{symbol}", status_code=204)
+def delete_portfolio_position(
+    symbol: str,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    if not portfolio_import_service.delete_imported_position(db, current_user.id, symbol):
+        raise HTTPException(404, "未找到该持仓")
+
+
+class UpdatePositionRequest(BaseModel):
+    name: Optional[str] = None
+    current_position: Optional[float] = None
+    available_position: Optional[float] = None
+    average_cost: Optional[float] = None
+    market_value: Optional[float] = None
+
+
+@app.patch("/v1/portfolio/positions/{symbol}")
+def update_portfolio_position(
+    symbol: str,
+    body: UpdatePositionRequest,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    result = portfolio_import_service.update_imported_position(
+        db, current_user.id, symbol,
+        name=body.name,
+        current_position=body.current_position,
+        available_position=body.available_position,
+        average_cost=body.average_cost,
+        market_value=body.market_value,
+    )
+    if result is None:
+        raise HTTPException(404, "未找到该持仓")
+    return result
 
 
 @app.post("/v1/portfolio/parse-image")
