@@ -149,7 +149,8 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
         if is_index:
             raw = pro.index_daily(ts_code=ts_code, start_date=start, end_date=end)
         else:
-            raw = pro.daily(ts_code=ts_code, start_date=start, end_date=end)
+            # 个股用 pro_bar 获取前复权数据，pro.daily 返回的是未复权
+            raw = ts.pro_bar(ts_code=ts_code, adj='qfq', start_date=start, end_date=end)
         if raw is None or raw.empty:
             return None
         raw = raw.rename(columns={"trade_date": "date", "vol": "volume"})
