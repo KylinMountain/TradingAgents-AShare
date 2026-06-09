@@ -46,27 +46,39 @@ def _get_trading_days_after(start_date: str, n_days: int) -> str:
     return d.strftime("%Y-%m-%d")
 
 
+def _to_tushare_code(symbol: str) -> Optional[str]:
+    """Convert symbol to Tushare format (e.g. '001203.SZ'). Returns None for indices/non-stocks."""
+    s = symbol.strip().upper()
+    # Already in Tushare format
+    if s.endswith(".SZ") or s.endswith(".SH"):
+        return s
+    # Bare 6-digit code
+    code = s.replace(".SS", "")
+    if code.isdigit() and len(code) == 6:
+        if code.startswith("6"):
+            return code + ".SH"
+        else:
+            return code + ".SZ"
+    return None
+
+
 def _get_price_on_date(symbol: str, date_str: str) -> Optional[float]:
-    """Get closing price for a symbol on a specific date."""
+    """Get closing price for a symbol on or just before date_str using Tushare."""
     try:
-        import akshare as ak
-        # Normalize symbol
-        code = symbol.replace(".SZ", "").replace(".SH", "").replace(".SS", "")
-        raw = ak.stock_zh_a_hist(
-            symbol=code,
-            period="daily",
-            start_date=date_str.replace("-", ""),
-            end_date=date_str.replace("-", ""),
-            adjust="qfq",
-        )
-        if raw is None or raw.empty:
+        import tushare as ts
+        pro = ts.pro_api()
+        ts_code = _to_tushare_code(symbol)
+        if not ts_code:
             return None
-        # Try multiple column name formats
-        for col in ["收盘", "close", "Close"]:
-            if col in raw.columns:
-                val = raw[col].iloc[-1]
-                return float(val) if pd.notna(val) else None
-        return None
+        # Query a small window around the date
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        start = (d - timedelta(days=5)).strftime("%Y%m%d")
+        end = d.strftime("%Y%m%d")
+        df = pro.daily(ts_code=ts_code, start_date=start, end_date=end, fields="trade_date,close")
+        if df is None or df.empty:
+            return None
+        df = df.sort_values("trade_date", ascending=True)
+        return float(df["close"].iloc[-1])
     except Exception as e:
         logger.debug(f"Failed to get price for {symbol} on {date_str}: {e}")
         return None
