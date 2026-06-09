@@ -373,6 +373,20 @@ export interface PositionResponse {
     signal?: Record<string, any> | null
 }
 
+export interface VolumeWashPoint {
+    date: string
+    close: number
+    volume: number
+    vol_wash_type: number  // 0=普通, 2=缩量洗盘, 3=温和放量, 4=放量突破
+}
+
+export interface VolumeWashResponse {
+    symbol: string
+    name?: string | null
+    points: VolumeWashPoint[]
+    signal?: Record<string, any> | null
+}
+
 export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
 
 export type KlinePeriod = 'daily' | 'weekly' | 'monthly'

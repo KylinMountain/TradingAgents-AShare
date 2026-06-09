@@ -7,6 +7,7 @@ import ChatCopilotPanel from '@/components/ChatCopilotPanel'
 import KlinePanel from '@/components/KlinePanel'
 import RadarPanel from '@/components/RadarPanel'
 import PositionPanel from '@/components/PositionPanel'
+import VolumeWashPanel from '@/components/VolumeWashPanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
@@ -119,6 +120,8 @@ export default function Analysis() {
                     <RadarPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('radar', c)} onSyncNow={syncNow} />
 
                     <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
+
+                    <VolumeWashPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('volumeWash', c)} onSyncNow={syncNow} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 

@@ -740,6 +740,20 @@ class PositionResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+class VolumeWashPoint(BaseModel):
+    date: str
+    close: float
+    volume: float
+    vol_wash_type: int  # 0=普通, 2=缩量洗盘, 3=温和放量, 4=放量突破
+
+
+class VolumeWashResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[VolumeWashPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 class AiGravityPoint(BaseModel):
     date: str
     close: float
@@ -3210,6 +3224,79 @@ def get_position(
         pass
 
     return PositionResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
+
+
+@app.get("/v1/market/volume-wash", response_model=VolumeWashResponse)
+def get_volume_wash(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
+) -> VolumeWashResponse:
+    """成交量洗盘指标接口"""
+    from tradingagents.indicators import calculate_volume_wash, get_volume_wash_signal, fetch_realtime_data, fetch_realtime_quote
+
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
+    days = _indicator_days_map.get(period, 250)
+
+    try:
+        df = fetch_realtime_data(symbol, days=days, period=period)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    if period != "daily":
+        df = _aggregate_daily_df(df, period)
+        df.index = pd.to_datetime(df.index)
+
+    result = calculate_volume_wash(df)
+    signal = get_volume_wash_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(VolumeWashPoint(
+            date=date_str,
+            close=float(row["close"]),
+            volume=float(row["volume"]),
+            vol_wash_type=int(row["vol_wash_type"]),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return VolumeWashResponse(
         symbol=symbol,
         name=name,
         points=points,

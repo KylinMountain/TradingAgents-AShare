@@ -22,6 +22,10 @@ from .position_index import (
     calculate_position_index,
     get_position_signal,
 )
+from .volume_wash import (
+    calculate_volume_wash,
+    get_volume_wash_signal,
+)
 
 __all__ = [
     'calculate_niuxiong_line',
@@ -44,4 +48,6 @@ __all__ = [
     'get_ai_gravity_signal',
     'calculate_position_index',
     'get_position_signal',
+    'calculate_volume_wash',
+    'get_volume_wash_signal',
 ]
