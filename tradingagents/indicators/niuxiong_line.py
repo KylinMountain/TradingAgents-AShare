@@ -268,12 +268,19 @@ def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
         date_val = pd.to_datetime(parts[30], errors="coerce")
         if pd.isna(date_val):
             date_val = today
+        close_val = float(parts[3])
+        prev_close = float(parts[2])  # 昨收
+        change = round(close_val - prev_close, 4)
+        pct_chg = round(change / prev_close * 100, 4) if prev_close else None
         row = pd.DataFrame([{
             "open": float(parts[1]),
             "high": float(parts[4]),
             "low": float(parts[5]),
-            "close": float(parts[3]),
+            "close": close_val,
             "volume": float(parts[8]),
+            "pre_close": prev_close,
+            "change": change,
+            "pct_chg": pct_chg,
         }], index=[pd.Timestamp(date_val).normalize()])
     except (ValueError, IndexError):
         return df
