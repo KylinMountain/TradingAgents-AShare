@@ -155,6 +155,18 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
         raw = raw.rename(columns={"trade_date": "date", "vol": "volume"})
         raw["date"] = pd.to_datetime(raw["date"], format="%Y%m%d")
         raw = raw.set_index("date").sort_index()
+        # 个股: daily_basic 补充换手率
+        # Tushare返回百分比(0.2504=0.25%)，后端*100转百分比，所以这里除以100对齐
+        if not is_index:
+            try:
+                basic = pro.daily_basic(ts_code=ts_code, start_date=start, end_date=end,
+                                        fields="trade_date,turnover_rate")
+                if basic is not None and not basic.empty:
+                    basic["date"] = pd.to_datetime(basic["trade_date"], format="%Y%m%d")
+                    basic = basic.set_index("date")
+                    raw["turnover_rate"] = basic["turnover_rate"] / 100
+            except Exception:
+                pass
         return raw
 
     sources: list[tuple[str, callable]] = [("tushare", _fetch_tushare)]
@@ -219,8 +231,14 @@ def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
     import urllib.request
     from datetime import datetime
 
-    today = pd.Timestamp.now().normalize()
+    now = datetime.now()
+    today = pd.Timestamp(now.date())
     if today in df.index.normalize():
+        return df
+
+    # 盘前（9:30前）不追加今日行，Sina会返回close=0导致画出异常K线
+    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    if now < market_open:
         return df
 
     prefix = "sh" if symbol.startswith(("5", "6", "9")) else "sz" if symbol.startswith(("0", "3", "2")) else "bj" if symbol.startswith(("4", "8")) else None
