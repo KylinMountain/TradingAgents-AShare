@@ -196,7 +196,7 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
         df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date").sort_index()
 
-    keep_cols = [c for c in ["open", "close", "high", "low", "volume", "amount", "turnover_rate"] if c in df.columns]
+    keep_cols = [c for c in ["open", "close", "high", "low", "volume", "amount", "turnover_rate", "pre_close", "change", "pct_chg"] if c in df.columns]
     df = df[keep_cols]
 
     # 尝试追加当天实时行情
