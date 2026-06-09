@@ -2783,25 +2783,41 @@ def get_kline(
                 ),
             )
         if period != "daily":
-            # Non-daily: try akshare with period, fallback to daily + aggregation
-            import akshare as ak  # type: ignore
-            code = symbol.split(".")[0]
-            akshare_period = _KLINE_PERIOD_MAP[period]["akshare_period"]
+            # Non-daily: fetch daily data (含盘中实时) then aggregate locally
+            from tradingagents.indicators import fetch_realtime_data
+            days = max(250, (pd.Timestamp(end) - pd.Timestamp(start)).days + 30)
             candles = []
             try:
-                raw_df = ak.stock_zh_a_hist(symbol=code, period=akshare_period, start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq")
-                df = _normalize_kline_df(raw_df)
+                df = fetch_realtime_data(symbol, days=days, period="daily")
                 if not df.empty:
-                    candles = _df_to_candles(df)
-            except Exception:
-                pass
+                    daily_candles = []
+                    for idx, row in df.iterrows():
+                        daily_candles.append({
+                            "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
+                            "open": float(row["open"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "close": float(row["close"]),
+                            "volume": int(row["volume"]) if pd.notna(row.get("volume")) else None,
+                            "amount": float(row["amount"]) if "amount" in row.index and pd.notna(row.get("amount")) else None,
+                            "turnover_rate": round(float(row["turnover_rate"]) * 100, 2) if "turnover_rate" in row.index and pd.notna(row.get("turnover_rate")) else None,
+                        })
+                    daily_candles = [c for c in daily_candles if start <= c["date"] <= end]
+                    candles = _aggregate_candles(daily_candles, period)
+            except Exception as e:
+                _log(f"[kline] weekly/monthly fetch_realtime_data failed for {symbol}: {type(e).__name__}: {e}")
+            # Fallback: try akshare
             if not candles:
-                # Fallback: fetch daily and aggregate
-                config = _build_runtime_config({})
-                set_config(config)
-                raw = route_to_vendor("get_stock_data", symbol, start, end)
-                daily_candles = _parse_stock_csv(raw)
-                candles = _aggregate_candles(daily_candles, period)
+                import akshare as ak  # type: ignore
+                code = symbol.split(".")[0]
+                akshare_period = _KLINE_PERIOD_MAP[period]["akshare_period"]
+                try:
+                    raw_df = ak.stock_zh_a_hist(symbol=code, period=akshare_period, start_date=start.replace("-", ""), end_date=end.replace("-", ""), adjust="qfq")
+                    df = _normalize_kline_df(raw_df)
+                    if not df.empty:
+                        candles = _df_to_candles(df)
+                except Exception:
+                    pass
         else:
             # Daily: use fetch_realtime_data (3-level fallback + turnover_rate)
             from tradingagents.indicators import fetch_realtime_data
