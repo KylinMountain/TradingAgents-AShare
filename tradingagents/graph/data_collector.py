@@ -415,15 +415,54 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
                 return None
             return resampled
 
+    def _slope_trend(bars):
+        """Return slope-sequence trend label for a bar series."""
+        if bars is None or len(bars) < 3:
+            return "不足"
+        slopes = []
+        for i in range(1, len(bars)):
+            sl = (bars["close"].iloc[i] - bars["close"].iloc[i-1]) / bars["close"].iloc[i-1] * 100
+            slopes.append(sl)
+        # Decompose into same-direction runs
+        runs = []
+        i = 0
+        while i < len(slopes):
+            sign = 1 if slopes[i] > 0 else -1
+            j = i
+            while j < len(slopes) and (slopes[j] > 0) == (sign > 0):
+                j += 1
+            runs.append((sign, j - i))
+            i = j
+        cur_sign, cur_len = runs[-1]
+        prev_sign, prev_len = runs[-2] if len(runs) >= 2 else (0, 0)
+        if cur_sign < 0 and cur_len >= 3:
+            return "持续下跌"
+        if cur_sign > 0 and cur_len >= 3:
+            return "持续上涨"
+        if cur_sign > 0 and prev_sign < 0 and prev_len >= 3:
+            return "止跌" if cur_len == 1 else "反弹"
+        if cur_sign < 0 and prev_sign > 0 and prev_len >= 2:
+            return "转弱"
+        if cur_sign > 0 and cur_len >= 2:
+            return "短线走强"
+        if cur_sign < 0 and cur_len >= 2:
+            return "短线走弱"
+        recent3 = slopes[-3:] if len(slopes) >= 3 else slopes
+        up_cnt = sum(1 for s in recent3 if s > 0)
+        down_cnt = sum(1 for s in recent3 if s < 0)
+        if down_cnt > up_cnt:
+            return "震荡偏空"
+        if up_cnt > down_cnt:
+            return "震荡偏多"
+        return "震荡"
+
     def _summarize_bars(bars, label, n):
         """Produce a compact summary for a higher timeframe."""
         if bars is None or len(bars) < 3:
             return [f"- **{label}**: 数据不足（需至少3根K线）"]
         lines_out = []
-        # Trend direction
-        first_close, last_close = bars["close"].iloc[0], bars["close"].iloc[-1]
-        pct = (last_close - first_close) / first_close * 100
-        dir_str = "上涨" if pct > 2 else ("下跌" if pct < -2 else "横盘")
+        # Trend direction from slope sequence (NOT first-vs-last)
+        slope_dir = _slope_trend(bars)
         # Volume trend
         vol_first, vol_last = bars["volume"].iloc[:2].mean(), bars["volume"].iloc[-2:].mean()
         vol_dir = "放量" if vol_last > vol_first * 1.15 else ("缩量" if vol_last < vol_first * 0.85 else "平稳")
@@ -435,7 +474,7 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         # Moving averages
         bars_ma20 = bars["close"].rolling(min(3, len(bars))).mean().iloc[-1] if len(bars) >= 3 else current_close
 
-        lines_out.append(f"**{label}趋势**（近{n}根）：{dir_str} | 涨跌幅 {pct:+.1f}% | 量能 {vol_dir}")
+        lines_out.append(f"**{label}趋势**（近{n}根）：{slope_dir} | 量能 {vol_dir}")
         lines_out.append(f"- 最高: {recent_high:.2f} | 最低: {recent_low:.2f} | 当前: {current_close:.2f} (区间位置 {pos_in_range:.0f}%)")
         if current_close > bars_ma20:
             lines_out.append(f"- 当前价位于{n}均线上方（均线 {bars_ma20:.2f}）→ 中期偏强")
