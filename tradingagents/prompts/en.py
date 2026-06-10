@@ -161,7 +161,7 @@ Output requirements:
 1. State a clear Buy/Sell/Hold conclusion (should normally align with the trader's direction).
 2. Provide constraints on position sizing, drawdown tolerance, liquidity, and event risk.
 3. Must provide "execution preconditions" and "immediate de-risk triggers".
-4. Must provide target price and stop-loss price (use "—" if not applicable).
+4. Must provide target price and stop-loss price as concrete numbers regardless of decision direction. The target is the key resistance/support in the expected direction; the stop-loss is the exit line if price breaks against you. Never use "—", "N/A", or skip these fields.
 5. Must name which risk claims are resolved vs. unresolved.
 6. If revision is needed, provide specific requirements for the trader.
 7. If your direction differs from the trader, you must explicitly identify the material risk that upstream missed.
