@@ -769,6 +769,80 @@ class AiGravityResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+# Dark Pool Analysis Models
+class DarkPoolEvent(BaseModel):
+    start: str
+    end: str
+    duration_min: float
+    direction: str  # '买' | '卖'
+    volume: int
+    base_score: int
+    quality_score: int
+    level: str  # '暗盘' | '疑似' | '低分'
+    indicators: str
+
+
+class DarkPoolDimension(BaseModel):
+    total_events: int = 0
+    high_conf_count: int = 0
+    suspected_count: int = 0
+    split_vol: int = 0
+    split_vol_pct: float = 0.0
+    active_buy_vol: int = 0
+    active_sell_vol: int = 0
+    direction: str = ''
+    events: List[DarkPoolEvent] = []
+
+
+class DarkPoolInstitutional(BaseModel):
+    inst_participation_pct: float = 0
+    inst_net_wan: float = 0
+    retail_net_wan: float = 0
+    tick_net_wan: float = 0
+    big_active_buy_wan: float = 0
+    big_active_sell_wan: float = 0
+    intent: str = ''
+
+
+class DarkPoolTail(BaseModel):
+    tail_vol_ratio_pct: float = 0
+    tail_chg_pct: float = 0
+    full_chg_pct: float = 0
+    signal: str = ''
+
+
+class DarkPoolComposite(BaseModel):
+    signals: List[str] = []
+    confidence: int = 0
+    verdict: str = ''
+    intent: str = ''
+    prediction: str = ''
+    key_facts: List[str] = []
+
+
+class DarkPoolMarket(BaseModel):
+    open: float = 0
+    high: float = 0
+    low: float = 0
+    close: float = 0
+    chg_pct: float = 0
+    total_vol: int = 0
+    total_amt_wan: float = 0
+    tick_count: int = 0
+
+
+class DarkPoolAnalysisResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    date: str
+    market: Optional[DarkPoolMarket] = None
+    dim1_institutional: Optional[DarkPoolInstitutional] = None
+    dim2_tail: Optional[DarkPoolTail] = None
+    dim3_split: Optional[DarkPoolDimension] = None
+    composite: Optional[DarkPoolComposite] = None
+    error: Optional[str] = None
+
+
 # Report API Models
 class ReportCreateRequest(BaseModel):
     symbol: str = Field(..., description="股票代码")
@@ -3423,6 +3497,37 @@ def _normalize_ths_code(code: str) -> str:
         return f"{num}.{market}"
 
     return code
+
+
+@app.get("/v1/market/dark-pool-analysis", response_model=DarkPoolAnalysisResponse)
+def get_dark_pool_analysis(symbol: str, date: Optional[str] = None) -> DarkPoolAnalysisResponse:
+    """v4暗盘资金分析: 机构参与度 + 尾盘异动 + 拆单检测"""
+    from api.services.market_analysis_service import analyze_dark_pool
+
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    result = analyze_dark_pool(symbol, date)
+    if result.get('error'):
+        return DarkPoolAnalysisResponse(symbol=symbol, date=date or '', error=result['error'])
+
+    return DarkPoolAnalysisResponse(
+        symbol=result['symbol'],
+        name=result.get('name'),
+        date=result['date'],
+        market=DarkPoolMarket(**result['market']) if result.get('market') else None,
+        dim1_institutional=DarkPoolInstitutional(**result['dim1_institutional']) if result.get('dim1_institutional') else None,
+        dim2_tail=DarkPoolTail(**result['dim2_tail']) if result.get('dim2_tail') else None,
+        dim3_split=DarkPoolDimension(**result['dim3_split']) if result.get('dim3_split') else None,
+        composite=DarkPoolComposite(
+            signals=result['composite'].get('signals', []),
+            confidence=result['composite'].get('confidence', 0),
+            verdict=result['composite'].get('verdict', ''),
+            intent=result['composite'].get('intent', ''),
+            prediction=result['composite'].get('prediction', ''),
+            key_facts=result['composite'].get('key_facts', []),
+        ) if result.get('composite') else None,
+    )
 
 
 @app.get("/v1/market/hot-stocks")

@@ -15,10 +15,11 @@ import {
     createChart,
     createSeriesMarkers,
 } from 'lightweight-charts'
-import { Activity, CandlestickChart, TrendingUp } from 'lucide-react'
+import { Activity, CandlestickChart, TrendingUp, Search } from 'lucide-react'
 import { api } from '@/services/api'
 import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode, KlinePeriod } from '@/types'
 import { useAnalysisStore } from '@/stores/analysisStore'
+import DarkPoolDrawer from './DarkPoolDrawer'
 
 interface KlinePanelProps {
     symbol: string
@@ -111,6 +112,23 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
     const candlesRef = useRef<KlineCandle[]>([])
     const candlesPeriodRef = useRef<KlinePeriod>('daily')
     const [stockName, setStockName] = useState<string | null>(null)
+    const [darkPoolOpen, setDarkPoolOpen] = useState(false)
+    const [darkPoolPreloaded, setDarkPoolPreloaded] = useState(false)
+
+    // 预加载：symbol变化时后台拉取分析数据
+    useEffect(() => {
+        if (!symbol || symbol.startsWith('0.') || symbol.startsWith('9.')) return
+        setDarkPoolPreloaded(false)
+        let cancelled = false
+        const preload = async () => {
+            try {
+                await api.getDarkPoolAnalysis(symbol)
+                if (!cancelled) setDarkPoolPreloaded(true)
+            } catch { /* 静默失败 */ }
+        }
+        preload()
+        return () => { cancelled = true }
+    }, [symbol])
 
     const range = useMemo(() => {
         const end = new Date()
@@ -473,12 +491,24 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
     const currentSymbolLabel = currentAnalysisSymbol ? getDisplayName(currentAnalysisSymbol).replace(/（.*?）/, '') : '当前标的'
 
     return (
+        <>
         <section className="card h-full flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-3 shrink-0">
                 <div className="min-w-0 flex items-center gap-3">
                     <CandlestickChart className="w-5 h-5 text-cyan-500" />
                     <div className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
                         <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{stockName ? `${stockName}（${symbol}）` : getDisplayName(symbol)} K线</h2>
+                        <button
+                            onClick={() => setDarkPoolOpen(true)}
+                            className={`p-1 rounded-md transition-colors ${
+                                darkPoolPreloaded
+                                    ? 'text-purple-500 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/15'
+                                    : 'text-slate-400 hover:text-purple-500 dark:hover:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/15'
+                            }`}
+                            title={darkPoolPreloaded ? '盘面分析（已就绪）' : '盘面分析（加载中...）'}
+                        >
+                            <Search className="w-4 h-4" />
+                        </button>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                             <span className="text-slate-500 dark:text-slate-400">{panelCandle?.date || '--'}</span>
                             <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>收盘 {formatNumber(panelCandle?.close)}</span>
@@ -655,5 +685,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                 )}
             </div>
         </section>
-    )
+            <DarkPoolDrawer symbol={symbol} stockName={stockName} open={darkPoolOpen} onClose={() => setDarkPoolOpen(false)} />
+        </>
+        )
 }

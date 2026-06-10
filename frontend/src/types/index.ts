@@ -387,6 +387,55 @@ export interface VolumeWashResponse {
     signal?: Record<string, any> | null
 }
 
+export interface DarkPoolEvent {
+    start: string
+    end: string
+    duration_min: number
+    direction: string
+    volume: number
+    base_score: number
+    quality_score: number
+    level: string
+    indicators: string
+}
+
+export interface DarkPoolMarket {
+    open: number; high: number; low: number; close: number; chg_pct: number
+    total_vol: number; total_amt_wan: number; tick_count: number
+}
+
+export interface DarkPoolInstitutional {
+    inst_participation_pct: number; inst_net_wan: number; retail_net_wan: number
+    tick_net_wan: number; big_active_buy_wan: number; big_active_sell_wan: number
+    intent: string
+}
+
+export interface DarkPoolTail {
+    tail_vol_ratio_pct: number; tail_chg_pct: number; full_chg_pct: number; signal: string
+}
+
+export interface DarkPoolDimension {
+    total_events: number; high_conf_count: number; suspected_count: number
+    split_vol: number; split_vol_pct: number
+    active_buy_vol: number; active_sell_vol: number
+    direction: string; events: DarkPoolEvent[]
+}
+
+export interface DarkPoolComposite {
+    signals: string[]; confidence: number; verdict: string
+    intent: string; prediction: string; key_facts: string[]
+}
+
+export interface DarkPoolAnalysisResponse {
+    symbol: string; name?: string | null; date: string
+    market?: DarkPoolMarket | null
+    dim1_institutional?: DarkPoolInstitutional | null
+    dim2_tail?: DarkPoolTail | null
+    dim3_split?: DarkPoolDimension | null
+    composite?: DarkPoolComposite | null
+    error?: string | null
+}
+
 export type IndicatorMode = 'niuxiong' | 'gs' | 'combined' | 'off'
 
 export type KlinePeriod = 'daily' | 'weekly' | 'monthly'
