@@ -68,6 +68,10 @@ export default function DecisionCard({
         high: 'text-red-600 dark:text-red-400',
     }
 
+    const isBearish = direction?.includes('偏空') || direction?.includes('看空') || decision === 'sell'
+    const targetLabel = isBearish ? '下行目标' : '目标价'
+    const stopLabel = isBearish ? '止损位' : '止损价'
+
     return (
         <div className="card overflow-hidden">
             {/* 头部 */}
@@ -117,7 +121,7 @@ export default function DecisionCard({
                 <div className="p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20">
                     <div className="flex items-center gap-1.5 mb-1">
                         <Target className="w-4 h-4 text-red-600 dark:text-red-400" />
-                        <span className="text-xs text-slate-500">目标价</span>
+                        <span className="text-xs text-slate-500">{targetLabel}</span>
                     </div>
                     <p className="text-xl font-bold text-red-600 dark:text-red-400">
                         {targetPrice != null ? `¥${targetPrice}` : '--'}
@@ -131,7 +135,7 @@ export default function DecisionCard({
                 <div className="p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/20">
                     <div className="flex items-center gap-1.5 mb-1">
                         <Shield className="w-4 h-4 text-green-600 dark:text-green-400" />
-                        <span className="text-xs text-slate-500">止损价</span>
+                        <span className="text-xs text-slate-500">{stopLabel}</span>
                     </div>
                     <p className="text-xl font-bold text-green-600 dark:text-green-400">
                         {stopLoss != null ? `¥${stopLoss}` : '--'}

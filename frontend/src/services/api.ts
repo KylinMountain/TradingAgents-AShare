@@ -185,6 +185,13 @@ class ApiService {
         })
     }
 
+    async deleteReportsBatch(reportIds: string[]): Promise<{ deleted_ids: string[]; missing_ids: string[] }> {
+        return this.request<{ deleted_ids: string[]; missing_ids: string[] }>('/v1/reports/batch/delete', {
+            method: 'POST',
+            body: JSON.stringify({ report_ids: reportIds }),
+        })
+    }
+
 
     async createReport(report: {
         symbol: string

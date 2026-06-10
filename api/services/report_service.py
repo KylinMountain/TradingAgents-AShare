@@ -125,7 +125,7 @@ def extract_structured_data(
             "提取要求（请确保输出为有效的 JSON 对象，不要包裹在 markdown 代码块中）：\n"
             "1. decision：决策方向关键词（BUY/SELL/HOLD 或 增持/减持/持有）\n"
             "2. confidence：整体置信度（0-100整数），若文中未明确给出则根据语气判断\n"
-            "3. target_price / stop_loss_price：纯数字，若未提及则为 null\n"
+            "3. target_price / stop_loss_price：纯数字。若方向偏多，提取上涨目标（目标价/目标位/关键价位/阻力位/突破做多等）；若方向偏空，提取下跌目标（下行目标/看空目标/目标位等，区别于止损位）。若文中确实未提及任何目标价格则为 null\n"
             "4. risks：最多5条主要风险，每条包含名称（15字内）、等级（high/medium/low）、一句话说明\n"
             "5. key_metrics：最多6条关键财务/估值指标，每条包含名称、值（含单位）、优劣（good/neutral/bad）"
         )
@@ -160,20 +160,34 @@ def _extract_confidence_regex(text: Optional[str]) -> Optional[int]:
 def _extract_price_regex(text: Optional[str], price_type: str = "target") -> Optional[float]:
     if not text:
         return None
+    # 预处理：去除 markdown 加粗标记，避免 **目标价** 干扰匹配
+    clean = re.sub(r'\*{1,2}', '', text)
     if price_type == "target":
         patterns = [
-            r'目标价[:：]\s*[¥$]?\s*(\d+\.?\d*)',
-            r'目标价格[:：]\s*[¥$]?\s*(\d+\.?\d*)',
-            r'target[:：]\s*[¥$]?\s*(\d+\.?\d*)',
+            # 明确的目标价标记（优先），LLM 可能写成 目标价/目标价格/目标哨位 等变体
+            r'目标[价格位哨]\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'target\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            # 关键价位/关键哨位/阻力位/压力位 可作为目标价参考
+            r'关键[价哨位][位格]?[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'阻力位[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'上方目标位[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'压力位[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            # 突破做多 + 紧邻价格（限10字符内，避免跨句误匹配止损价）
+            r'突破做多[^，。,.\n]{0,10}?(\d+\.?\d+)\s*元',
+            # 入场区间取上限作为目标参考
+            r'入场区间[：:]\s*[¥$]?\s*(\d+\.?\d+)\s*[–\-—至~]\s*\d+\.?\d+',
+            # 看空方向：下行目标 / 看空目标
+            r'下行目标[位]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'看空目标[位]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
         ]
     else:
         patterns = [
-            r'止损价[:：]\s*[¥$]?\s*(\d+\.?\d*)',
-            r'止损价格[:：]\s*[¥$]?\s*(\d+\.?\d*)',
-            r'stop[-\s_]?loss[:：]\s*[¥$]?\s*(\d+\.?\d*)',
+            r'止损[价位哨]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d*)',
+            r'stop[-\s_]?loss\d*[：:]\s*[¥$]?\s*(\d+\.?\d*)',
+            r'硬止损[价位哨]?[：:]\s*[¥$]?\s*(\d+\.?\d*)',
         ]
     for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
+        m = re.search(p, clean, re.IGNORECASE)
         if m:
             return float(m.group(1))
     return None

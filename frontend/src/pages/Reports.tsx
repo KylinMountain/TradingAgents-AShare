@@ -1,4 +1,4 @@
-import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3 } from 'lucide-react'
+import { FileText, Download, Trash2, Search, ChevronLeft, ChevronRight, Loader2, History, Clock3, CheckSquare, Square } from 'lucide-react'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TaskProgressBanner from '@/components/TaskProgressBanner'
@@ -23,18 +23,20 @@ const IDLE_PROGRESS: ProgressState = {
     detail: null,
 }
 
-const parseDecision = (decisionText?: string): { action: 'add' | 'reduce' | 'hold'; label: string } => {
-    if (!decisionText) return { action: 'hold', label: '观望' }
+// 与 Analysis.tsx mapDecision 对齐，后端 decision 只有 BUY/SELL/HOLD/UNKNOWN
+const parseDecision = (decisionText?: string): { action: 'buy' | 'sell' | 'hold'; label: string } => {
+    if (!decisionText) return { action: 'hold', label: '持有' }
     const text = decisionText.toUpperCase()
-    if (text.includes('BUY') || text.includes('增持') || text.includes('买入')) return { action: 'add', label: '增持' }
-    if (text.includes('SELL') || text.includes('减持') || text.includes('卖出')) return { action: 'reduce', label: '减持' }
+    if (text.includes('BUY') || text.includes('买入')) return { action: 'buy', label: '买入' }
+    if (text.includes('SELL') || text.includes('卖出')) return { action: 'sell', label: '卖出' }
+    if (text.includes('UNKNOWN')) return { action: 'hold', label: '观望' }
     return { action: 'hold', label: '持有' }
 }
 
 const getDecisionColor = (decision?: string) => {
     const { action } = parseDecision(decision)
-    if (action === 'add') return 'text-red-600 dark:text-red-400'
-    if (action === 'reduce') return 'text-green-600 dark:text-green-400'
+    if (action === 'buy') return 'text-red-600 dark:text-red-400'
+    if (action === 'sell') return 'text-green-600 dark:text-green-400'
     return 'text-slate-600 dark:text-slate-400'
 }
 
@@ -192,6 +194,8 @@ export default function Reports() {
     const [detailLoading, setDetailLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [batchDeleting, setBatchDeleting] = useState(false)
     const [symbolHistory, setSymbolHistory] = useState<Report[]>([])
     const [listProgress, setListProgress] = useState<ProgressState>(IDLE_PROGRESS)
     const [detailProgress, setDetailProgress] = useState<ProgressState>(IDLE_PROGRESS)
@@ -263,6 +267,9 @@ export default function Reports() {
 
     useEffect(() => { fetchReports(page) }, [fetchReports, page])
 
+    // 页码或搜索变化时清空选择
+    useEffect(() => { setSelectedIds(new Set()) }, [page, searchQuery])
+
     const handleDelete = async (e: React.MouseEvent, reportId: string) => {
         e.stopPropagation()
         if (!confirm('确定要删除这份报告吗？')) return
@@ -270,6 +277,7 @@ export default function Reports() {
         try {
             await api.deleteReport(reportId)
             setReports(prev => prev.filter(r => r.id !== reportId))
+            setSelectedIds(prev => { const next = new Set(prev); next.delete(reportId); return next })
             setTotal(prev => {
                 const newTotal = prev - 1
                 // Go to prev page if current page is now empty
@@ -344,6 +352,40 @@ export default function Reports() {
         try {
             await loadReportDetail(report.id)
         } catch {}
+    }
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id); else next.add(id)
+            return next
+        })
+    }
+
+    const toggleSelectAll = () => {
+        const completedIds = filteredReports.filter(r => r.status !== 'pending' && r.status !== 'running').map(r => r.id)
+        const selectedCount = completedIds.filter(id => selectedIds.has(id)).length
+        if (selectedCount === completedIds.length && completedIds.length > 0) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(completedIds))
+        }
+    }
+
+    const handleBatchDelete = async () => {
+        if (selectedIds.size === 0) return
+        if (!confirm(`确定要删除选中的 ${selectedIds.size} 份报告吗？此操作不可撤销。`)) return
+        setBatchDeleting(true)
+        try {
+            await api.deleteReportsBatch(Array.from(selectedIds))
+            setReports(prev => prev.filter(r => !selectedIds.has(r.id)))
+            setTotal(prev => prev - selectedIds.size)
+            setSelectedIds(new Set())
+        } catch (err) {
+            alert(err instanceof Error ? err.message : '批量删除失败')
+        } finally {
+            setBatchDeleting(false)
+        }
     }
 
     // Only on mount: restore report from URL
@@ -470,7 +512,7 @@ export default function Reports() {
                         <div className="flex items-center gap-2 overflow-x-auto pb-1">
                             {symbolHistory.slice().reverse().map(r => {
                                 const { action: a } = parseDecision(r.decision)
-                                const color = a === 'add' ? 'bg-red-500' : a === 'reduce' ? 'bg-green-500' : 'bg-slate-400'
+                                const color = a === 'buy' ? 'bg-red-500' : a === 'sell' ? 'bg-green-500' : 'bg-slate-400'
                                 const isCurrent = r.id === selectedReport.id
                                 return (
                                     <button
@@ -580,10 +622,32 @@ export default function Reports() {
             {/* 报告表格 */}
             {!loading && !error && (
                 <div className="card overflow-hidden">
+                    {selectedIds.size > 0 && (
+                        <div className="flex items-center gap-3 px-4 py-2 bg-blue-50 dark:bg-blue-500/10 border-b border-blue-100 dark:border-blue-500/20">
+                            <span className="text-sm text-blue-700 dark:text-blue-300">已选 {selectedIds.size} 项</span>
+                            <button
+                                onClick={() => handleBatchDelete()}
+                                disabled={batchDeleting}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+                            >
+                                {batchDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                批量删除
+                            </button>
+                        </div>
+                    )}
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
+                                    <th className="py-3 px-4 w-10">
+                                        <button onClick={toggleSelectAll} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                            {(() => {
+                                                const completedIds = filteredReports.filter(r => r.status !== 'pending' && r.status !== 'running').map(r => r.id)
+                                                const allSelected = completedIds.length > 0 && completedIds.every(id => selectedIds.has(id))
+                                                return allSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />
+                                            })()}
+                                        </button>
+                                    </th>
                                     {['股票', '分析日期', '决策建议', '置信度', '目标价/止损价', '生成时间', '操作'].map(h => (
                                         <th key={h} className={`py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400 ${h === '操作' ? 'text-right' : 'text-left'}`}>
                                             {h}
@@ -599,6 +663,13 @@ export default function Reports() {
                                             className="transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50"
                                             onClick={() => handleSelectReport(report)}
                                         >
+                                            <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
+                                                {report.status !== 'pending' && report.status !== 'running' ? (
+                                                    <button onClick={() => toggleSelect(report.id)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                                        {selectedIds.has(report.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                                                    </button>
+                                                ) : null}
+                                            </td>
                                             <td className="py-3 px-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
