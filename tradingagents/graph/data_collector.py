@@ -244,6 +244,8 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     obv_5d_change = "加速上升" if obv_trend == "上升" and len(recent) >= 5 and recent["obv"].iloc[-1] - recent["obv"].iloc[-5] > recent["obv"].iloc[-5] * 0.1 else obv_trend
 
     lines.append(f"## VPA 预计算指标（{window}日均量基准）\n")
+    _mtf_slot = len(lines)  # 大周期定调占位，多周期计算完成后回填
+    lines.append("")
     lines.append("### 量能概况\n")
     lines.append(f"| 指标 | 数值 | 级别 |")
     lines.append(f"|------|------|------|")
@@ -624,6 +626,24 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
             lines.append(f"- **结论**：周线转弱但月线仍偏多 → 短线回调，中期趋势未破坏，关注支撑位")
         else:
             lines.append(f"- **结论**：周线({w_dir})与月线({m_dir})方向不一致 → 周期矛盾，日线信号降权处理")
+
+    # 大周期定调回填到报告顶部（此时多周期已计算完毕）
+    try:
+        if "w_dir" in dir() and "m_dir" in dir() and w_r != 99 and m_r != 99:
+            _pfx = "（待周/月收盘确认）" if partial else ""
+            if w_r > 0 and m_r > 0:
+                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏多，日线做多信号可信度较高{_pfx}\n"
+            elif w_r < 0 and m_r < 0:
+                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏空，日线做多信号需格外谨慎{_pfx}\n"
+            elif w_r >= 0 and m_r < 0:
+                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线反弹但中期未扭转\n"
+            elif w_r < 0 and m_r >= 0:
+                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线回调但中期趋势未破坏\n"
+            else:
+                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，日线信号降权处理\n"
+            lines[_mtf_slot] = _top
+    except Exception:
+        pass
 
     return "\n".join(lines)
 
