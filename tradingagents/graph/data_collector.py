@@ -509,6 +509,10 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         lines.append("- **月线**: 数据不足")
 
     # ── 多周期一致性校验（相邻K线斜率序列） ──
+    w_dir = m_dir = "不足"
+    w_r = m_r = 99
+    partial = False
+
     lines.append("")
     lines.append("**多周期一致性**：")
     if weekly_full is not None and monthly_full is not None:
@@ -627,23 +631,20 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         else:
             lines.append(f"- **结论**：周线({w_dir})与月线({m_dir})方向不一致 → 周期矛盾，日线信号降权处理")
 
-    # 大周期定调回填到报告顶部（此时多周期已计算完毕）
-    try:
-        if "w_dir" in dir() and "m_dir" in dir() and w_r != 99 and m_r != 99:
-            _pfx = "（待周/月收盘确认）" if partial else ""
-            if w_r > 0 and m_r > 0:
-                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏多，日线做多信号可信度较高{_pfx}\n"
-            elif w_r < 0 and m_r < 0:
-                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏空，日线做多信号需格外谨慎{_pfx}\n"
-            elif w_r >= 0 and m_r < 0:
-                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线反弹但中期未扭转\n"
-            elif w_r < 0 and m_r >= 0:
-                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线回调但中期趋势未破坏\n"
-            else:
-                _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，日线信号降权处理\n"
-            lines[_mtf_slot] = _top
-    except Exception:
-        pass
+    # 大周期定调回填到报告顶部
+    if w_r != 99 and m_r != 99:
+        _pfx = "（待周/月收盘确认）" if partial else ""
+        if w_r > 0 and m_r > 0:
+            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏多，日线做多信号可信度较高{_pfx}\n"
+        elif w_r < 0 and m_r < 0:
+            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏空，日线做多信号需格外谨慎{_pfx}\n"
+        elif w_r >= 0 and m_r < 0:
+            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线反弹但中期未扭转\n"
+        elif w_r < 0 and m_r >= 0:
+            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线回调但中期趋势未破坏\n"
+        else:
+            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，日线信号降权处理\n"
+        lines[_mtf_slot] = _top
 
     return "\n".join(lines)
 
