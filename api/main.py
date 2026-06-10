@@ -2973,7 +2973,10 @@ def get_niuxiong(
     from tradingagents.indicators import calculate_niuxiong_line, get_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    days = _indicator_days_map.get(period, 250)
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
 
     try:
         df = fetch_realtime_data(symbol, days=days, period=period)
@@ -3055,7 +3058,10 @@ def get_gs_strategy(
     from tradingagents.indicators import calculate_gs_strategy, get_gs_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    days = _indicator_days_map.get(period, 250)
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
 
     try:
         df = fetch_realtime_data(symbol, days=days, period=period)
@@ -3148,7 +3154,10 @@ def get_radar(
     from tradingagents.indicators import calculate_radar_indicator, get_radar_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    days = _indicator_days_map.get(period, 250)
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
 
     try:
         df = fetch_realtime_data(symbol, days=days, period=period)
@@ -3241,7 +3250,10 @@ def get_position(
     from tradingagents.indicators import calculate_position_index, get_position_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    days = _indicator_days_map.get(period, 250)
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
 
     try:
         df = fetch_realtime_data(symbol, days=days, period=period)
@@ -3316,7 +3328,10 @@ def get_volume_wash(
     from tradingagents.indicators import calculate_volume_wash, get_volume_wash_signal, fetch_realtime_data, fetch_realtime_quote
 
     period = period if period in _KLINE_PERIOD_MAP else "daily"
-    days = _indicator_days_map.get(period, 250)
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
 
     try:
         df = fetch_realtime_data(symbol, days=days, period=period)

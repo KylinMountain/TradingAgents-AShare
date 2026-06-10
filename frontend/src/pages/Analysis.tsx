@@ -119,9 +119,9 @@ export default function Analysis() {
 
                     <RadarPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('radar', c)} onSyncNow={syncNow} />
 
-                    <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
-
                     <VolumeWashPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('volumeWash', c)} onSyncNow={syncNow} />
+
+                    <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
 
                     <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
 

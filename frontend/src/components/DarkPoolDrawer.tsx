@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Loader2, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react'
 import { api } from '@/services/api'
 import type { DarkPoolAnalysisResponse } from '@/types'
@@ -15,23 +15,24 @@ export default function DarkPoolDrawer({ symbol, stockName, open, onClose }: Dar
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    const fetchData = useCallback(async () => {
-        if (!symbol || !open) return
-        setLoading(true)
+    // 切换股票或关闭抽屉时清空旧数据
+    useEffect(() => {
+        setData(null)
         setError(null)
-        try {
-            const resp = await api.getDarkPoolAnalysis(symbol)
-            setData(resp)
-        } catch (e: any) {
-            setError(e?.message || '加载失败')
-        } finally {
-            setLoading(false)
-        }
     }, [symbol, open])
 
     useEffect(() => {
-        if (open) fetchData()
-    }, [open, fetchData])
+        if (!open || !symbol) return
+        let cancelled = false
+        setLoading(true)
+        setError(null)
+        setData(null)  // 清空旧数据，避免闪现上一个股票的结果
+        api.getDarkPoolAnalysis(symbol)
+            .then(resp => { if (!cancelled) setData(resp) })
+            .catch((e: any) => { if (!cancelled) setError(e?.message || '加载失败') })
+            .finally(() => { if (!cancelled) setLoading(false) })
+        return () => { cancelled = true }
+    }, [symbol, open])
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
