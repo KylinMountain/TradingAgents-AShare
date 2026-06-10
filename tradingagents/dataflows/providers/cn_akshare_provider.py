@@ -324,7 +324,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     if i < 1:
                         time.sleep(0.6 * (i + 1))
 
-            # Source 2: Sina
+            # Source 2: Sina (volume in 股, normalize to 手)
             try:
                 df = ak.stock_zh_a_daily(
                     symbol=symbol_with_market,
@@ -333,6 +333,8 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     adjust="qfq",
                 )
                 out = self._normalize_hist_df(df)
+                if not out.empty:
+                    out["Volume"] = out["Volume"] / 100
                 return self._maybe_append_realtime_row(symbol, out, end_date, assume_locked=True)
             except Exception as exc:
                 logger.debug("Sina hist fallback failed for %s: %s", symbol, exc)
@@ -386,7 +388,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 "High": pd.to_numeric(parts[4], errors="coerce"),
                 "Low": pd.to_numeric(parts[5], errors="coerce"),
                 "Close": pd.to_numeric(parts[3], errors="coerce"),
-                "Volume": pd.to_numeric(parts[8], errors="coerce"),
+                "Volume": pd.to_numeric(parts[8], errors="coerce") / 100,  # Sina返回股，转手对齐Eastmoney
             }
         except (ValueError, IndexError):
             return pd.DataFrame()
@@ -890,7 +892,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     "previous_close": prev_close,
                     "change": change,
                     "change_pct": change_pct,
-                    "volume": self._safe_float(fields[8]),
+                    "volume": self._safe_float(fields[8]) / 100 if self._safe_float(fields[8]) is not None else None,  # Sina返回股，转手对齐Eastmoney
                     "amount": self._safe_float(fields[9]),
                     "quote_time": quote_time,
                     "source": "sina",

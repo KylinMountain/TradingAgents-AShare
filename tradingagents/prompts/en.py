@@ -67,20 +67,40 @@ Build an evidence-based bear case. You must respond to the focus claims first; i
 
 Decision priority (strict):
 1. The bull/bear debate conclusion is your primary decision basis.
-2. You should assess whether there is a divergence between institutional money flow and retail sentiment (see raw data below), but this is supplementary — it must not override debate consensus.
-3. Only when the debate is deadlocked may the divergence assessment serve as a tiebreaker.
+2. Cross-validate VPA signals against Smart Money signals (see matrix below). This is supplementary — it must not override debate consensus.
+3. Only when the debate is deadlocked may the cross-validation assessment serve as a tiebreaker.
 
 Past lessons:
 {past_memory_str}
 
-Smart money report (raw data for divergence analysis):
+Smart money report (raw data for cross-validation):
 {smart_money_report}
 
-Volume-Price analysis report (raw data for volume-price confirmation):
+Volume-Price analysis report (raw data for cross-validation):
 {volume_price_report}
 
 Market sentiment report (raw data for divergence analysis):
 {sentiment_report}
+
+## VPA × Smart Money Cross-Validation Matrix
+
+For each key VPA signal, cross-check against money flow data. Agreement = high confidence. Divergence = flag for explanation.
+
+| VPA Pattern/Signal | Expected Money Flow (Agreement) | Missing Money Signal (Low Confidence) | Contradictory Money (Needs Explanation) |
+|--------------------|--------------------------------|--------------------------------------|----------------------------------------|
+| Hammer / Buying Climax (high vol) | Net institutional inflow; LHB net buy; Northbound increase | Price reversal without capital confirmation → suspect technical bounce | Net outflow → suspect bull trap |
+| Shooting Star / Selling Climax (high vol) | Net outflow; block trade discount; LHB net sell | Top signal without capital exit → suspect shakeout | Net inflow → suspect accumulation shakeout |
+| Stalled Volume (high vol, flat price) | Net outflow + high turnover; block trade discount | High vol stall with unclear flow → neutral | Net inflow → suspect accumulation pause |
+| Extreme Low Volume + Price Decline | Net inflow (stealth accumulation); Northbound contra-buy | Low vol decline without capital → retail drift | Net outflow also → capital flight confirmed |
+| Selling Climax (panic dip + high vol) | Net inflow (bottom fishing); block trade premium | Huge vol bottom without institutional presence → retail chop | Net outflow → may not be the bottom yet |
+| Large Body + Low Vol (trap) | No institutional action; Northbound flat | Capital direction aligns with price | Capital aligns → not a trap, real trend |
+| Multi-day Divergence (price up + vol down) | Net outflow; Northbound reducing | Retail-driven rally → unsustainable | Net inflow → stealth accumulation pushing higher |
+
+Cross-validation output requirements:
+- Pick the 1-3 most critical signals from the VPA report. Cross-check each against money flow data.
+- Signals with agreement → high-confidence evidence, given extra weight in final decision.
+- Signals with divergence → must list both bullish and bearish interpretations, marked "pending next session confirmation".
+- Missing money flow data → downgrade signal weight; do not use to support final direction.
 
 Debate history:
 {history}
@@ -95,11 +115,12 @@ Last round summary:
 {round_summary}
 
 Output:
-1) Tally analyst verdicts and compute bull/bear ratio.
-2) Briefly assess smart money vs retail sentiment divergence as supplementary context.
-3) Clear Buy/Sell/Hold recommendation based primarily on debate evidence.
-4) Strongest evidence adopted, unresolved disagreements, and weak evidence rejected.
-5) Detailed execution plan for trader.
+1) **Cross-Validation** (new): Apply the matrix above. List VPA key signals × money flow cross-check results. For any divergence, give both bullish and bearish interpretations.
+2) **Panoramic overview**: Tally analyst verdicts with horizon-weighted scoring.
+3) **Divergence assessment**: Smart money vs retail sentiment gap, supplementary.
+4) **Final verdict**: Buy/Sell/Hold based on debate evidence quality AND cross-validation confirmation.
+5) **Execution plan**: Position size, entry zone, stop-loss, take-profit conditions, invalidation triggers.
+6) **Unresolved items**: High-impact unresolved claims or cross-validation divergences, with justification for closure.
 Avoid defaulting to Hold unless strongly justified.
 At the very end, append this machine-readable line (fixed format, do not omit):
 <!-- VERDICT: {{"direction": "BULLISH", "reason": "one-sentence conclusion under 15 words"}} -->
