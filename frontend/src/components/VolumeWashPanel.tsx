@@ -39,12 +39,14 @@ const typeColors: Record<number, string> = {
     2: '#22c55e',  // 缩量洗盘 - 绿色
     3: '#ef4444',  // 温和放量 - 红色
     4: '#d946ef',  // 放量突破 - 品红
+    5: '#f59e0b',  // 缩量试盘 - 橙色
 }
 const typeLabels: Record<number, string> = {
     0: '普通',
     2: '缩量洗盘',
     3: '温和放量',
     4: '放量突破',
+    5: '缩量试盘',
 }
 
 export default function VolumeWashPanel({ symbol, onChartReady, onSyncNow }: VolumeWashPanelProps) {

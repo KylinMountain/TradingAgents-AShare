@@ -377,7 +377,7 @@ export interface VolumeWashPoint {
     date: string
     close: number
     volume: number
-    vol_wash_type: number  // 0=普通, 2=缩量洗盘, 3=温和放量, 4=放量突破
+    vol_wash_type: number  // 0=普通, 2=缩量洗盘, 3=温和放量, 4=放量突破, 5=缩量试盘
 }
 
 export interface VolumeWashResponse {

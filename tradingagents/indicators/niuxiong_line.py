@@ -277,7 +277,7 @@ def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
             "high": float(parts[4]),
             "low": float(parts[5]),
             "close": close_val,
-            "volume": float(parts[8]),
+            "volume": float(parts[8]) / 100,  # Sina返回股，转为手对齐tushare/akshare
             "pre_close": prev_close,
             "change": change,
             "pct_chg": pct_chg,
