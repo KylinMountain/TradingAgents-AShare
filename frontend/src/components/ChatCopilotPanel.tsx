@@ -317,6 +317,13 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 setCurrentHorizon(null)
                 setIsAnalyzing(false)
                 setAnalysisRunState('completed')
+                // 清理 typing indicator（正常流程由 agent.status 触发，去重复用流程无此事件）
+                if (typingIndicatorIdRef.current) {
+                    useAnalysisStore.setState(state => ({
+                        chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                    }))
+                    typingIndicatorIdRef.current = null
+                }
                 // 任务结束：所有 agent 消息标记为已完成（持久化到 store）
                 pendingAgentMsgIdsRef.current = new Set()
                 forceUpdate(n => n + 1)

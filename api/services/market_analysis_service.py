@@ -240,6 +240,7 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
     use_mf = mf_data is not None and len(mf_data) > 0
 
     if use_mf:
+        # Tushare moneyflow 金额单位已是万元
         mf_row = mf_data.iloc[0]
         inst_buy = mf_row['buy_lg_amount'] + mf_row['buy_elg_amount']
         inst_sell = mf_row['sell_lg_amount'] + mf_row['sell_elg_amount']
@@ -250,19 +251,21 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
         total_mf = inst_buy + inst_sell + retail_buy + retail_sell
         inst_pct = (inst_buy + inst_sell) / total_mf * 100 if total_mf > 0 else 0
     else:
+        # 逐笔成交 fallback，amount 单位为元，统一转为万
         big_t = tick[tick['volume'] >= 100]
-        inst_buy = big_t[big_t['nature'] == '买盘']['amount'].sum()
-        inst_sell = big_t[big_t['nature'] == '卖盘']['amount'].sum()
+        inst_buy = big_t[big_t['nature'] == '买盘']['amount'].sum() / 10000
+        inst_sell = big_t[big_t['nature'] == '卖盘']['amount'].sum() / 10000
         inst_net = inst_buy - inst_sell
         small_t = tick[tick['volume'] < 100]
-        retail_buy = small_t[small_t['nature'] == '买盘']['amount'].sum()
-        retail_sell = small_t[small_t['nature'] == '卖盘']['amount'].sum()
+        retail_buy = small_t[small_t['nature'] == '买盘']['amount'].sum() / 10000
+        retail_sell = small_t[small_t['nature'] == '卖盘']['amount'].sum() / 10000
         retail_net = retail_buy - retail_sell
         total_mf = inst_buy + inst_sell + retail_buy + retail_sell
         inst_pct = (inst_buy + inst_sell) / total_mf * 100 if total_mf > 0 else 0
 
-    big_active_buy = tick[(tick['volume'] >= 100) & (tick['nature'] == '买盘')]['amount'].sum()
-    big_active_sell = tick[(tick['volume'] >= 100) & (tick['nature'] == '卖盘')]['amount'].sum()
+    # 大单主动买/卖，tick amount 为元，统一转为万
+    big_active_buy = tick[(tick['volume'] >= 100) & (tick['nature'] == '买盘')]['amount'].sum() / 10000
+    big_active_sell = tick[(tick['volume'] >= 100) & (tick['nature'] == '卖盘')]['amount'].sum() / 10000
 
     # ==== 3. 5分钟K线 (已并行预取) ====
     if today_k5 is not None and len(today_k5) > 0:
@@ -301,11 +304,11 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
 
     result['dim1_institutional'] = {
         'inst_participation_pct': round(inst_pct, 1),
-        'inst_net_wan': round(inst_net / 10000, 0),
-        'retail_net_wan': round(retail_net / 10000, 0),
-        'tick_net_wan': round(tick_net / 10000, 0),
-        'big_active_buy_wan': round(big_active_buy / 10000, 0),
-        'big_active_sell_wan': round(big_active_sell / 10000, 0),
+        'inst_net_wan': int(round(inst_net)),
+        'retail_net_wan': int(round(retail_net)),
+        'tick_net_wan': int(round(tick_net / 10000)),
+        'big_active_buy_wan': int(round(big_active_buy)),
+        'big_active_sell_wan': int(round(big_active_sell)),
         'intent': intent,
     }
 

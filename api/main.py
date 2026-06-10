@@ -3649,6 +3649,108 @@ def get_hot_stocks(source: str = "em", limit: int = 30) -> Dict:
     )
 
 
+def _try_reuse_report(user_id: str, symbol: str, trade_date: str) -> Optional[str]:
+    """检查是否存在可复用的已完成报告，避免重复分析消耗算力。
+
+    规则：
+    - 盘前/盘中/午休 (9:00-15:00): 30 分钟内不重复分析
+    - 盘后/休市 (15:00 之后): 当日已完成直接复用
+    - 失败的分析: 始终重新分析
+
+    Returns: 可复用的 report_id，或 None 表示需要重新分析。
+    """
+    try:
+        from tradingagents.dataflows.trade_calendar import cn_market_phase
+        phase = cn_market_phase()
+    except Exception:
+        return None
+
+    try:
+        with get_db_ctx() as db:
+            existing = db.query(ReportDB).filter(
+                ReportDB.user_id == user_id,
+                ReportDB.symbol == symbol,
+                ReportDB.trade_date == trade_date,
+            ).order_by(ReportDB.created_at.desc()).first()
+
+            if not existing:
+                return None
+            if existing.status != "completed":
+                return None
+
+            # 盘前+盘中+午休：30分钟内不重复
+            if phase in ("pre_open", "in_session", "lunch_break"):
+                created_at = existing.created_at
+                if created_at:
+                    if created_at.tzinfo is not None:
+                        created_at = created_at.replace(tzinfo=None)
+                    elapsed = (datetime.utcnow() - created_at).total_seconds()
+                    if elapsed < 1800:
+                        return existing.id
+                    return None
+
+            # 盘后/休市：只复用收盘后(15:00以后)生成的分析，盘中生成的数据不完整
+            if phase in ("post_close", "closed"):
+                created_at = existing.created_at
+                if created_at:
+                    if created_at.tzinfo is not None:
+                        created_at = created_at.replace(tzinfo=None)
+                    # 转换为北京时间判断是否在收盘后
+                    cn_hour = (created_at + timedelta(hours=8)).hour
+                    if cn_hour >= 15:
+                        return existing.id
+                return None
+    except Exception as e:
+        _log(f"[dedup] _try_reuse_report error: {type(e).__name__}: {e}")
+
+    return None
+
+
+def _instant_complete_from_report(job_id: str, report_id: str, user_id: str) -> None:
+    """从已有 report 数据填充一个即时完成的 job，前端无需改动即可获取结果。"""
+    try:
+        with get_db_ctx() as db:
+            report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
+            if not report:
+                return
+            now = _utcnow_iso()
+            _set_job(
+                job_id,
+                job_id=job_id,
+                user_id=user_id,
+                status="completed",
+                created_at=now,
+                started_at=now,
+                finished_at=now,
+                symbol=report.symbol,
+                trade_date=report.trade_date,
+                decision=report.decision,
+                result=report.result_data,
+                error=None,
+            )
+            # 先发 job.created 让前端状态机脱离"识别意图"阶段
+            _emit_job_event(job_id, "job.created", {
+                "job_id": job_id,
+                "symbol": report.symbol,
+                "trade_date": report.trade_date,
+            })
+            _emit_job_event(job_id, "job.completed", {
+                "job_id": job_id,
+                "decision": report.decision,
+                "direction": report.direction,
+                "result": report.result_data,
+                "confidence": report.confidence,
+                "target_price": report.target_price,
+                "stop_loss_price": report.stop_loss_price,
+                "risk_items": report.risk_items,
+                "key_metrics": report.key_metrics,
+                "reused": True,
+            })
+            _log(f"[dedup] Reused report {report_id} for {report.symbol}/{report.trade_date} → job {job_id}")
+    except Exception as e:
+        _log(f"[dedup] _instant_complete_from_report error: {type(e).__name__}: {e}")
+
+
 @app.post("/v1/analyze", response_model=AnalyzeResponse)
 async def analyze(
     request: AnalyzeRequest,
@@ -3670,8 +3772,16 @@ async def analyze(
     merged_user_context = await asyncio.to_thread(_load_user_context)
     _apply_user_context_to_request(request, merged_user_context)
 
+    # 去重：检查是否存在可复用的已完成报告
+    reused_id = await asyncio.to_thread(
+        _try_reuse_report, current_user.id, request.symbol, request.trade_date
+    )
     job_id = uuid4().hex
     now = _utcnow_iso()
+    if reused_id:
+        _instant_complete_from_report(job_id, reused_id, current_user.id)
+        return AnalyzeResponse(job_id=job_id, status="completed", created_at=now)
+
     _set_job(
         job_id,
         job_id=job_id,
@@ -4029,6 +4139,15 @@ async def chat_completions(
                     user_notes=merged_user_context.get("user_notes"),
                 )
                 now = _utcnow_iso()
+
+                # 去重：检查是否存在可复用的已完成报告
+                reused_id = _try_reuse_report(
+                    current_user.id, analyze_req.symbol, analyze_req.trade_date
+                )
+                if reused_id:
+                    _instant_complete_from_report(job_id, reused_id, current_user.id)
+                    return
+
                 _set_job(
                     job_id,
                     job_id=job_id,
@@ -4121,8 +4240,35 @@ async def chat_completions(
         constraints=merged_user_context.get("constraints", []),
         user_notes=merged_user_context.get("user_notes"),
     )
+
+    # 去重：检查是否存在可复用的已完成报告
+    reused_id = await asyncio.to_thread(
+        _try_reuse_report, current_user.id, analyze_req.symbol, analyze_req.trade_date
+    )
     job_id = uuid4().hex
     now = _utcnow_iso()
+    if reused_id:
+        _instant_complete_from_report(job_id, reused_id, current_user.id)
+        return {
+            "id": f"chatcmpl-{job_id}",
+            "object": "chat.completion",
+            "created": int(datetime.now().timestamp()),
+            "model": request.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            f"该股票今日已分析，直接返回已有结果：{job_id}\n"
+                            f"symbol={analyze_req.symbol}, trade_date={analyze_req.trade_date}\n"
+                        ),
+                    },
+                }
+            ],
+        }
+
     _set_job(
         job_id,
         job_id=job_id,
