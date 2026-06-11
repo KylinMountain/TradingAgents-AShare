@@ -664,7 +664,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                     f"cn_akshare is temporarily unavailable for global news: {exc}"
                 ) from exc
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         ak = self._ak()
         code = self._normalize_symbol(symbol)
         errors = []
@@ -683,8 +683,9 @@ class CnAkshareProvider(BaseMarketDataProvider):
 
         try:
             # 退化为最近相关新闻，至少保证接口有可用输出
-            end_date = datetime.now().strftime("%Y-%m-%d")
-            start_date = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+            end_dt = datetime.strptime(curr_date, "%Y-%m-%d") if curr_date else datetime.now()
+            end_date = end_dt.strftime("%Y-%m-%d")
+            start_date = (end_dt - timedelta(days=14)).strftime("%Y-%m-%d")
             news = self.get_news(symbol, start_date, end_date)
             return (
                 f"## Insider Transactions for {symbol}\n\n"

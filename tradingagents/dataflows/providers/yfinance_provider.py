@@ -59,5 +59,5 @@ class YFinanceProvider(BaseMarketDataProvider):
     ) -> str:
         return get_global_news_yfinance(curr_date, look_back_days, limit)
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         return get_yfinance_insider_transactions(self._normalize_symbol(symbol))

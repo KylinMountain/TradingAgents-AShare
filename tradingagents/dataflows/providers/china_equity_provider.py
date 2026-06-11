@@ -50,5 +50,5 @@ class CnStubProvider(BaseMarketDataProvider):
     ) -> str:
         return self._not_implemented()
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         return self._not_implemented()

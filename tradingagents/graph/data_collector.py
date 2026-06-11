@@ -274,7 +274,7 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         "fund_flow_board": (get_board_fund_flow, {}),
         "fund_flow_individual": (get_individual_fund_flow, {"symbol": ticker}),
         "lhb": (get_lhb_detail, {"symbol": ticker, "date": trade_date}),
-        "insider_transactions": (get_insider_transactions, {"ticker": ticker}),
+        "insider_transactions": (get_insider_transactions, {"ticker": ticker, "curr_date": trade_date}),
         "zt_pool": (get_zt_pool, {"date": trade_date}),
         "hot_stocks": (get_hot_stocks_xq, {}),
     }
