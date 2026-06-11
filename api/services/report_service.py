@@ -165,7 +165,7 @@ def _extract_price_regex(text: Optional[str], price_type: str = "target") -> Opt
     if price_type == "target":
         patterns = [
             # 明确的目标价标记（优先），LLM 可能写成 目标价/目标价格/目标哨位 等变体
-            r'目标[价格位哨]\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'目标[价格位哨]{1,3}\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             r'target\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             # 关键价位/关键哨位/阻力位/压力位 可作为目标价参考
             r'关键[价哨位][位格]?[：:]\s*[¥$]?\s*(\d+\.?\d+)',
@@ -177,14 +177,14 @@ def _extract_price_regex(text: Optional[str], price_type: str = "target") -> Opt
             # 入场区间取上限作为目标参考
             r'入场区间[：:]\s*[¥$]?\s*(\d+\.?\d+)\s*[–\-—至~]\s*\d+\.?\d+',
             # 看空/看跌方向目标
-            r'下[行看跌][目标位][位]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'下[行看跌]目标[位]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             r'看[空跌]目标[位]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d+)',
         ]
     else:
         patterns = [
-            r'止损[价位哨]?\d*[：:]\s*[¥$]?\s*(\d+\.?\d*)',
+            r'止损[价格位哨]{0,3}\d*[：:]\s*[¥$]?\s*(\d+\.?\d*)',
             r'stop[-\s_]?loss\d*[：:]\s*[¥$]?\s*(\d+\.?\d*)',
-            r'硬止损[价位哨]?[：:]\s*[¥$]?\s*(\d+\.?\d*)',
+            r'硬止损[价格位哨]{0,3}[：:]\s*[¥$]?\s*(\d+\.?\d*)',
         ]
     for p in patterns:
         m = re.search(p, clean, re.IGNORECASE)
