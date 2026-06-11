@@ -262,7 +262,7 @@ def _normalize_code(value: Any) -> str | None:
     if _CODE_RE.match(text):
         return text
     if re.match(r"^\d{6}$", text):
-        if text.startswith("6"):
+        if text.startswith(("5", "6", "9")):
             return f"{text}.SH"
         if text.startswith(("0", "3")):
             return f"{text}.SZ"

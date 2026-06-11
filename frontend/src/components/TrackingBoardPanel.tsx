@@ -244,8 +244,10 @@ export default function TrackingBoardPanel() {
         setImportFeedback(null)
         try {
             // Merge with existing positions (new positions override same symbols)
+            // Strip suffix for comparison — backend normalizes both formats
+            const stripSuffix = (s: string) => s.replace(/\.(SH|SZ|BJ)$/i, '')
             const existingPositions = trackingItems.map(item => ({
-                symbol: item.symbol,
+                symbol: stripSuffix(item.symbol),
                 name: item.name,
                 current_position: item.current_position,
                 average_cost: item.average_cost,
