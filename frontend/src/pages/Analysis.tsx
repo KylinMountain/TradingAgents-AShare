@@ -48,6 +48,14 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
     return undefined
 }
 
+function extractEntryRange(text: string | undefined): string | undefined {
+    if (!text) return undefined
+    const m = text.match(/入场区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
+        ?? text.match(/(?:建仓|买入|卖出)区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
+    if (m) return `${m[1]} - ${m[2]}`
+    return undefined
+}
+
 export default function Analysis() {
     const { registerKlineChart, registerSubChart, syncNow } = useSyncedCharts()
     const [searchParams] = useSearchParams()
@@ -88,6 +96,7 @@ export default function Analysis() {
     const confidence = jobConfidence ?? extractConfidence(finalDecision)
     const targetPrice = jobTargetPrice ?? extractPrice(finalDecision, 'target')
     const stopLoss = jobStopLoss ?? extractPrice(finalDecision, 'stop')
+    const entryRange = extractEntryRange(report?.trader_investment_plan) ?? extractEntryRange(report?.investment_plan)
 
     return (
         <div className="space-y-4">
@@ -134,6 +143,7 @@ export default function Analysis() {
                             confidence={confidence}
                             targetPrice={targetPrice}
                             stopLoss={stopLoss}
+                            entryRange={entryRange}
                             reasoning={finalDecision?.slice(0, 300)}
                         />
                         <RiskRadar items={riskItems} />

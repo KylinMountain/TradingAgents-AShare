@@ -213,7 +213,7 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     df = df[keep_cols]
 
     # 尝试追加当天实时行情
-    df = _try_append_today_row(symbol, df)
+    df = _try_append_today_row(symbol, df, exchange=exchange)
 
     # 日线直接返回 days 行
     if period == "daily":
@@ -227,7 +227,7 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
     return result
 
 
-def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+def _try_append_today_row(symbol: str, df: pd.DataFrame, exchange: str | None = None) -> pd.DataFrame:
     """尝试追加当天实时行情（Sina API）"""
     import urllib.request
     from datetime import datetime
@@ -242,7 +242,10 @@ def _try_append_today_row(symbol: str, df: pd.DataFrame) -> pd.DataFrame:
     if now < market_open:
         return df
 
-    prefix = "sh" if symbol.startswith(("5", "6", "9")) else "sz" if symbol.startswith(("0", "3", "2")) else "bj" if symbol.startswith(("4", "8")) else None
+    if exchange:
+        prefix = exchange
+    else:
+        prefix = "sh" if symbol.startswith(("5", "6", "9")) else "sz" if symbol.startswith(("0", "3", "2")) else "bj" if symbol.startswith(("4", "8")) else None
     if not prefix:
         return df
     sina_code = f"{prefix}{symbol}"

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TrendingUp, TrendingDown, Target, Shield, ChevronDown, ChevronUp, Info } from 'lucide-react'
+import { TrendingUp, TrendingDown, Target, Shield, ChevronDown, ChevronUp, Info, MapPin } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AnalysisReport } from '@/types'
@@ -17,6 +17,7 @@ interface DecisionCardProps {
     stopLossChange?: number
     reasoning?: string
     riskLevel?: 'low' | 'medium' | 'high'
+    entryRange?: string
     report?: AnalysisReport
 }
 
@@ -41,6 +42,7 @@ export default function DecisionCard({
     stopLossChange,
     reasoning,
     riskLevel,
+    entryRange,
     report,
 }: DecisionCardProps) {
     const [expanded, setExpanded] = useState(false)
@@ -71,6 +73,7 @@ export default function DecisionCard({
     const isBearish = direction?.includes('偏空') || direction?.includes('看空') || decision === 'sell'
     const targetLabel = isBearish ? '下行目标' : '目标价'
     const stopLabel = isBearish ? '止损位' : '止损价'
+    const entryLabel = isBearish ? '卖出区间' : '买入区间'
 
     return (
         <div className="card overflow-hidden">
@@ -147,6 +150,19 @@ export default function DecisionCard({
                     )}
                 </div>
             </div>
+
+            {/* 入场区间 */}
+            {entryRange && (
+                <div className="mb-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20">
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <span className="text-xs text-slate-500">{entryLabel}</span>
+                    </div>
+                    <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                        ¥{entryRange}
+                    </p>
+                </div>
+            )}
 
             {/* 展开详情 */}
             {expanded && (reasoning || riskLevel) && (

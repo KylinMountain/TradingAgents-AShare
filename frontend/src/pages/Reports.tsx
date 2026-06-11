@@ -33,6 +33,14 @@ const parseDecision = (decisionText?: string): { action: 'buy' | 'sell' | 'hold'
     return { action: 'hold', label: '持有' }
 }
 
+function extractEntryRange(text: string | undefined): string | undefined {
+    if (!text) return undefined
+    const m = text.match(/入场区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
+        ?? text.match(/(?:建仓|买入|卖出)区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
+    if (m) return `${m[1]} - ${m[2]}`
+    return undefined
+}
+
 const getDecisionColor = (decision?: string) => {
     const { action } = parseDecision(decision)
     if (action === 'buy') return 'text-red-600 dark:text-red-400'
@@ -441,6 +449,7 @@ export default function Reports() {
 
     if (selectedReport) {
         const { action } = parseDecision(selectedReport.decision)
+        const entryRange = extractEntryRange(selectedReport.trader_investment_plan) ?? extractEntryRange(selectedReport.investment_plan)
         const selectedReportProgressStatus = selectedReport.status === 'pending' || selectedReport.status === 'running'
             ? 'loading'
             : selectedReport.status === 'failed'
@@ -541,6 +550,7 @@ export default function Reports() {
                             confidence={selectedReport.confidence ?? undefined}
                             targetPrice={selectedReport.target_price ?? undefined}
                             stopLoss={selectedReport.stop_loss_price ?? undefined}
+                            entryRange={entryRange}
                             reasoning={selectedReport.final_trade_decision?.slice(0, 300) ?? undefined}
                         />
                     ) : selectedReport.status === 'failed' ? (
