@@ -17,8 +17,7 @@ export function useSSE(jobId: string | null) {
         addAgentReport,
         addAgentToken,
         addLog,
-        setReport,
-        setStructuredData,
+        setReportAndStructuredData,
         setIsAnalyzing,
         addChatMessage,
         appendToChatMessage,
@@ -71,14 +70,16 @@ export function useSSE(jobId: string | null) {
 
                 case 'job.completed':
                     setIsAnalyzing(false)
-                    setReport((data.result || null) as AnalysisReport | null)
-                    setStructuredData({
-                        riskItems: (data.risk_items as RiskItem[] | undefined) ?? [],
-                        keyMetrics: (data.key_metrics as KeyMetric[] | undefined) ?? [],
-                        confidence: data.confidence as number | null | undefined,
-                        targetPrice: data.target_price as number | null | undefined,
-                        stopLoss: data.stop_loss_price as number | null | undefined,
-                    })
+                    setReportAndStructuredData(
+                        (data.result || null) as AnalysisReport | null,
+                        {
+                            riskItems: (data.risk_items as RiskItem[] | undefined) ?? [],
+                            keyMetrics: (data.key_metrics as KeyMetric[] | undefined) ?? [],
+                            confidence: data.confidence as number | null | undefined,
+                            targetPrice: data.target_price as number | null | undefined,
+                            stopLoss: data.stop_loss_price as number | null | undefined,
+                        },
+                    )
                     addChatMessage({
                         id: `job-complete-${Date.now()}`,
                         role: 'system',

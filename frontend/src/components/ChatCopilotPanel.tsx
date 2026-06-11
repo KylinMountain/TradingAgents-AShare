@@ -177,6 +177,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setMessageContent,
         setReport,
         setStructuredData,
+        setReportAndStructuredData,
         markAgentMessagesComplete,
         clearSession,
         addDebateMessage,
@@ -335,14 +336,16 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         onSymbolDetected(symbol)
                     }
                 }
-                setReport((data.result || null) as AnalysisReport | null)
-                setStructuredData({
-                    riskItems: data.risk_items as never,
-                    keyMetrics: data.key_metrics as never,
-                    confidence: data.confidence as number | null,
-                    targetPrice: data.target_price as number | null,
-                    stopLoss: data.stop_loss_price as number | null,
-                })
+                setReportAndStructuredData(
+                    (data.result || null) as AnalysisReport | null,
+                    {
+                        riskItems: data.risk_items as never,
+                        keyMetrics: data.key_metrics as never,
+                        confidence: data.confidence as number | null,
+                        targetPrice: data.target_price as number | null,
+                        stopLoss: data.stop_loss_price as number | null,
+                    },
+                )
                 pushAssistant(
                     `**分析完成**\n\n方向倾向：**${String(data.direction || '未知')}**\n\n执行动作：**${String(data.decision || 'HOLD')}**\n\n> 免责声明：以上内容由模型基于公开数据与规则生成，仅供研究参考，不构成任何投资建议或收益承诺。`
                 )

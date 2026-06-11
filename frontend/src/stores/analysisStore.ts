@@ -108,6 +108,13 @@ interface AnalysisState {
         targetPrice?: number | null
         stopLoss?: number | null
     }) => void
+    setReportAndStructuredData: (report: AnalysisReport | null, data: {
+        riskItems?: RiskItem[]
+        keyMetrics?: KeyMetric[]
+        confidence?: number | null
+        targetPrice?: number | null
+        stopLoss?: number | null
+    }) => void
     setIsAnalyzing: (isAnalyzing: boolean) => void
     setIsConnected: (isConnected: boolean) => void
     setAnalysisRunState: (state: 'idle' | 'running' | 'completed' | 'failed', error?: string | null) => void
@@ -430,6 +437,17 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobTargetPrice: data.targetPrice ?? null,
         jobStopLoss: data.stopLoss ?? null,
     }),
+
+    // 合并 report + structured 写入，一次 set() 避免中间渲染导致价格闪现 --
+    setReportAndStructuredData: (report, data) => set((state) => ({
+        report,
+        currentSymbol: report?.symbol || state.currentSymbol,
+        riskItems: data.riskItems ?? [],
+        keyMetrics: data.keyMetrics ?? [],
+        jobConfidence: data.confidence ?? null,
+        jobTargetPrice: data.targetPrice ?? null,
+        jobStopLoss: data.stopLoss ?? null,
+    })),
 
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
 
