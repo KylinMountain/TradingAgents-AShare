@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Loader2, TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react'
+import { X, Loader2, TrendingUp, TrendingDown, Minus, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '@/services/api'
 import type { DarkPoolAnalysisResponse } from '@/types'
 
@@ -14,11 +14,13 @@ export default function DarkPoolDrawer({ symbol, stockName, open, onClose }: Dar
     const [data, setData] = useState<DarkPoolAnalysisResponse | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [showSplitEvents, setShowSplitEvents] = useState(false)
 
     // 切换股票或关闭抽屉时清空旧数据
     useEffect(() => {
         setData(null)
         setError(null)
+        setShowSplitEvents(false)
     }, [symbol, open])
 
     useEffect(() => {
@@ -147,27 +149,37 @@ export default function DarkPoolDrawer({ symbol, stockName, open, onClose }: Dar
 
                                     {/* 事件列表 */}
                                     {data.dim3_split.events.length > 0 && (
-                                        <div className="mt-3 space-y-2">
-                                            <h4 className="text-xs font-medium text-slate-400 uppercase tracking-wider">事件明细</h4>
-                                            {data.dim3_split.events.map((ev, i) => (
-                                                <div key={i} className={`rounded-lg p-3 text-xs border ${ev.level === '暗盘' ? 'bg-purple-500/10 border-purple-500/30' :
-                                                        ev.level === '疑似' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-slate-800 border-slate-700'
-                                                    }`}>
-                                                    <div className="flex items-center justify-between mb-1">
-                                                        <span className="text-slate-300">{ev.start} ~ {ev.end}</span>
-                                                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${ev.level === '暗盘' ? 'bg-purple-500/20 text-purple-400' :
-                                                                ev.level === '疑似' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'
-                                                            }`}>{ev.level}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-3 text-slate-400">
-                                                        <span>{ev.duration_min}min</span>
-                                                        <span className={ev.direction === '买' ? 'text-red-400' : 'text-emerald-400'}>{ev.direction}方</span>
-                                                        <span>{ev.volume}手</span>
-                                                        <span className="text-slate-500">基{ev.base_score}分 质{ev.quality_score}分</span>
-                                                    </div>
-                                                    <div className="mt-1 text-slate-500">{ev.indicators}</div>
+                                        <div className="mt-3">
+                                            <button
+                                                onClick={() => setShowSplitEvents(!showSplitEvents)}
+                                                className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors w-full text-left"
+                                            >
+                                                {showSplitEvents ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                事件明细（{data.dim3_split.high_conf_count}暗盘 · {data.dim3_split.suspected_count}疑似）
+                                            </button>
+                                            {showSplitEvents && (
+                                                <div className="mt-2 space-y-2">
+                                                    {data.dim3_split.events.map((ev, i) => (
+                                                        <div key={i} className={`rounded-lg p-3 text-xs border ${ev.level === '暗盘' ? 'bg-purple-500/10 border-purple-500/30' :
+                                                                ev.level === '疑似' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-slate-800 border-slate-700'
+                                                            }`}>
+                                                            <div className="flex items-center justify-between mb-1">
+                                                                <span className="text-slate-300">{ev.start} ~ {ev.end}</span>
+                                                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${ev.level === '暗盘' ? 'bg-purple-500/20 text-purple-400' :
+                                                                        ev.level === '疑似' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'
+                                                                    }`}>{ev.level}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3 text-slate-400">
+                                                                <span>{ev.duration_min}min</span>
+                                                                <span className={ev.direction === '买' ? 'text-red-400' : 'text-emerald-400'}>{ev.direction}方</span>
+                                                                <span>{ev.volume}手</span>
+                                                                <span className="text-slate-500">基{ev.base_score}分 质{ev.quality_score}分</span>
+                                                            </div>
+                                                            <div className="mt-1 text-slate-500">{ev.indicators}</div>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                            ))}
+                                            )}
                                         </div>
                                     )}
                                 </Section>
