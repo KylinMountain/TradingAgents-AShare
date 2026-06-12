@@ -15,9 +15,9 @@ import {
     createChart,
     createSeriesMarkers,
 } from 'lightweight-charts'
-import { Activity, CandlestickChart, TrendingUp, Search } from 'lucide-react'
+import { Activity, CandlestickChart, TrendingUp, Search, Star } from 'lucide-react'
 import { api } from '@/services/api'
-import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode, KlinePeriod } from '@/types'
+import type { KlineCandle, NiuxiongPoint, GSPoint, IndicatorMode, KlinePeriod, WatchlistItem } from '@/types'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import DarkPoolDrawer from './DarkPoolDrawer'
 
@@ -114,6 +114,40 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
     const [stockName, setStockName] = useState<string | null>(null)
     const [darkPoolOpen, setDarkPoolOpen] = useState(false)
     const [darkPoolPreloaded, setDarkPoolPreloaded] = useState(false)
+    const [watchlistItemId, setWatchlistItemId] = useState<string | null>(null)
+    const [watchlistLoading, setWatchlistLoading] = useState(false)
+
+    // 自选状态：symbol 变化时查询是否已在自选中
+    useEffect(() => {
+        let cancelled = false
+        const check = async () => {
+            try {
+                const overview = await api.getPortfolioOverview()
+                if (cancelled) return
+                const item = overview.watchlist.find(
+                    (w: WatchlistItem) => w.symbol.replace(/\.(SH|SZ|BJ)$/i, '') === symbol.replace(/\.(SH|SZ|BJ)$/i, ''),
+                )
+                setWatchlistItemId(item?.id ?? null)
+            } catch { /* 静默 */ }
+        }
+        check()
+        return () => { cancelled = true }
+    }, [symbol])
+
+    const handleToggleWatchlist = async () => {
+        setWatchlistLoading(true)
+        try {
+            if (watchlistItemId) {
+                await api.removeFromWatchlist(watchlistItemId)
+                setWatchlistItemId(null)
+            } else {
+                const res = await api.addToWatchlist(symbol)
+                const added = res.results.find(r => r.status === 'added')
+                if (added?.item) setWatchlistItemId(added.item.id)
+            }
+        } catch { /* 静默 */ }
+        finally { setWatchlistLoading(false) }
+    }
 
     // 预加载：symbol变化时后台拉取分析数据
     useEffect(() => {
@@ -498,6 +532,22 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                     <CandlestickChart className="w-5 h-5 text-cyan-500" />
                     <div className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
                         <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{stockName ? `${stockName}（${symbol}）` : getDisplayName(symbol)} K线</h2>
+                        <button
+                            onClick={handleToggleWatchlist}
+                            disabled={watchlistLoading}
+                            className={`p-1 rounded-md transition-colors ${
+                                watchlistItemId
+                                    ? 'text-amber-500 bg-amber-100 dark:bg-amber-500/15 hover:text-amber-600'
+                                    : 'text-slate-400 hover:text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-500/15'
+                            }`}
+                            title={watchlistItemId ? '移出自选' : '加入自选'}
+                        >
+                            {watchlistLoading ? (
+                                <div className="w-4 h-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+                            ) : (
+                                <Star className={`w-4 h-4 ${watchlistItemId ? 'fill-current' : ''}`} />
+                            )}
+                        </button>
                         <button
                             onClick={() => setDarkPoolOpen(true)}
                             className={`p-1 rounded-md transition-colors ${
