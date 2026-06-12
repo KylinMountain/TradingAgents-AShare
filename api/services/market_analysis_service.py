@@ -551,6 +551,10 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
         signals.append('尾盘放量卖出')
         conf -= 2
 
+    # 拆单净方向
+    split_net = active_vol - passive_vol
+    split_ratio = split_vol / TOTAL_VOL * 100 if TOTAL_VOL > 0 else 0
+
     if passive_vol > active_vol * 1.5:
         signals.append('拆单偏卖')
         conf -= 2
@@ -565,6 +569,27 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
         if buy_conf > sell_conf: conf += 2
         elif sell_conf > buy_conf: conf -= 2
 
+    # 明暗一致性：机构净流向 vs 拆单净流向
+    inst_bullish = inst_net > 0
+    inst_bearish = inst_net < 0
+    split_bullish = split_net > 0
+    split_bearish = split_net < 0
+    significant_split = split_ratio > 1.0  # 拆单占比 >1% 才纳入明暗判断
+
+    if significant_split:
+        if inst_bullish and split_bullish:
+            signals.append('明暗同向看多')
+            conf += 3
+        elif inst_bearish and split_bearish:
+            signals.append('明暗同向看空')
+            conf -= 3
+        elif inst_bullish and split_bearish:
+            signals.append('明买暗卖（警惕对倒）')
+            conf -= 1
+        elif inst_bearish and split_bullish:
+            signals.append('明卖暗买（疑似暗吸）')
+            conf += 1
+
     if conf >= 5: verdict = '强烈偏多'
     elif conf >= 2: verdict = '中性偏多'
     elif conf >= -1: verdict = '中性/观望'
@@ -575,15 +600,21 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
     dark_buy = sum(e['vol'] for e in events_unique if e.get('quality_score', 0) >= 6 and e['dir'] == '买盘')
     dark_sell = sum(e['vol'] for e in events_unique if e.get('quality_score', 0) >= 6 and e['dir'] == '卖盘')
     has_dark = len(high_conf) > 0 or len(suspected) > 0
+    dark_bullish = split_net > 0
+    dark_bearish = split_net < 0
 
-    # 主力意图
-    if inst_net > 0 and full_pct < -0.5 and has_dark:
-        intent_narrative = '主力趁跌暗中吸筹。价跌但机构净买，同时检测到拆单痕迹（隐藏大单意图），典型压价吃货模式。'
-    elif inst_net > 0 and full_pct < 0 and not has_dark:
+    # 主力意图（四象限：明面机构 × 暗面拆单）
+    if has_dark and inst_bullish and dark_bullish:
+        intent_narrative = f'明暗共振做多。机构明面净买{inst_net/10000:+.0f}万，拆单检测也偏买（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价跌属于压价吸筹" if full_pct < -0.5 else "主力积极吃货，信号可靠度高"}。'
+    elif has_dark and inst_bearish and dark_bearish:
+        intent_narrative = f'明暗共振出货。机构明面净卖{inst_net/10000:+.0f}万，拆单检测也偏卖（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价涨属于拉高出货" if full_pct > 0.5 else "主力积极派发，注意风险"}。'
+    elif has_dark and inst_bearish and dark_bullish:
+        intent_narrative = f'疑似暗度陈仓。机构明面净卖{inst_net/10000:+.0f}万{"且价涨" if full_pct > 0 else ""}，但拆单检测偏买（暗盘{dark_buy}手买/{dark_sell}手卖）——可能刻意压盘掩护吸筹，关注后续方向选择。'
+    elif has_dark and inst_bullish and dark_bearish:
+        intent_narrative = f'疑似明拉暗出。机构明面净买{inst_net/10000:+.0f}万{"且价跌" if full_pct < 0 else ""}，但拆单检测偏卖（暗盘{dark_buy}手买/{dark_sell}手卖）——可能对倒拉高暗中派发，需警惕诱多。'
+    elif not has_dark and inst_net > 0 and full_pct < 0:
         intent_narrative = '机构逆势承接。价跌但机构净买，可能在维护股价或低位建仓，但未检测到明显拆单行为。'
-    elif inst_net < 0 and full_pct > 0.5 and has_dark:
-        intent_narrative = '主力趁涨暗中出货。价涨但机构净卖，同时检测到拆单痕迹（隐藏抛售意图），典型拉高出货模式。'
-    elif inst_net < 0 and full_pct > 0 and not has_dark:
+    elif not has_dark and inst_net < 0 and full_pct > 0:
         intent_narrative = '机构借反弹减仓。价涨但机构净卖，可能在逐步撤退，但未检测到明显拆单行为。'
     elif inst_net > 0 and full_pct >= 0:
         intent_narrative = '机构顺势做多。价涨且机构净买，属于正常的趋势跟随，非隐藏行为。'
@@ -609,10 +640,19 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
 
     # 关键数据摘要
     key_facts = []
-    key_facts.append(f'机构净主动{inst_net/10000:+.0f}万{"（逆势）" if (inst_net>0 and full_pct<0) or (inst_net<0 and full_pct>0) else ""}')
-    key_facts.append(f'全日{full_pct:+.2f}%')
+    inst_label = f'机构净主动{inst_net/10000:+.0f}万'
+    if (inst_net > 0 and full_pct < 0) or (inst_net < 0 and full_pct > 0):
+        inst_label += '（逆势）'
+    key_facts.append(inst_label)
+    key_facts.append(f'全日{day_chg_pct:+.2f}%')
     if has_dark:
-        key_facts.append(f'暗盘拆单{dark_buy}手买/{dark_sell}手卖')
+        dark_label = f'暗盘拆单{dark_buy}手买/{dark_sell}手卖'
+        if significant_split:
+            if (inst_bullish and dark_bullish) or (inst_bearish and dark_bearish):
+                dark_label += '（明暗一致）'
+            elif (inst_bullish and dark_bearish) or (inst_bearish and dark_bullish):
+                dark_label += '（明暗背离⚠️）'
+        key_facts.append(dark_label)
     if tail_vol_ratio > 8:
         key_facts.append(f'尾盘占比{tail_vol_ratio:.0f}%{tail_pct:+.2f}%')
 
