@@ -53,8 +53,8 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
 
 function extractEntryRange(text: string | undefined): string | undefined {
     if (!text) return undefined
-    const m = text.match(/入场区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
-        ?? text.match(/(?:建仓|买入|卖出)区间[：:]\s*[¥$]?\s*([\d.]+)\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)/)
+    const m = text.match(/\*{0,4}(?:入场|建仓|买入|卖出)区间\*{0,4}\s*[：:]\s*[¥$]?\s*([\d.]+)\s*(?:元)?\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)\s*(?:元)?/)
+        ?? text.match(/\*{0,4}(?:入场|建仓|买入|卖出)区间\*{0,4}[：:\s]*[¥$]?\s*([\d.]+)\s*(?:元)?\s*[–\-—至~]\s*[¥$]?\s*([\d.]+)\s*(?:元)?/)
     if (m) return `${m[1]} - ${m[2]}`
     return undefined
 }
