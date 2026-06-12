@@ -290,6 +290,17 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
         tail_pct = 0
         today_k5 = pd.DataFrame()
 
+    # 日间涨跌幅（基于昨收，用于行情概览显示）
+    try:
+        from tradingagents.indicators import fetch_realtime_quote
+        quote = fetch_realtime_quote(full_symbol)
+        pre_close = quote.get("prev_close", day_open)
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning(f"[dark-pool] fetch_realtime_quote failed for {full_symbol}: {e}")
+        pre_close = day_open
+    day_chg_pct = (day_close - pre_close) / pre_close * 100 if pre_close else 0
+
     # ==== 维度一: 机构参与度 ====
     if inst_net > 0 and full_pct < 0:
         intent = '机构逆势净买 -> 压价吃货，偏多'
@@ -323,7 +334,7 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
     result['dim2_tail'] = {
         'tail_vol_ratio_pct': round(tail_vol_ratio, 1),
         'tail_chg_pct': round(tail_pct, 2),
-        'full_chg_pct': round(full_pct, 2),
+        'full_chg_pct': round(day_chg_pct, 2),
         'signal': tail_signal,
     }
 
@@ -621,7 +632,7 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
         'high': round(float(day_high), 2),
         'low': round(float(day_low), 2),
         'close': round(float(day_close), 2),
-        'chg_pct': round(float(full_pct), 2),
+        'chg_pct': round(float(day_chg_pct), 2),
         'total_vol': TOTAL_VOL,
         'total_amt_wan': round(TOTAL_AMT / 10000, 0),
         'tick_count': len(tick),
