@@ -75,52 +75,52 @@ class ApiService {
         return this.request(`/v1/jobs/${jobId}/result`)
     }
 
-    async getKline(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<KlineResponse> {
+    async getKline(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<KlineResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<KlineResponse>(`/v1/market/kline?${params}`)
+        return this.request<KlineResponse>(`/v1/market/kline?${params}`, { signal })
     }
 
-    async getNiuxiong(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<NiuxiongResponse> {
+    async getNiuxiong(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<NiuxiongResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<NiuxiongResponse>(`/v1/market/niuxiong?${params}`)
+        return this.request<NiuxiongResponse>(`/v1/market/niuxiong?${params}`, { signal })
     }
 
-    async getGsStrategy(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<GSResponse> {
+    async getGsStrategy(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<GSResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<GSResponse>(`/v1/market/gs-strategy?${params}`)
+        return this.request<GSResponse>(`/v1/market/gs-strategy?${params}`, { signal })
     }
 
-    async getRadar(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<RadarResponse> {
+    async getRadar(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<RadarResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<RadarResponse>(`/v1/market/radar?${params}`)
+        return this.request<RadarResponse>(`/v1/market/radar?${params}`, { signal })
     }
 
-    async getPosition(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<PositionResponse> {
+    async getPosition(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<PositionResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<PositionResponse>(`/v1/market/position?${params}`)
+        return this.request<PositionResponse>(`/v1/market/position?${params}`, { signal })
     }
 
-    async getVolumeWash(symbol: string, startDate?: string, endDate?: string, period?: string): Promise<VolumeWashResponse> {
+    async getVolumeWash(symbol: string, startDate?: string, endDate?: string, period?: string, signal?: AbortSignal): Promise<VolumeWashResponse> {
         const params = new URLSearchParams({ symbol })
         if (startDate) params.append('start_date', startDate)
         if (endDate) params.append('end_date', endDate)
         if (period) params.append('period', period)
-        return this.request<VolumeWashResponse>(`/v1/market/volume-wash?${params}`)
+        return this.request<VolumeWashResponse>(`/v1/market/volume-wash?${params}`, { signal })
     }
 
     async getDarkPoolAnalysis(symbol: string, date?: string): Promise<DarkPoolAnalysisResponse> {

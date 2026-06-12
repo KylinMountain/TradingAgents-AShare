@@ -247,11 +247,12 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
     // Load data and apply to series
     useEffect(() => {
         let cancelled = false
+        const ac = new AbortController()
         const load = async () => {
             if (!avgSeriesRef.current || !histRefs.current.up) return
             try {
-                const resp = await api.getRadar(symbol, range.start, range.end, klinePeriod)
-                if (cancelled || !resp?.points) return
+                const resp = await api.getRadar(symbol, range.start, range.end, klinePeriod, ac.signal)
+                if (cancelled || ac.signal.aborted || !resp?.points) return
                 if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
 
                 setRadarData(resp.points)
@@ -320,10 +321,10 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
                 chartRef.current?.timeScale().fitContent()
                 // 初始加载/切换周期后从K线同步一次逻辑范围
                 setTimeout(() => onSyncNow?.(), 100)
-            } catch {}
+            } catch { if (ac.signal.aborted) return }
         }
         load()
-        return () => { cancelled = true }
+        return () => { cancelled = true; ac.abort() }
     }, [symbol, range.start, range.end, klinePeriod, onSyncNow])
 
     const lastPoint = radarData.length ? radarData[radarData.length - 1] : null

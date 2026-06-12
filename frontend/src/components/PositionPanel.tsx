@@ -183,11 +183,12 @@ export default function PositionPanel({ symbol, onChartReady, onSyncNow }: Posit
 
     useEffect(() => {
         let cancelled = false
+        const ac = new AbortController()
         const load = async () => {
             if (!seriesRef.current) return
             try {
-                const resp = await api.getPosition(symbol, range.start, range.end, klinePeriod)
-                if (cancelled || !resp?.points) return
+                const resp = await api.getPosition(symbol, range.start, range.end, klinePeriod, ac.signal)
+                if (cancelled || ac.signal.aborted || !resp?.points) return
                 if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
 
                 setData(resp.points)
@@ -212,10 +213,10 @@ export default function PositionPanel({ symbol, onChartReady, onSyncNow }: Posit
                 seriesRef.current?.setData(histData)
                 chartRef.current?.timeScale().fitContent()
                 setTimeout(() => onSyncNow?.(), 100)
-            } catch {}
+            } catch { if (ac.signal.aborted) return }
         }
         load()
-        return () => { cancelled = true }
+        return () => { cancelled = true; ac.abort() }
     }, [symbol, range.start, range.end, klinePeriod, onSyncNow])
 
     const lastPoint = data.length ? data[data.length - 1] : null

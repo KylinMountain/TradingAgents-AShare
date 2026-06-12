@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import AgentCollaboration from '@/components/AgentCollaboration'
+import { Loader2, Search } from 'lucide-react'
+import AnalysisConsole from '@/components/AnalysisConsole'
 import DebateDrawer from '@/components/DebateDrawer'
 import ReportViewer from '@/components/ReportViewer'
-import ChatCopilotPanel from '@/components/ChatCopilotPanel'
 import KlinePanel from '@/components/KlinePanel'
 import RadarPanel from '@/components/RadarPanel'
 import PositionPanel from '@/components/PositionPanel'
@@ -11,8 +11,10 @@ import VolumeWashPanel from '@/components/VolumeWashPanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
+import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useSyncedCharts } from '@/hooks/useSyncedCharts'
+import type { StockSearchResult } from '@/types'
 
 function mapDecision(decision?: string): 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch' | undefined {
     if (!decision) return undefined
@@ -64,10 +66,46 @@ export default function Analysis() {
     const [activeSection, setActiveSection] = useState<string | undefined>()
     const [debateDrawer, setDebateDrawer] = useState<'research' | 'risk' | null>(null)
     const reportRef = useRef<HTMLDivElement | null>(null)
+
+    // 标的搜索
+    const [symbolSearch, setSymbolSearch] = useState('')
+    const [symbolResults, setSymbolResults] = useState<StockSearchResult[]>([])
+    const [symbolSearching, setSymbolSearching] = useState(false)
+    const [showSymbolDropdown, setShowSymbolDropdown] = useState(false)
+    const [symbolError, setSymbolError] = useState('')
+    const [decisionDisplayName, setDecisionDisplayName] = useState('')
+    const symbolTimerRef = useRef<ReturnType<typeof setTimeout>>()
+    const symbolContainerRef = useRef<HTMLDivElement>(null)
+
+    // 防抖搜索
+    useEffect(() => {
+        if (symbolTimerRef.current) clearTimeout(symbolTimerRef.current)
+        const q = symbolSearch.trim()
+        if (!q) { setSymbolResults([]); setShowSymbolDropdown(false); setSymbolSearching(false); return }
+        setSymbolSearching(true)
+        symbolTimerRef.current = setTimeout(async () => {
+            try {
+                const res = await api.searchStocks(q)
+                setSymbolResults(res.results)
+                setShowSymbolDropdown(true)
+            } catch { setShowSymbolDropdown(false) }
+            setSymbolSearching(false)
+        }, 300)
+    }, [symbolSearch])
+
+    // 点击外部关闭下拉
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (symbolContainerRef.current && !symbolContainerRef.current.contains(e.target as Node)) {
+                setShowSymbolDropdown(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [])
     const {
         report,
         currentSymbol,
-        setCurrentSymbol,
         jobConfidence,
         jobTargetPrice,
         jobStopLoss,
@@ -75,12 +113,28 @@ export default function Analysis() {
         keyMetrics,
     } = useAnalysisStore()
 
+    const decisionSymbol = report?.symbol || activeSymbol
+
+    useEffect(() => {
+        let cancelled = false
+        const lookup = async () => {
+            const code = decisionSymbol.split('.')[0]
+            if (!code) return
+            try {
+                const res = await api.searchStocks(code)
+                if (cancelled) return
+                const match = res.results.find(r => r.symbol === decisionSymbol)
+                if (match) setDecisionDisplayName(match.name)
+            } catch {}
+        }
+        lookup()
+        return () => { cancelled = true }
+    }, [decisionSymbol])
+
     const handleShowReport = (section?: string) => {
         setActiveSection(section)
         reportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
-
-    const initialChatInput = querySymbol ? `分析 ${querySymbol} 今日走势` : undefined
 
     useEffect(() => {
         if (querySymbol) setActiveSymbol(querySymbol)
@@ -99,61 +153,104 @@ export default function Analysis() {
     const entryRange = extractEntryRange(report?.trader_investment_plan) ?? extractEntryRange(report?.investment_plan)
 
     return (
-        <div className="space-y-4">
-            <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-4 min-h-[calc(100vh-5rem)]">
-                <aside className="h-[calc(100vh-5rem)] sticky top-0 flex flex-col gap-4">
-                    <div className="min-h-0 flex-1">
-                        <ChatCopilotPanel
-                            onSymbolDetected={(symbol) => {
-                                setActiveSymbol(symbol)
-                                setCurrentSymbol(symbol)
-                            }}
-                            onShowReport={handleShowReport}
-                            initialInput={initialChatInput}
-                        />
-                    </div>
-                </aside>
-
-                <div className="min-w-0 space-y-4">
-                    <div className="h-[360px]">
-                        <KlinePanel
-                            symbol={activeSymbol}
-                            onSymbolChange={(symbol) => {
-                                setActiveSymbol(symbol)
-                            }}
-                            onChartReady={registerKlineChart}
-                            onSyncNow={syncNow}
-                        />
-                    </div>
-
-                    <RadarPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('radar', c)} onSyncNow={syncNow} />
-
-                    <VolumeWashPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('volumeWash', c)} onSyncNow={syncNow} />
-
-                    <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
-
-                    <AgentCollaboration onSelectSection={handleShowReport} onOpenDebate={setDebateDrawer} selectedSection={activeSection} />
-
-                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                        <DecisionCard
-                            symbol={activeSymbol}
-                            report={report || undefined}
-                            decision={mapDecision(report?.decision)}
-                            direction={report?.direction}
-                            confidence={confidence}
-                            targetPrice={targetPrice}
-                            stopLoss={stopLoss}
-                            entryRange={entryRange}
-                            reasoning={finalDecision?.slice(0, 300)}
-                        />
-                        <RiskRadar items={riskItems} />
-                        <KeyMetrics items={keyMetrics} />
-                    </div>
-
-                    <div ref={reportRef}>
-                        <ReportViewer activeSection={activeSection} />
-                    </div>
+        <div className="space-y-4 max-w-[1400px] mx-auto">
+            {/* 标的搜索栏 */}
+            <div ref={symbolContainerRef} className="relative">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                        type="text"
+                        value={symbolSearch}
+                        onChange={e => { setSymbolSearch(e.target.value); setSymbolError('') }}
+                        onFocus={() => symbolResults.length > 0 && setShowSymbolDropdown(true)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' && symbolSearch.trim()) {
+                                const q = symbolSearch.trim().toUpperCase()
+                                const matched = symbolResults.find(r =>
+                                    r.symbol.replace(/\.(SH|SZ|BJ)$/i, '') === q.replace(/\.(SH|SZ|BJ)$/i, '') ||
+                                    r.name === q
+                                )
+                                if (matched) {
+                                    setActiveSymbol(matched.symbol)
+                                    setSymbolSearch('')
+                                    setShowSymbolDropdown(false)
+                                } else {
+                                    setSymbolError('未找到匹配的股票，请检查代码或名称')
+                                }
+                            }
+                        }}
+                        placeholder="搜索股票代码或名称，切换K线视图"
+                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"
+                    />
+                    {symbolSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />}
                 </div>
+                {symbolError && (
+                    <p className="mt-1 text-xs text-red-500">{symbolError}</p>
+                )}
+                {showSymbolDropdown && symbolResults.length > 0 && (
+                    <div className="absolute z-50 left-0 right-0 mt-1 rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 max-h-60 overflow-y-auto">
+                        {symbolResults.map(r => (
+                            <button
+                                key={r.symbol}
+                                type="button"
+                                onClick={() => {
+                                    setActiveSymbol(r.symbol)
+                                    setSymbolSearch('')
+                                    setShowSymbolDropdown(false)
+                                }}
+                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                            >
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.name}</span>
+                                <span className="text-xs text-slate-400">{r.symbol}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div className="h-[360px]">
+                <KlinePanel
+                    symbol={activeSymbol}
+                    onSymbolChange={(symbol) => {
+                        setActiveSymbol(symbol)
+                    }}
+                    onChartReady={registerKlineChart}
+                    onSyncNow={syncNow}
+                />
+            </div>
+
+            <RadarPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('radar', c)} onSyncNow={syncNow} />
+
+            <VolumeWashPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('volumeWash', c)} onSyncNow={syncNow} />
+
+            <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
+
+            <AnalysisConsole
+                symbol={activeSymbol}
+                onShowReport={handleShowReport}
+                onOpenDebate={setDebateDrawer}
+                selectedSection={activeSection}
+            />
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                <DecisionCard
+                    symbol={decisionSymbol}
+                    name={decisionDisplayName || undefined}
+                    report={report || undefined}
+                    decision={mapDecision(report?.decision)}
+                    direction={report?.direction}
+                    confidence={confidence}
+                    targetPrice={targetPrice}
+                    stopLoss={stopLoss}
+                    entryRange={entryRange}
+                    reasoning={finalDecision?.slice(0, 300)}
+                />
+                <RiskRadar items={riskItems} />
+                <KeyMetrics items={keyMetrics} />
+            </div>
+
+            <div ref={reportRef}>
+                <ReportViewer activeSection={activeSection} />
             </div>
 
             <DebateDrawer debate={debateDrawer} onClose={() => setDebateDrawer(null)} />

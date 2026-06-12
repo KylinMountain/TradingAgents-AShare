@@ -453,10 +453,17 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
 
     setIsConnected: (isConnected) => set({ isConnected }),
 
-    setAnalysisRunState: (analysisRunState, error = null) => set({
+    setAnalysisRunState: (analysisRunState, error = null) => set((state) => ({
         analysisRunState,
         analysisRunError: analysisRunState === 'failed' ? error : null,
-    }),
+        ...(analysisRunState === 'completed' ? {
+            agents: state.agents.map(a =>
+                a.status === 'pending'
+                    ? { ...a, status: 'completed' as const, finishedAt: a.finishedAt ?? Date.now() }
+                    : a
+            ),
+        } : {}),
+    })),
 
     setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
 
@@ -504,20 +511,23 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>
+        const hasCompletedReport = !!persisted.report && Object.keys(persisted.report).length > 0
         return {
             ...currentState,
             ...persisted,
             currentJobId: null,
             jobStatus: null,
-            agents: initialAgents.map(a => ({ ...a, status: 'pending' })),
+            agents: hasCompletedReport
+                ? initialAgents.map(a => ({ ...a, status: 'completed' as const }))
+                : initialAgents.map(a => ({ ...a, status: 'pending' as const })),
             streamingSections: {},
             debateMessages: {},
-        debateScrollTick: 0,
+            debateScrollTick: 0,
             milestones: [],
             logs: [],
             isAnalyzing: false,
             isConnected: false,
-            analysisRunState: 'idle',
+            analysisRunState: hasCompletedReport ? 'completed' : 'idle',
             analysisRunError: null,
             chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
         }

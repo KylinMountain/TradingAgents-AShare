@@ -174,11 +174,12 @@ export default function VolumeWashPanel({ symbol, onChartReady, onSyncNow }: Vol
 
     useEffect(() => {
         let cancelled = false
+        const ac = new AbortController()
         const load = async () => {
             if (!seriesRef.current) return
             try {
-                const resp = await api.getVolumeWash(symbol, range.start, range.end, klinePeriod)
-                if (cancelled || !resp?.points) return
+                const resp = await api.getVolumeWash(symbol, range.start, range.end, klinePeriod, ac.signal)
+                if (cancelled || ac.signal.aborted || !resp?.points) return
                 if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
 
                 setData(resp.points)
@@ -195,10 +196,10 @@ export default function VolumeWashPanel({ symbol, onChartReady, onSyncNow }: Vol
                 seriesRef.current?.setData(histData)
                 chartRef.current?.timeScale().fitContent()
                 setTimeout(() => onSyncNow?.(), 100)
-            } catch {}
+            } catch { if (ac.signal.aborted) return }
         }
         load()
-        return () => { cancelled = true }
+        return () => { cancelled = true; ac.abort() }
     }, [symbol, range.start, range.end, klinePeriod, onSyncNow])
 
     const lastPoint = data.length ? data[data.length - 1] : null

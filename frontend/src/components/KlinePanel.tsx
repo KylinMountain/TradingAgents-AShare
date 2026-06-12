@@ -447,6 +447,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
 
     useEffect(() => {
         let cancelled = false
+        const ac = new AbortController()
 
         const load = async () => {
             if (!seriesRef.current) return
@@ -454,9 +455,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
             setError(null)
             try {
                 const [klineResp, niuxiongResp, gsResp] = await Promise.all([
-                    api.getKline(symbol, range.start, range.end, klinePeriod),
-                    api.getNiuxiong(symbol, range.start, range.end, klinePeriod).catch(() => null),
-                    api.getGsStrategy(symbol, range.start, range.end, klinePeriod).catch(() => null),
+                    api.getKline(symbol, range.start, range.end, klinePeriod, ac.signal),
+                    api.getNiuxiong(symbol, range.start, range.end, klinePeriod, ac.signal).catch(() => null),
+                    api.getGsStrategy(symbol, range.start, range.end, klinePeriod, ac.signal).catch(() => null),
                 ])
                 const data: CandlestickData[] = klineResp.candles.flatMap((c: KlineCandle) => {
                     const time = toChartTime((c.date || '').slice(0, 10), klinePeriod)
@@ -469,7 +470,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                     return [{ time, open, high, low, close }]
                 })
 
-                if (cancelled) return
+                if (cancelled || ac.signal.aborted) return
                 if (useAnalysisStore.getState().klinePeriod !== klinePeriod) return
                 setCandles(klineResp.candles)
                 setStockName(klineResp.name || null)
@@ -497,20 +498,21 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                     setError('暂无可用K线数据')
                 }
             } catch (e) {
-                if (cancelled) return
+                if (cancelled || ac.signal.aborted) return
                 setError(e instanceof Error ? e.message : '加载K线失败')
                 setCandles([])
                 candlesRef.current = []
                 setActiveCandle(null)
                 seriesRef.current?.setData([])
             } finally {
-                if (!cancelled) setLoading(false)
+                if (!cancelled && !ac.signal.aborted) setLoading(false)
             }
         }
 
         load()
         return () => {
             cancelled = true
+            ac.abort()
         }
     }, [range.end, range.start, symbol, klinePeriod, onSyncNow])
 
