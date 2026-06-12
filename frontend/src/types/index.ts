@@ -387,6 +387,24 @@ export interface VolumeWashResponse {
     signal?: Record<string, any> | null
 }
 
+export interface FundFlowPoint {
+    date: string
+    close: number
+    main_net?: number | null
+    main_pct?: number | null
+    super_large_net?: number | null
+    large_net?: number | null
+    medium_net?: number | null
+    small_net?: number | null
+}
+
+export interface FundFlowResponse {
+    symbol: string
+    name?: string | null
+    points: FundFlowPoint[]
+    signal?: Record<string, any> | null
+}
+
 export interface DarkPoolEvent {
     start: string
     end: string

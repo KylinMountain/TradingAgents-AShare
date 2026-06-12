@@ -769,6 +769,25 @@ class AiGravityResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+# Fund Flow Models
+class FundFlowPoint(BaseModel):
+    date: str
+    close: float
+    main_net: Optional[float] = None
+    main_pct: Optional[float] = None
+    super_large_net: Optional[float] = None
+    large_net: Optional[float] = None
+    medium_net: Optional[float] = None
+    small_net: Optional[float] = None
+
+
+class FundFlowResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[FundFlowPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 # Dark Pool Analysis Models
 class DarkPoolEvent(BaseModel):
     start: str
@@ -3505,6 +3524,131 @@ def get_ai_gravity(
         points=points,
         signal=signal,
     )
+
+
+@app.get("/v1/market/fund-flow", response_model=FundFlowResponse)
+def get_fund_flow(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
+) -> FundFlowResponse:
+    """每日主力资金流向接口（Tushare 主力 + akshare/baostock 回退）"""
+    from datetime import datetime, timedelta
+    from tradingagents.indicators import fetch_realtime_data, fetch_realtime_quote
+
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
+    days = _indicator_days_map.get(period, 500)
+    end = datetime.now()
+    start = end - timedelta(days=days + 30)
+
+    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    suffix = ".SH" if code[:1] in ("5", "6", "9") else ".SZ"
+    ts_code = code + suffix
+
+    df = pd.DataFrame()
+
+    # ── 方案1: Tushare moneyflow ──
+    try:
+        import tushare as ts
+        token = os.environ.get("TUSHARE_TOKEN", "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada")
+        ts.set_token(token)
+        pro = ts.pro_api()
+        mf = pro.moneyflow(
+            ts_code=ts_code,
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+        )
+        if mf is not None and not mf.empty:
+            mf["trade_date"] = pd.to_datetime(mf["trade_date"], format="%Y%m%d")
+            mf = mf.sort_values("trade_date").set_index("trade_date")
+            mf.index.name = "date"
+            for col in ["buy_elg_amount", "sell_elg_amount", "buy_lg_amount", "sell_lg_amount",
+                        "buy_md_amount", "sell_md_amount", "buy_sm_amount", "sell_sm_amount"]:
+                mf[col] = pd.to_numeric(mf[col], errors="coerce").fillna(0)
+            mf["main_net"] = (mf["buy_elg_amount"] + mf["buy_lg_amount"]) - (mf["sell_elg_amount"] + mf["sell_lg_amount"])
+            mf["super_large_net"] = mf["buy_elg_amount"] - mf["sell_elg_amount"]
+            mf["large_net"] = mf["buy_lg_amount"] - mf["sell_lg_amount"]
+            mf["medium_net"] = mf["buy_md_amount"] - mf["sell_md_amount"]
+            mf["small_net"] = mf["buy_sm_amount"] - mf["sell_sm_amount"]
+            # 主力净占比 = 主力净额 / 成交额
+            total_trade = mf["buy_elg_amount"] + mf["sell_elg_amount"] + mf["buy_lg_amount"] + mf["sell_lg_amount"] + mf["buy_md_amount"] + mf["sell_md_amount"] + mf["buy_sm_amount"] + mf["sell_sm_amount"]
+            # 成交额实际上是双向的，这里算的不对。简化为用总买卖的一半近似成交额
+            mf["main_pct"] = (mf["main_net"] / (total_trade / 2) * 100).round(4)
+            mf["main_pct"] = mf["main_pct"].replace([float("inf"), float("-inf")], None)
+            df = mf[["main_net", "main_pct", "super_large_net", "large_net", "medium_net", "small_net"]].copy()
+    except Exception:
+        pass
+
+    # ── 方案2: akshare 回退 ──
+    if df.empty:
+        try:
+            import akshare as ak
+            market = "sh" if code[:1] in ("5", "6", "9") else "sz"
+            raw_df = ak.stock_individual_fund_flow(stock=code, market=market)
+            if raw_df is not None and not raw_df.empty:
+                col_map = {
+                    "日期": "date", "收盘价": "close",
+                    "主力净流入-净额": "main_net", "主力净流入-净占比": "main_pct",
+                    "超大单净流入-净额": "super_large_net", "大单净流入-净额": "large_net",
+                    "中单净流入-净额": "medium_net", "小单净流入-净额": "small_net",
+                }
+                available = {k: v for k, v in col_map.items() if k in raw_df.columns}
+                raw_df = raw_df.rename(columns=available)
+                raw_df["date"] = pd.to_datetime(raw_df["date"])
+                raw_df = raw_df.set_index("date").sort_index()
+                for col_name in ["close", "main_net", "main_pct", "super_large_net", "large_net", "medium_net", "small_net"]:
+                    if col_name in raw_df.columns:
+                        raw_df[col_name] = pd.to_numeric(raw_df[col_name], errors="coerce")
+                df = raw_df[["main_net", "main_pct", "super_large_net", "large_net", "medium_net", "small_net"]].copy()
+        except Exception:
+            pass
+
+    if df.empty:
+        raise HTTPException(status_code=404, detail="无资金流数据")
+
+    # ── 补充收盘价 ──
+    try:
+        price_df = fetch_realtime_data(symbol, days=days, period="daily")
+        if price_df is not None and not price_df.empty and "close" in price_df.columns:
+            df["close"] = price_df["close"]
+    except Exception:
+        df["close"] = 0
+
+    if start_date:
+        df = df[df.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        df = df[df.index <= end_dt]
+
+    points = []
+    for idx, row in df.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(FundFlowPoint(
+            date=date_str,
+            close=round(float(row["close"]), 2) if pd.notna(row.get("close")) else 0,
+            main_net=round(float(row["main_net"]), 2) if pd.notna(row.get("main_net")) else 0,
+            main_pct=round(float(row["main_pct"]), 4) if pd.notna(row.get("main_pct")) else None,
+            super_large_net=round(float(row["super_large_net"]), 2) if pd.notna(row.get("super_large_net")) else None,
+            large_net=round(float(row["large_net"]), 2) if pd.notna(row.get("large_net")) else None,
+            medium_net=round(float(row["medium_net"]), 2) if pd.notna(row.get("medium_net")) else None,
+            small_net=round(float(row["small_net"]), 2) if pd.notna(row.get("small_net")) else None,
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return FundFlowResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=None,
+    )
+
     """Convert THS/XQ code like SH601xxx → 601xxx.SH"""
     code = str(code).strip()
     if code.upper().startswith("SH"):
