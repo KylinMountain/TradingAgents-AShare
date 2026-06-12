@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Bot, Loader2, Play, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
@@ -45,6 +46,18 @@ export default function AnalysisConsole({ symbol, onShowReport, onOpenDebate, se
 
     const [workflowExpanded, setWorkflowExpanded] = useState(true)
     const isActive = isAnalyzing || analysisRunState === 'running' || analysisRunState === 'completed'
+    const autoStartedRef = useRef(false)
+    const [searchParams] = useSearchParams()
+
+    // 从自选股页面点击「分析」跳转时，自动触发分析
+    useEffect(() => {
+        const urlSymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
+        if (!urlSymbol || autoStartedRef.current) return
+        // 如果正在分析或已分析同一股票，不重复触发
+        if (isAnalyzing || analysisRunState === 'running') return
+        autoStartedRef.current = true
+        handleStartAnalysis()
+    }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // 分析完成或缓存恢复后，若缺中文名则补查（仅触发一次）
     useEffect(() => {
