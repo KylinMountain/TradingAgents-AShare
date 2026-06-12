@@ -605,13 +605,13 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
 
     # 主力意图（四象限：明面机构 × 暗面拆单）
     if has_dark and inst_bullish and dark_bullish:
-        intent_narrative = f'明暗共振做多。机构明面净买{inst_net/10000:+.0f}万，拆单检测也偏买（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价跌属于压价吸筹" if full_pct < -0.5 else "主力积极吃货，信号可靠度高"}。'
+        intent_narrative = f'明暗共振做多。机构明面净买{inst_net:+.0f}万，拆单检测也偏买（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价跌属于压价吸筹" if full_pct < -0.5 else "主力积极吃货，信号可靠度高"}。'
     elif has_dark and inst_bearish and dark_bearish:
-        intent_narrative = f'明暗共振出货。机构明面净卖{inst_net/10000:+.0f}万，拆单检测也偏卖（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价涨属于拉高出货" if full_pct > 0.5 else "主力积极派发，注意风险"}。'
+        intent_narrative = f'明暗共振出货。机构明面净卖{inst_net:+.0f}万，拆单检测也偏卖（暗盘{dark_buy}手买/{dark_sell}手卖），{"且价涨属于拉高出货" if full_pct > 0.5 else "主力积极派发，注意风险"}。'
     elif has_dark and inst_bearish and dark_bullish:
-        intent_narrative = f'疑似暗度陈仓。机构明面净卖{inst_net/10000:+.0f}万{"且价涨" if full_pct > 0 else ""}，但拆单检测偏买（暗盘{dark_buy}手买/{dark_sell}手卖）——可能刻意压盘掩护吸筹，关注后续方向选择。'
+        intent_narrative = f'疑似暗度陈仓。机构明面净卖{inst_net:+.0f}万{"且价涨" if full_pct > 0 else ""}，但拆单检测偏买（暗盘{dark_buy}手买/{dark_sell}手卖）——可能刻意压盘掩护吸筹，关注后续方向选择。'
     elif has_dark and inst_bullish and dark_bearish:
-        intent_narrative = f'疑似明拉暗出。机构明面净买{inst_net/10000:+.0f}万{"且价跌" if full_pct < 0 else ""}，但拆单检测偏卖（暗盘{dark_buy}手买/{dark_sell}手卖）——可能对倒拉高暗中派发，需警惕诱多。'
+        intent_narrative = f'疑似明拉暗出。机构明面净买{inst_net:+.0f}万{"且价跌" if full_pct < 0 else ""}，但拆单检测偏卖（暗盘{dark_buy}手买/{dark_sell}手卖）——可能对倒拉高暗中派发，需警惕诱多。'
     elif not has_dark and inst_net > 0 and full_pct < 0:
         intent_narrative = '机构逆势承接。价跌但机构净买，可能在维护股价或低位建仓，但未检测到明显拆单行为。'
     elif not has_dark and inst_net < 0 and full_pct > 0:
@@ -640,7 +640,7 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
 
     # 关键数据摘要
     key_facts = []
-    inst_label = f'机构净主动{inst_net/10000:+.0f}万'
+    inst_label = f'机构净主动{inst_net:+.0f}万'
     if (inst_net > 0 and full_pct < 0) or (inst_net < 0 and full_pct > 0):
         inst_label += '（逆势）'
     key_facts.append(inst_label)
