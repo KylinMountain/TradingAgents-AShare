@@ -6,8 +6,10 @@ import {
     ImagePlus,
     Loader2,
     Pencil,
+    Plus,
     RefreshCw,
     Save,
+    Search,
     ShieldAlert,
     Target,
     Trash2,
@@ -21,7 +23,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { PortfolioPositionInput, TrackingBoardItem, TrackingBoardResponse } from '@/types'
+import type { PortfolioPositionInput, StockSearchResult, TrackingBoardItem, TrackingBoardResponse } from '@/types'
 
 const CLAMP_TWO_LINES_STYLE: CSSProperties = {
     display: '-webkit-box',
@@ -29,6 +31,8 @@ const CLAMP_TWO_LINES_STYLE: CSSProperties = {
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
 }
+
+const BATCH_SPLIT_RE = /[,\s，、；;]+/
 
 type BoardViewMode = 'simple' | 'detailed'
 type BoardTone = 'blue' | 'emerald' | 'rose' | 'amber'
@@ -48,12 +52,18 @@ export default function TrackingBoardPanel() {
         }
     })
     const [showImportSection, setShowImportSection] = useState(false)
-    const [positionText, setPositionText] = useState('')
+    const [pendingItems, setPendingItems] = useState<PortfolioPositionInput[]>([])
+    const [searchQuery, setSearchQuery] = useState('')
+    const [searchResults, setSearchResults] = useState<StockSearchResult[]>([])
+    const [searchLoading, setSearchLoading] = useState(false)
+    const [showDropdown, setShowDropdown] = useState(false)
     const [importSaving, setImportSaving] = useState(false)
     const [importClearing, setImportClearing] = useState(false)
     const [importFeedback, setImportFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
     const [vlmParsing, setVlmParsing] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+    const searchContainerRef = useRef<HTMLDivElement>(null)
     const navigate = useNavigate()
     const [editingItem, setEditingItem] = useState<TrackingBoardItem | null>(null)
     const [editForm, setEditForm] = useState({ symbol: '', name: '', current_position: '', average_cost: '' })
@@ -212,39 +222,121 @@ export default function TrackingBoardPanel() {
         }
     }, [editingItem, editForm, refreshBoard])
 
-    const parsePositionLines = useCallback((text: string): PortfolioPositionInput[] => {
-        const positions: PortfolioPositionInput[] = []
-        for (const raw of text.split('\n')) {
-            const line = raw.trim()
-            if (!line) continue
-            const parts = line.split(/[\s\t]+/)
-            if (parts.length < 1) continue
-            const symbol = parts[0].replace(/\.(SZ|SH|BJ)$/i, '')
-            if (!/^\d{6}$/.test(symbol)) continue
-            const name = parts.length > 1 && !/^\d/.test(parts[1]) ? parts[1] : undefined
-            const numericParts = parts.slice(1).filter(p => /^[\d.]+$/.test(p))
-            positions.push({
-                symbol,
-                name,
-                current_position: numericParts[0] ? Number(numericParts[0]) : undefined,
-                average_cost: numericParts[1] ? Number(numericParts[1]) : undefined,
-                market_value: numericParts[2] ? Number(numericParts[2]) : undefined,
-            })
-        }
-        return positions
-    }, [])
+    const trimmedQuery = searchQuery.trim()
+    const isBatchInput = trimmedQuery.length > 0 && BATCH_SPLIT_RE.test(trimmedQuery)
+    const existingSymbols = useMemo(() => {
+        const set = new Set(trackingItems.map(item => item.symbol.replace(/\.(SH|SZ|BJ)$/i, '')))
+        pendingItems.forEach(p => set.add(p.symbol))
+        return set
+    }, [trackingItems, pendingItems])
 
-    const handleSavePositions = useCallback(async () => {
-        const positions = parsePositionLines(positionText)
-        if (positions.length === 0) {
-            setImportFeedback({ tone: 'error', message: '未解析到有效持仓，请检查格式' })
+    // Debounced search
+    useEffect(() => {
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+        if (!trimmedQuery || isBatchInput) {
+            setSearchResults([])
+            setShowDropdown(false)
+            setSearchLoading(false)
             return
         }
+        setSearchLoading(true)
+        searchTimerRef.current = setTimeout(async () => {
+            try {
+                const res = await api.searchStocks(trimmedQuery)
+                setSearchResults(res.results.filter(r => !existingSymbols.has(r.symbol)))
+                setShowDropdown(true)
+            } catch {
+                setShowDropdown(false)
+            }
+            setSearchLoading(false)
+        }, 300)
+    }, [trimmedQuery, isBatchInput, existingSymbols])
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+                setShowDropdown(false)
+            }
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [])
+
+    // Auto-expand import section when no items
+    useEffect(() => {
+        if (!trackingLoading && trackingItems.length === 0) {
+            setShowImportSection(true)
+        }
+    }, [trackingLoading, trackingItems.length])
+
+    const addToPending = useCallback((symbol: string, name?: string) => {
+        const code = symbol.replace(/\.(SH|SZ|BJ)$/i, '')
+        if (existingSymbols.has(code)) return
+        setPendingItems(prev => [...prev, { symbol: code, name }])
+        setImportFeedback(null)
+    }, [existingSymbols])
+
+    const removeFromPending = useCallback((symbol: string) => {
+        setPendingItems(prev => prev.filter(p => p.symbol !== symbol))
+    }, [])
+
+    const updatePendingItem = useCallback((symbol: string, field: 'current_position' | 'average_cost', value: string) => {
+        setPendingItems(prev => prev.map(p =>
+            p.symbol === symbol ? { ...p, [field]: value ? parseFloat(value) : undefined } : p,
+        ))
+    }, [])
+
+    const submitSearchInput = useCallback(async () => {
+        if (!trimmedQuery) return
+        if (!isBatchInput) {
+            // Single input: try exact match via search
+            const res = await api.searchStocks(trimmedQuery)
+            if (res.results.length === 1) {
+                addToPending(res.results[0].symbol, res.results[0].name)
+                setSearchQuery('')
+                setShowDropdown(false)
+            } else if (res.results.length > 1) {
+                setSearchResults(res.results.filter(r => !existingSymbols.has(r.symbol)))
+                setShowDropdown(true)
+            }
+            return
+        }
+        // Batch input: split and add all
+        const tokens = trimmedQuery.split(BATCH_SPLIT_RE).map(s => s.trim()).filter(Boolean)
+        if (tokens.length === 0) return
         setImportSaving(true)
         setImportFeedback(null)
         try {
-            // Merge with existing positions (new positions override same symbols)
-            // Strip suffix for comparison — backend normalizes both formats
+            const response = await api.addToWatchlist(tokens.join(','))
+            const added = response.results.filter(r => r.status === 'added')
+            for (const r of added) {
+                if (r.item) {
+                    setPendingItems(prev => {
+                        const code = r.item!.symbol.replace(/\.(SH|SZ|BJ)$/i, '')
+                        if (prev.some(p => p.symbol === code)) return prev
+                        return [...prev, { symbol: code, name: r.item!.name }]
+                    })
+                }
+            }
+            if (added.length === 0) {
+                setImportFeedback({ tone: 'error', message: '未能解析到有效股票，请检查输入' })
+            } else {
+                setSearchQuery('')
+                setShowDropdown(false)
+            }
+        } catch (e) {
+            setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '批量解析失败' })
+        } finally {
+            setImportSaving(false)
+        }
+    }, [trimmedQuery, isBatchInput, addToPending, existingSymbols])
+
+    const handleSavePending = useCallback(async () => {
+        if (pendingItems.length === 0) return
+        setImportSaving(true)
+        setImportFeedback(null)
+        try {
             const stripSuffix = (s: string) => s.replace(/\.(SH|SZ|BJ)$/i, '')
             const existingPositions = trackingItems.map(item => ({
                 symbol: stripSuffix(item.symbol),
@@ -253,20 +345,19 @@ export default function TrackingBoardPanel() {
                 average_cost: item.average_cost,
             }))
             const mergedPositions = [
-                ...existingPositions.filter(p => !positions.some(np => np.symbol === p.symbol)),
-                ...positions,
+                ...existingPositions.filter(p => !pendingItems.some(np => np.symbol === p.symbol)),
+                ...pendingItems,
             ]
             await api.syncPortfolioImport({ positions: mergedPositions, auto_apply_scheduled: true })
-            setImportFeedback({ tone: 'success', message: `已保存 ${positions.length} 只持仓` })
-            setPositionText('')
-            setShowImportSection(false)
+            setImportFeedback({ tone: 'success', message: `已保存 ${pendingItems.length} 只持仓` })
+            setPendingItems([])
             await refreshBoard()
         } catch (e) {
             setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '保存失败' })
         } finally {
             setImportSaving(false)
         }
-    }, [positionText, parsePositionLines, refreshBoard, trackingItems])
+    }, [pendingItems, refreshBoard, trackingItems])
 
     const handleClearPositions = useCallback(async () => {
         if (!confirm('确定清空所有已导入的持仓吗？')) return
@@ -275,7 +366,7 @@ export default function TrackingBoardPanel() {
         try {
             await api.clearPortfolioImport()
             setImportFeedback({ tone: 'success', message: '已清空持仓' })
-            setPositionText('')
+            setPendingItems([])
             await refreshBoard()
         } catch (e) {
             setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '清空失败' })
@@ -287,7 +378,6 @@ export default function TrackingBoardPanel() {
     const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
-        // Reset so same file can be re-selected
         e.target.value = ''
 
         setVlmParsing(true)
@@ -298,29 +388,24 @@ export default function TrackingBoardPanel() {
                 setImportFeedback({ tone: 'error', message: '未从截图中识别到持仓信息' })
                 return
             }
-            // Populate textarea for user review
-            const lines = result.positions.map(p => {
-                const parts = [p.symbol, p.name || '']
-                if (p.current_position != null) parts.push(String(p.current_position))
-                if (p.average_cost != null) parts.push(String(p.average_cost))
-                if (p.market_value != null) parts.push(String(p.market_value))
-                return parts.join(' ')
+            const newItems: PortfolioPositionInput[] = []
+            for (const p of result.positions) {
+                const code = p.symbol.replace(/\.(SH|SZ|BJ)$/i, '')
+                if (!existingSymbols.has(code)) {
+                    newItems.push({ ...p, symbol: code })
+                }
+            }
+            setPendingItems(prev => {
+                const existing = new Set(prev.map(x => x.symbol))
+                return [...prev, ...newItems.filter(p => !existing.has(p.symbol))]
             })
-            setPositionText(lines.join('\n'))
-            setImportFeedback({ tone: 'success', message: `已从截图识别 ${result.positions.length} 只持仓，请确认后保存` })
+            setImportFeedback({ tone: 'success', message: `已识别 ${newItems.length} 只新股票，可编辑数量/成本后保存` })
         } catch (e) {
             setImportFeedback({ tone: 'error', message: e instanceof Error ? e.message : '图片解析失败' })
         } finally {
             setVlmParsing(false)
         }
-    }, [])
-
-    // Auto-expand import section when no items
-    useEffect(() => {
-        if (!trackingLoading && trackingItems.length === 0) {
-            setShowImportSection(true)
-        }
-    }, [trackingLoading, trackingItems.length])
+    }, [existingSymbols])
 
     return (
         <div className="space-y-4">
@@ -348,23 +433,138 @@ export default function TrackingBoardPanel() {
                 >
                     <Upload className="h-4 w-4" />
                     导入 / 管理持仓
+                    <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-xs dark:bg-slate-700">
+                        {trackingItems.length}
+                    </span>
                     {showImportSection ? <ChevronUp className="ml-auto h-4 w-4" /> : <ChevronDown className="ml-auto h-4 w-4" />}
                 </button>
 
                 {showImportSection && (
                     <div className="space-y-3 pb-4">
-                        <textarea
-                            value={positionText}
-                            onChange={e => setPositionText(e.target.value)}
-                            placeholder={'每行一只股票，格式：代码 名称 持仓数 成本价 市值\n例如：600519 贵州茅台 100 1800 180000'}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 min-h-[100px] resize-y"
-                        />
+                        {/* Search input + batch paste */}
+                        <div ref={searchContainerRef} className="space-y-2">
+                            <div className="relative flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                        onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter' && trimmedQuery) submitSearchInput()
+                                        }}
+                                        placeholder="搜索代码/名称，或批量粘贴（逗号/空格分隔）"
+                                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-10 text-sm text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={vlmParsing}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors disabled:opacity-40 dark:hover:bg-indigo-500/10"
+                                        title="上传截图识别持仓"
+                                    >
+                                        {vlmParsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                                    </button>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={handleImageUpload}
+                                    />
+                                    {searchLoading && !vlmParsing && (
+                                        <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-400" />
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={submitSearchInput}
+                                    disabled={!trimmedQuery || searchLoading}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40 shrink-0"
+                                >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    {isBatchInput ? '批量添加' : '添加'}
+                                </button>
+                            </div>
 
+                            {/* Search dropdown */}
+                            {showDropdown && searchResults.length > 0 && (
+                                <div className="rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800 max-h-52 overflow-y-auto">
+                                    {searchResults.map(r => (
+                                        <button
+                                            key={r.symbol}
+                                            type="button"
+                                            onClick={() => { addToPending(r.symbol, r.name); setSearchQuery(''); setShowDropdown(false) }}
+                                            className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                        >
+                                            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.name}</span>
+                                            <span className="text-xs text-slate-400">{r.symbol}</span>
+                                            <Plus className="ml-auto h-3.5 w-3.5 text-blue-500" />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Pending items list */}
+                        {pendingItems.length > 0 && (
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                    <span>待添加</span>
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                                        {pendingItems.length} 只
+                                    </span>
+                                </div>
+                                <div className="space-y-2">
+                                    {pendingItems.map(item => (
+                                        <div
+                                            key={item.symbol}
+                                            className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/60"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                                    {item.name || item.symbol}
+                                                </span>
+                                                <span className="text-xs text-slate-400 shrink-0">{item.symbol}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-auto">
+                                                <input
+                                                    type="number"
+                                                    step="1"
+                                                    placeholder="数量"
+                                                    value={item.current_position ?? ''}
+                                                    onChange={e => updatePendingItem(item.symbol, 'current_position', e.target.value)}
+                                                    className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                                                />
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="成本"
+                                                    value={item.average_cost ?? ''}
+                                                    onChange={e => updatePendingItem(item.symbol, 'average_cost', e.target.value)}
+                                                    className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeFromPending(item.symbol)}
+                                                    className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10 dark:hover:text-red-400 shrink-0"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Action buttons */}
                         <div className="flex flex-wrap items-center gap-2">
                             <button
                                 type="button"
-                                onClick={handleSavePositions}
-                                disabled={importSaving || !positionText.trim()}
+                                onClick={handleSavePending}
+                                disabled={importSaving || pendingItems.length === 0}
                                 className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {importSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -373,25 +573,8 @@ export default function TrackingBoardPanel() {
 
                             <button
                                 type="button"
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={vlmParsing}
-                                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                                {vlmParsing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-                                {vlmParsing ? '识别中...' : '上传持仓截图'}
-                            </button>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={handleImageUpload}
-                            />
-
-                            <button
-                                type="button"
                                 onClick={handleClearPositions}
-                                disabled={importClearing}
+                                disabled={importClearing || trackingItems.length === 0}
                                 className="inline-flex items-center gap-1.5 rounded-xl bg-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 {importClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}

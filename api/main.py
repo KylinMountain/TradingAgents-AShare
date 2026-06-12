@@ -2696,8 +2696,10 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
     # 缓存 key: symbol + start + end + period
     cache_key = f"{symbol_key}:{start_date}:{end_date}:{period}"
     now = time.time()
+    # 盘中（end_date=今天）缩短缓存至5s，确保刷新能看到最新价
+    cache_ttl = 5 if end_date == cn_today_str() else _INDEX_KLINE_CACHE_TTL
     cached = _index_kline_cache.get(cache_key)
-    if cached and now - cached[0] < _INDEX_KLINE_CACHE_TTL:
+    if cached and now - cached[0] < cache_ttl:
         return cached[1]
 
     yyyymmdd_start = start_date.replace("-", "")
@@ -2774,6 +2776,49 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
                     }
                 )
                 prev_close = close
+            # 盘中补充：若 end_date 是今天且数据最新日期 < 今天，从 eastmoney 拉取盘中K线
+            today_str = cn_today_str()
+            if end_date == today_str:
+                last_date = candles[-1]["date"] if candles else None
+                if last_date and last_date < today_str:
+                    try:
+                        intra_df = ak.stock_zh_index_daily_em(
+                            symbol=vendor_symbol,
+                            start_date=today_str.replace("-", ""),
+                            end_date=today_str.replace("-", ""),
+                        )
+                        intra = _normalize_kline_df(intra_df)
+                        if not intra.empty:
+                            intra_row = intra.iloc[-1]
+                            intra_date = intra_row["Date"].strftime("%Y-%m-%d") if hasattr(intra_row["Date"], "strftime") else str(intra_row["Date"])[:10]
+                            if intra_date == today_str:
+                                prev_close = candles[-1]["close"] if candles else None
+                                intra_close = float(intra_row["Close"])
+                                intra_change = intra_close - prev_close if prev_close is not None else None
+                                intra_change_pct = (intra_change / prev_close * 100) if prev_close not in (None, 0) and intra_change is not None else None
+                                candles.append({
+                                    "date": intra_date,
+                                    "open": float(intra_row["Open"]),
+                                    "high": float(intra_row["High"]),
+                                    "low": float(intra_row["Low"]),
+                                    "close": intra_close,
+                                    "volume": float(intra_row["Volume"]) if "Volume" in intra.columns and pd.notna(intra_row.get("Volume")) else None,
+                                    "amount": float(intra_row["Amount"]) if "Amount" in intra.columns and pd.notna(intra_row.get("Amount")) else None,
+                                    "change": intra_change,
+                                    "change_percent": intra_change_pct,
+                                    "turnover_rate": None,
+                                })
+                                # 盘中缓存缩短至30s，确保刷新后能看到最新价
+                                _index_kline_cache[cache_key] = (now, _aggregate_candles(candles, period))
+                                # 清理过期缓存
+                                if len(_index_kline_cache) > 100:
+                                    expired_k = [k for k, (t, _) in _index_kline_cache.items() if now - t >= _INDEX_KLINE_CACHE_TTL]
+                                    for k in expired_k:
+                                        _index_kline_cache.pop(k, None)
+                                return _aggregate_candles(candles, period)
+                    except Exception:
+                        pass
+
             result = _aggregate_candles(candles, period)
             _index_kline_cache[cache_key] = (now, result)
             # 清理过期缓存
