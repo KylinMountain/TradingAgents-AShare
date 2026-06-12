@@ -41,7 +41,7 @@ function extractConfidence(text?: string): number | undefined {
 function extractPrice(text: string | undefined, type: 'target' | 'stop'): number | undefined {
     if (!text) return undefined
     const patterns = type === 'target'
-        ? [/目标[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /target[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/i, /下[行看跌][^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /看[空跌][^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /阻力位[^：:\n]{0,20}[:：]\s*[¥$]?\s*([\d.]+)/]
+        ? [/目标[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /target[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/i, /downside\s+target[^：:\n]{0,15}[:：]\s*[¥$]?\s*([\d.]+)/i, /upside\s+target[^：:\n]{0,15}[:：]\s*[¥$]?\s*([\d.]+)/i, /price\s+target[^：:\n]{0,15}[:：]\s*[¥$]?\s*([\d.]+)/i, /price\s+objective[^：:\n]{0,15}[:：]\s*[¥$]?\s*([\d.]+)/i, /support\s+level[^：:\n]{0,10}[:：]\s*[¥$]?\s*([\d.]+)/i, /resistance\s+level[^：:\n]{0,10}[:：]\s*[¥$]?\s*([\d.]+)/i, /下[行看跌][^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /看[空跌][^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /阻力位[^：:\n]{0,20}[:：]\s*[¥$]?\s*([\d.]+)/]
         : [/止损[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/, /stop[-\s_]?loss[^：:\n]{0,30}[:：]\s*[¥$]?\s*([\d.]+)/i]
     for (const p of patterns) {
         const m = text.match(p)

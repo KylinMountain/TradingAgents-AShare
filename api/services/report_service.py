@@ -168,6 +168,13 @@ def _extract_price_regex(text: Optional[str], price_type: str = "target") -> Opt
             # [^：:\n]{0,30} 允许关键词和冒号之间有括号注释，如 目标价（第一减仓目标）：XX元
             r'目标[^：:\n]{0,30}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             r'target[^：:\n]{0,30}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            # 英文变体：downside target / upside target / price target / price objective
+            r'downside\s+target[^：:\n]{0,15}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'upside\s+target[^：:\n]{0,15}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'price\s+target[^：:\n]{0,15}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'price\s+objective[^：:\n]{0,15}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'support\s+level[^：:\n]{0,10}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
+            r'resistance\s+level[^：:\n]{0,10}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             # 关键价位/关键哨位/阻力位/压力位 可作为目标价参考
             r'关键[^：:\n]{0,30}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
             r'阻力位[^：:\n]{0,20}[：:]\s*[¥$]?\s*(\d+\.?\d+)',
