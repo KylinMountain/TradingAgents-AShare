@@ -83,7 +83,7 @@ export default function Login() {
     return (
         <div className="flex min-h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_0%_0%,rgba(34,211,238,0.16),transparent_28%),radial-gradient(circle_at_100%_0%,rgba(37,99,235,0.16),transparent_24%),linear-gradient(180deg,#f6f8fb_0%,#edf2f7_100%)] px-5 py-8 dark:bg-[radial-gradient(circle_at_0%_0%,rgba(34,211,238,0.18),transparent_22%),radial-gradient(circle_at_100%_0%,rgba(59,130,246,0.18),transparent_24%),linear-gradient(180deg,#020617_0%,#0b1120_100%)] md:px-10">
             <div className="mx-auto grid flex-1 max-w-7xl grid-cols-1 gap-10 lg:grid-cols-[1.12fr_0.88fr] lg:gap-0">
-                <section className="relative flex flex-col justify-between px-2 py-4 lg:px-8 lg:py-10">
+                <section className="hidden lg:flex relative flex-col justify-between px-2 py-4 lg:px-8 lg:py-10">
                     <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl dark:bg-cyan-400/10" />
                     <div className="absolute bottom-10 right-16 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl dark:bg-blue-500/10" />
 
@@ -156,8 +156,21 @@ export default function Login() {
                     </div>
                 </section>
 
-                <section className="flex items-center px-2 py-4 lg:justify-end lg:px-8 lg:py-10">
-                    <div className="w-full max-w-md">
+                <section className="flex flex-col lg:flex-row items-center px-2 py-4 lg:justify-end lg:px-8 lg:py-10">
+                    {/* 移动端品牌标识 */}
+                    <div className="lg:hidden mb-6 text-center w-full max-w-md mx-auto mt-8">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/85 px-3 py-1.5 text-xs tracking-[0.22em] text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400">
+                            <Radar className="h-3.5 w-3.5 text-cyan-500" />
+                            A 股多智能体研究系统
+                        </div>
+                        <h1 className="mt-4 text-2xl font-semibold tracking-[-0.02em] text-slate-950 dark:text-white">
+                            为投研决策
+                            <span className="block bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                                设计的智能工作台
+                            </span>
+                        </h1>
+                    </div>
+                    <div className="w-full max-w-md max-sm:mx-auto">
                         <div className="rounded-[36px] border border-slate-200/80 bg-white/92 p-7 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-800/90 dark:bg-slate-950 dark:shadow-[0_28px_88px_rgba(2,6,23,0.56)]">
                             <div className="flex items-center justify-between">
                                 <div>

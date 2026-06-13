@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { SpeedInsights } from '@vercel/speed-insights/react'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
@@ -22,6 +22,16 @@ function ExternalRedirect({ to, fallback }: { to: string; fallback: JSX.Element 
   if (isOnline) return fallback
   window.location.href = to
   return null
+}
+
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < 768)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return m
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -49,6 +59,8 @@ function RequireAdmin({ children }: { children: JSX.Element }) {
 }
 
 function App() {
+  const isMobile = useIsMobile()
+
   return (
     <BrowserRouter>
       <Routes>
@@ -61,14 +73,19 @@ function App() {
             <RequireAuth>
               <Layout>
                 <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/tracking-board" element={<TrackingBoard />} />
-                  <Route path="/accuracy" element={<Accuracy />} />
                   <Route path="/analysis" element={<Analysis />} />
-                  <Route path="/reports" element={<Reports />} />
-                  <Route path="/portfolio" element={<Portfolio />} />
-                  <Route path="/settings" element={<RequireAdmin><Settings /></RequireAdmin>} />
-                  <Route path="/admin" element={<Admin />} />
+                  {!isMobile && (
+                    <>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/tracking-board" element={<TrackingBoard />} />
+                      <Route path="/accuracy" element={<Accuracy />} />
+                      <Route path="/reports" element={<Reports />} />
+                      <Route path="/portfolio" element={<Portfolio />} />
+                      <Route path="/settings" element={<RequireAdmin><Settings /></RequireAdmin>} />
+                      <Route path="/admin" element={<Admin />} />
+                    </>
+                  )}
+                  <Route path="*" element={<Navigate to="/analysis" replace />} />
                 </Routes>
               </Layout>
             </RequireAuth>

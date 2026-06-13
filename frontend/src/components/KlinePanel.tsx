@@ -531,9 +531,9 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
         <section className="card h-full flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-3 shrink-0">
                 <div className="min-w-0 flex items-center gap-3">
-                    <CandlestickChart className="w-5 h-5 text-cyan-500" />
+                    <CandlestickChart className="w-5 h-5 text-cyan-500 max-sm:hidden" />
                     <div className="min-w-0 flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{stockName ? `${stockName}（${symbol}）` : getDisplayName(symbol)} K线</h2>
+                        <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100 max-sm:text-sm">{stockName ? `${stockName}（${symbol}）` : getDisplayName(symbol)} K线</h2>
                         <button
                             onClick={handleToggleWatchlist}
                             disabled={watchlistLoading}
@@ -561,15 +561,15 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                         >
                             <Search className="w-4 h-4" />
                         </button>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs max-sm:text-[11px] max-sm:gap-x-1.5">
                             <span className="text-slate-500 dark:text-slate-400">{panelCandle?.date || '--'}</span>
                             <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>收盘 {formatNumber(panelCandle?.close)}</span>
-                            <span className="text-slate-500 dark:text-slate-400">开盘 {formatNumber(panelCandle?.open)}</span>
+                            <span className="text-slate-500 dark:text-slate-400 max-sm:hidden">开盘 {formatNumber(panelCandle?.open)}</span>
                             <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>{compactChangePercent}</span>
-                            <span className="text-slate-500 dark:text-slate-400">高/低 {formatNumber(panelCandle?.high)} / {formatNumber(panelCandle?.low)}</span>
-                            <span className="text-slate-500 dark:text-slate-400">量 {formatVolume(panelCandle?.volume)}</span>
-                            <span className="text-slate-500 dark:text-slate-400">换手 {panelCandle?.turnover_rate == null ? '--' : `${formatNumber(panelCandle.turnover_rate)}%`}</span>
-                            <div className="w-px h-3 bg-slate-300 dark:bg-slate-600" />
+                            <span className="text-slate-500 dark:text-slate-400 max-sm:hidden">高/低 {formatNumber(panelCandle?.high)} / {formatNumber(panelCandle?.low)}</span>
+                            <span className="text-slate-500 dark:text-slate-400 max-sm:hidden">量 {formatVolume(panelCandle?.volume)}</span>
+                            <span className="text-slate-500 dark:text-slate-400 max-sm:hidden">换手 {panelCandle?.turnover_rate == null ? '--' : `${formatNumber(panelCandle.turnover_rate)}%`}</span>
+                            <div className="w-px h-3 bg-slate-300 dark:bg-slate-600 max-sm:hidden" />
                             {([
                                 { value: 'daily' as KlinePeriod, label: '日K' },
                                 { value: 'weekly' as KlinePeriod, label: '周K' },
@@ -590,7 +590,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 max-sm:hidden">
                     {showCurrentSymbolButton && (
                         <button
                             onClick={() => onSymbolChange?.(currentAnalysisSymbol)}
@@ -688,7 +688,7 @@ export default function KlinePanel({ symbol, onSymbolChange, onChartReady, onSyn
                         : null
                     if (!lastNx && !lastGs) return null
                     return (
-                        <div className="absolute left-3 top-3 text-xs px-2 py-1.5 rounded bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 flex flex-col gap-0.5">
+                        <div className="absolute left-3 top-3 max-sm:hidden text-xs px-2 py-1.5 rounded bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 flex flex-col gap-0.5">
                             {lastNx && (
                                 <div className="flex items-center gap-4">
                                     <span className="flex items-center gap-1"><span className="inline-block w-3 h-0.5 bg-yellow-400" style={{ borderTop: '1px dashed #eab308' }} />决策线 <span className="text-yellow-500 font-medium">{lastNx.decision_line ?? '--'}</span></span>

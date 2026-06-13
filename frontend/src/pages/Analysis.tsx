@@ -154,7 +154,7 @@ export default function Analysis() {
     const entryRange = extractEntryRange(report?.trader_investment_plan) ?? extractEntryRange(report?.investment_plan)
 
     return (
-        <div className="space-y-4 max-w-[1400px] mx-auto">
+        <div className="space-y-4 max-w-[1400px] mx-auto max-sm:space-y-2 max-sm:px-1">
             {/* 标的搜索栏 */}
             <div ref={symbolContainerRef} className="relative">
                 <div className="relative">
@@ -209,7 +209,7 @@ export default function Analysis() {
                 )}
             </div>
 
-            <div className="h-[360px]">
+            <div className="h-[360px] max-sm:h-[300px]">
                 <KlinePanel
                     symbol={activeSymbol}
                     onSymbolChange={(symbol) => {
