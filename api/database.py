@@ -503,6 +503,13 @@ class SignalBacktestDB(Base):
     price_20d = Column(Float, nullable=True)
     return_20d = Column(Float, nullable=True)
     correct_20d = Column(Boolean, nullable=True)
+    entry_date = Column(String(10), nullable=True)
+    max_drawdown_5d = Column(Float, nullable=True)
+    max_drawdown_10d = Column(Float, nullable=True)
+    max_drawdown_20d = Column(Float, nullable=True)
+    benchmark_return_5d = Column(Float, nullable=True)
+    benchmark_return_10d = Column(Float, nullable=True)
+    benchmark_return_20d = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

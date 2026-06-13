@@ -9,6 +9,12 @@ interface AccuracyStats {
     avg_return: number
     max_return: number
     min_return: number
+    avg_max_drawdown?: number
+    avg_benchmark_return?: number | null
+    avg_excess_return?: number | null
+    beat_benchmark_pct?: number | null
+    win_loss_ratio?: number
+    expected_value?: number
     buy_count: number
     buy_accuracy: number
     sell_count: number
@@ -31,6 +37,8 @@ interface SymbolStats {
 
 interface AccuracySummary {
     total: number
+    sample_warning?: string | null
+    incomplete_20d_count?: number
     horizon_5d: AccuracyStats
     horizon_10d: AccuracyStats
     horizon_20d: AccuracyStats
@@ -44,16 +52,24 @@ interface BacktestItem {
     report_id: string
     symbol: string
     signal_date: string
+    entry_date?: string | null
     decision: string
     confidence: number
     signal_price: number
     target_price: number | null
+    stop_loss_price?: number | null
     return_5d: number | null
     correct_5d: boolean | null
+    max_drawdown_5d?: number | null
+    benchmark_return_5d?: number | null
     return_10d: number | null
     correct_10d: boolean | null
+    max_drawdown_10d?: number | null
+    benchmark_return_10d?: number | null
     return_20d: number | null
     correct_20d: boolean | null
+    max_drawdown_20d?: number | null
+    benchmark_return_20d?: number | null
 }
 
 function ProgressBar({ value, color }: { value: number; color: string }) {
@@ -89,7 +105,47 @@ function HorizonPanel({ label, stats, icon }: { label: string; stats: AccuracySt
                     </div>
                 </div>
             </div>
-            <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
+            <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                <div className="text-center">
+                    <div className="text-xs text-slate-400">最大回撤</div>
+                    <div className={`text-sm font-semibold ${(stats.avg_max_drawdown ?? 0) >= -3 ? 'text-emerald-600' : (stats.avg_max_drawdown ?? 0) >= -8 ? 'text-amber-600' : 'text-red-500'}`}>
+                        {stats.avg_max_drawdown != null ? `${stats.avg_max_drawdown}%` : '-'}
+                    </div>
+                </div>
+                <div className="text-center">
+                    <div className="text-xs text-slate-400">盈亏比</div>
+                    <div className={`text-sm font-semibold ${(stats.win_loss_ratio ?? 0) >= 1.5 ? 'text-emerald-600' : (stats.win_loss_ratio ?? 0) >= 1 ? 'text-amber-600' : 'text-red-500'}`}>
+                        {stats.win_loss_ratio != null ? stats.win_loss_ratio.toFixed(2) : '-'}
+                    </div>
+                </div>
+                <div className="text-center">
+                    <div className="text-xs text-slate-400">期望值</div>
+                    <div className={`text-sm font-semibold ${(stats.expected_value ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {stats.expected_value != null ? `${stats.expected_value > 0 ? '+' : ''}${stats.expected_value}%` : '-'}
+                    </div>
+                </div>
+            </div>
+            {/* Benchmark comparison */}
+            {stats.avg_benchmark_return != null && (
+                <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-50">
+                    <div className="text-center">
+                        <div className="text-xs text-slate-400">同期大盘</div>
+                        <div className={`text-sm font-semibold ${stats.avg_benchmark_return >= 0 ? 'text-slate-600' : 'text-red-500'}`}>
+                            {stats.avg_benchmark_return > 0 ? '+' : ''}{stats.avg_benchmark_return}%
+                        </div>
+                    </div>
+                    <div className="text-center">
+                        <div className="text-xs text-slate-400">超额收益</div>
+                        <div className={`text-sm font-semibold ${(stats.avg_excess_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {stats.avg_excess_return != null ? `${stats.avg_excess_return > 0 ? '+' : ''}${stats.avg_excess_return}%` : '-'}
+                        </div>
+                        {stats.beat_benchmark_pct != null && (
+                            <div className="text-xs text-slate-400 mt-0.5">跑赢{stats.beat_benchmark_pct}%信号</div>
+                        )}
+                    </div>
+                </div>
+            )}
+            <div className="grid grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-50">
                 <div className="text-center">
                     <div className="text-xs text-slate-400">最大</div>
                     <div className="text-sm font-semibold text-emerald-600">+{stats.max_return}%</div>
@@ -178,6 +234,14 @@ export default function Accuracy() {
             {message && (
                 <div className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-3 rounded-lg text-sm">{message}</div>
             )}
+            {summary?.sample_warning && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg text-sm">{summary.sample_warning}</div>
+            )}
+            {summary && summary.incomplete_20d_count != null && summary.incomplete_20d_count > 0 && (
+                <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg text-sm">
+                    {summary.incomplete_20d_count} 条信号距今日不足20个交易日，20日维度的准确率暂不完整
+                </div>
+            )}
 
             {loading ? (
                 <div className="flex items-center justify-center py-20 text-slate-400">加载中...</div>
@@ -245,23 +309,25 @@ export default function Accuracy() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50">
-                                        <th className="text-left px-4 py-3 font-medium text-slate-500">股票</th>
-                                        <th className="text-left px-4 py-3 font-medium text-slate-500">日期</th>
-                                        <th className="text-center px-4 py-3 font-medium text-slate-500">信号</th>
-                                        <th className="text-center px-4 py-3 font-medium text-slate-500">置信度</th>
-                                        <th className="text-right px-4 py-3 font-medium text-slate-500">信号价</th>
-                                        <th className="text-right px-4 py-3 font-medium text-slate-500">目标价</th>
-                                        <th className="text-center px-4 py-3 font-medium text-slate-500">5日</th>
-                                        <th className="text-center px-4 py-3 font-medium text-slate-500">10日</th>
-                                        <th className="text-center px-4 py-3 font-medium text-slate-500">20日</th>
+                                        <th className="text-left px-3 py-3 font-medium text-slate-500">股票</th>
+                                        <th className="text-left px-3 py-3 font-medium text-slate-500">信号日</th>
+                                        <th className="text-left px-3 py-3 font-medium text-slate-500">入场日</th>
+                                        <th className="text-center px-3 py-3 font-medium text-slate-500">信号</th>
+                                        <th className="text-center px-2 py-3 font-medium text-slate-500">置信</th>
+                                        <th className="text-right px-2 py-3 font-medium text-slate-500">入场价</th>
+                                        <th className="text-right px-2 py-3 font-medium text-slate-500">目标价</th>
+                                        <th className="text-center px-3 py-3 font-medium text-slate-500">5日</th>
+                                        <th className="text-center px-3 py-3 font-medium text-slate-500">10日</th>
+                                        <th className="text-center px-3 py-3 font-medium text-slate-500">20日</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {details.map((item) => (
                                         <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                            <td className="px-4 py-3 font-medium text-slate-700">{item.symbol}</td>
-                                            <td className="px-4 py-3 text-slate-500">{item.signal_date}</td>
-                                            <td className="px-4 py-3 text-center">
+                                            <td className="px-3 py-3 font-medium text-slate-700 text-sm">{item.symbol}</td>
+                                            <td className="px-3 py-3 text-slate-500 text-xs">{item.signal_date}</td>
+                                            <td className="px-3 py-3 text-slate-500 text-xs">{item.entry_date || '-'}</td>
+                                            <td className="px-3 py-3 text-center">
                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                                                     item.decision === 'BUY' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                                                 }`}>
@@ -269,25 +335,33 @@ export default function Accuracy() {
                                                     {item.decision}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className={`text-sm font-medium ${
+                                            <td className="px-2 py-3 text-center">
+                                                <span className={`text-xs font-medium ${
                                                     item.confidence >= 70 ? 'text-emerald-600' : item.confidence >= 40 ? 'text-amber-600' : 'text-red-500'
                                                 }`}>{item.confidence}</span>
                                             </td>
-                                            <td className="px-4 py-3 text-right text-slate-700">{item.signal_price?.toFixed(2)}</td>
-                                            <td className="px-4 py-3 text-right text-slate-500">{item.target_price?.toFixed(2) || '-'}</td>
+                                            <td className="px-2 py-3 text-right text-slate-700 text-xs">{item.signal_price?.toFixed(2)}</td>
+                                            <td className="px-2 py-3 text-right text-slate-500 text-xs">{item.target_price?.toFixed(2) || '-'}</td>
                                             {(['5d', '10d', '20d'] as const).map((h) => {
                                                 const ret = item[`return_${h}` as keyof BacktestItem] as number | null
                                                 const correct = item[`correct_${h}` as keyof BacktestItem] as boolean | null
-                                                if (ret === null) return <td key={h} className="px-4 py-3 text-center text-slate-300">-</td>
+                                                const dd = item[`max_drawdown_${h}` as keyof BacktestItem] as number | null
+                                                const bm = item[`benchmark_return_${h}` as keyof BacktestItem] as number | null
+                                                if (ret === null) return <td key={h} className="px-3 py-3 text-center text-slate-300 text-xs">-</td>
                                                 return (
-                                                    <td key={h} className="px-4 py-3 text-center">
+                                                    <td key={h} className="px-3 py-3 text-center">
                                                         <div className="flex items-center justify-center gap-1">
-                                                            {correct ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <XCircle className="w-3.5 h-3.5 text-red-400" />}
-                                                            <span className={ret >= 0 ? 'text-emerald-600' : 'text-red-500'}>
+                                                            {correct ? <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" /> : <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
+                                                            <span className={`text-xs font-medium ${ret >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                                                                 {ret > 0 ? '+' : ''}{ret}%
                                                             </span>
                                                         </div>
+                                                        {(dd != null || bm != null) && (
+                                                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                                                                {dd != null && <span className={`text-[10px] ${dd >= -3 ? 'text-slate-400' : 'text-red-400'}`}>回撤{dd}%</span>}
+                                                                {bm != null && <span className={`text-[10px] ml-0.5 ${bm >= 0 ? 'text-slate-400' : 'text-red-400'}`}>盘{bm > 0 ? '+' : ''}{bm}%</span>}
+                                                            </div>
+                                                        )}
                                                     </td>
                                                 )
                                             })}

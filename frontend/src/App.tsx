@@ -10,7 +10,6 @@ import Portfolio from './pages/Portfolio'
 import TrackingBoard from './pages/TrackingBoard'
 import Accuracy from './pages/Accuracy'
 import Login from './pages/Login'
-import Feedback from './pages/Feedback'
 import Sponsor from './pages/Sponsor'
 import Thanks from './pages/Thanks'
 import Admin from './pages/Admin'
@@ -69,7 +68,6 @@ function App() {
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />
                   <Route path="/settings" element={<RequireAdmin><Settings /></RequireAdmin>} />
-                  <Route path="/feedback" element={<Feedback />} />
                   <Route path="/admin" element={<Admin />} />
                 </Routes>
               </Layout>
