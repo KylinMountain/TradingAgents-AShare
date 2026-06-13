@@ -46,7 +46,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
     const chartRef = useRef<IChartApi | null>(null)
     const avgSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
     const waveSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-    const zeroLineRef = useRef<ISeriesApi<'Line'> | null>(null)
     const overboughtRef = useRef<ISeriesApi<'Line'> | null>(null)
     const oversoldRef = useRef<ISeriesApi<'Line'> | null>(null)
     const histRefs = useRef<Record<string, ISeriesApi<'Histogram'>>>({})
@@ -130,10 +129,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
             color: '#60a5fa', lineWidth: 1, lineStyle: LineStyle.Solid,
             priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: true,
         })
-        const zeroLine = chart.addSeries(LineSeries, {
-            color: '#64748b', lineWidth: 1, lineStyle: LineStyle.Solid,
-            priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        })
         const overboughtLine = chart.addSeries(LineSeries, {
             color: '#eab308', lineWidth: 1, lineStyle: LineStyle.Dashed,
             priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
@@ -181,7 +176,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
             upHist.setData(upHistData)
             downHist.setData(downHistData)
             if (avgData.length > 0) {
-                zeroLine.setData(avgData.map(d => ({ time: d.time, value: 0 })))
                 overboughtLine.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
                 oversoldLine.setData(avgData.map(d => ({ time: d.time, value: 0.5 })))
             }
@@ -203,7 +197,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
 
         avgSeriesRef.current = avgSeries
         waveSeriesRef.current = waveSeries
-        zeroLineRef.current = zeroLine
         overboughtRef.current = overboughtLine
         oversoldRef.current = oversoldLine
         histRefs.current = { up: upHist, down: downHist }
@@ -237,7 +230,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
             chartRef.current = null
             avgSeriesRef.current = null
             waveSeriesRef.current = null
-            zeroLineRef.current = null
             overboughtRef.current = null
             oversoldRef.current = null
             histRefs.current = {}
@@ -294,9 +286,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
                 histSeries.up.setData(upHistData)
                 histSeries.down.setData(downHistData)
 
-                if (zeroLineRef.current && avgData.length > 0) {
-                    zeroLineRef.current.setData(avgData.map(d => ({ time: d.time, value: 0 })))
-                }
                 if (overboughtRef.current && avgData.length > 0) {
                     overboughtRef.current.setData(avgData.map(d => ({ time: d.time, value: 3.2 })))
                 }
@@ -347,10 +336,6 @@ export default function RadarPanel({ symbol, onChartReady, onSyncNow }: RadarPan
                             <span className="inline-block w-3 h-0.5 bg-yellow-400" />
                             <span className="text-slate-500 dark:text-slate-400">平均线</span>
                             <span className="text-yellow-500 font-medium">{hoverData?.avg?.toFixed(2) ?? lastPoint.radar_avg ?? '--'}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <span className="inline-block w-3 h-0.5 bg-slate-500" />
-                            <span className="text-slate-500 dark:text-slate-400">零轴</span>
                         </span>
                         {lastPoint.radar_buy && <span className="text-red-500 font-bold">底</span>}
                         {lastPoint.radar_sell && <span className="text-amber-500 font-bold">升</span>}

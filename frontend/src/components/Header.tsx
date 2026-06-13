@@ -128,7 +128,7 @@ export default function Header() {
 
                 <div className="flex items-center gap-2">
                     {announcement && (
-                        <div className="relative" ref={announceRef}>
+                        <div className="relative hidden" ref={announceRef}>
                             <button
                                 onClick={handleAnnouncementToggle}
                                 className="group relative flex items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-all"
