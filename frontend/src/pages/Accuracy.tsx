@@ -172,6 +172,7 @@ export default function Accuracy() {
     const [details, setDetails] = useState<BacktestItem[]>([])
     const [loading, setLoading] = useState(true)
     const [backfilling, setBackfilling] = useState(false)
+    const [forceBackfill, setForceBackfill] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [message, setMessage] = useState<string | null>(null)
 
@@ -196,7 +197,7 @@ export default function Accuracy() {
         try {
             setBackfilling(true)
             setMessage('正在对历史信号进行回测验证，可能需要几分钟...')
-            await api.runAccuracyBackfill()
+            await api.runAccuracyBackfill(forceBackfill)
             setMessage('回测完成！正在刷新数据...')
             await loadData()
             setMessage(null)
@@ -218,14 +219,25 @@ export default function Accuracy() {
                     <h1 className="text-2xl font-bold text-slate-800">信号准确率</h1>
                     <p className="text-sm text-slate-500 mt-1">历史交易信号回测验证，评估各引擎分析准确度</p>
                 </div>
-                <button
-                    onClick={handleBackfill}
-                    disabled={backfilling}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors text-sm font-medium"
-                >
-                    <RefreshCw className={`w-4 h-4 ${backfilling ? 'animate-spin' : ''}`} />
-                    {backfilling ? '回测中...' : '运行回测'}
-                </button>
+                <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={forceBackfill}
+                            onChange={(e) => setForceBackfill(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        强制重新计算
+                    </label>
+                    <button
+                        onClick={handleBackfill}
+                        disabled={backfilling}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${backfilling ? 'animate-spin' : ''}`} />
+                        {backfilling ? '回测中...' : '运行回测'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -252,14 +264,25 @@ export default function Accuracy() {
                     <p className="text-sm text-slate-400 mb-6">
                         {summary?.message || '完成至少一次股票分析并点击"运行回测"，系统会自动计算信号准确率'}
                     </p>
-                    <button
-                        onClick={handleBackfill}
-                        disabled={backfilling}
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
-                    >
+                    <div className="flex items-center justify-center gap-3">
+                        <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={forceBackfill}
+                                onChange={(e) => setForceBackfill(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            强制重新计算
+                        </label>
+                        <button
+                            onClick={handleBackfill}
+                            disabled={backfilling}
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+                        >
                         <RefreshCw className={`w-4 h-4 ${backfilling ? 'animate-spin' : ''}`} />
                         首次回测
                     </button>
+                    </div>
                 </div>
             ) : (
                 <>

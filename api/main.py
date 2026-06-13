@@ -4737,12 +4737,13 @@ from api.services import accuracy_service as _acc
 
 @app.post("/v1/accuracy/backfill")
 def accuracy_backfill(
+    force: bool = Query(False, description="强制重新计算所有回测（忽略已有数据）"),
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(_require_api_user),
 ) -> Dict:
     """对历史报告运行回测，计算信号准确率。"""
     try:
-        summary = _acc.backfill_reports(user_id=current_user.id)
+        summary = _acc.backfill_reports(user_id=current_user.id, force=force)
         return {"status": "ok", "message": f"已回测 {summary['backtested']}/{summary['total_reports']} 条信号", "summary": _acc.get_accuracy_summary(user_id=current_user.id)}
     except Exception as exc:
         raise HTTPException(500, f"回测失败: {exc}")

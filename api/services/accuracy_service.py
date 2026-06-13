@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -237,12 +237,18 @@ def backtest_signal(
 
     horizons = [5, 10, 20]
 
+    # Benchmark: cache index start price (same entry_date for all horizons)
+    index_start_price = _get_index_price_on_date("000001.SH", entry_date)
+
     for h in horizons:
         target_date = _get_trading_days_after(signal_date, h)
         future_price = _get_price_on_date(symbol, target_date)
 
-        # Survivorship bias fix: delisted / missing → incorrect
         if future_price is None:
+            # Target date not yet reached → leave as None (incomplete, exclude from stats)
+            if target_date > date.today().isoformat():
+                continue
+            # Delisted / truly unavailable → mark as failed
             result[f"price_{h}d"] = None
             result[f"return_{h}d"] = -100.0
             result[f"correct_{h}d"] = False
@@ -269,7 +275,7 @@ def backtest_signal(
                 if stop_loss_price and period_extreme <= stop_loss_price:
                     stopped_out = True
             else:
-                max_dd = 0.0
+                max_dd = None  # daily prices unavailable
         else:  # SELL
             if period_highs:
                 period_extreme = max(period_highs)
@@ -279,12 +285,16 @@ def backtest_signal(
                 if stop_loss_price and period_extreme >= stop_loss_price:
                     stopped_out = True
             else:
-                max_dd = 0.0
+                max_dd = None  # daily prices unavailable
 
         result[f"max_drawdown_{h}d"] = max_dd
 
-        # Benchmark return over same period
-        result[f"benchmark_return_{h}d"] = _get_benchmark_return(entry_date, target_date)
+        # Benchmark return over same period (start price cached)
+        bench_end_price = _get_index_price_on_date("000001.SH", target_date)
+        if index_start_price and bench_end_price and index_start_price > 0:
+            result[f"benchmark_return_{h}d"] = round((bench_end_price - index_start_price) / index_start_price * 100, 2)
+        else:
+            result[f"benchmark_return_{h}d"] = None
 
         # Correctness determination
         if stopped_out:
@@ -305,8 +315,9 @@ def backtest_signal(
 # ── Backfill ─────────────────────────────────────────────────────────────────
 
 
-def backfill_reports(user_id: Optional[str] = None) -> Dict[str, Any]:
-    """Run backtest on all completed reports and store results. Returns summary."""
+def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+    """Run backtest on all completed reports and store results. Returns summary.
+    Set force=True to recompute ALL backtests (e.g., after backtest logic update)."""
     with get_db_ctx() as db:
         query = db.query(ReportDB).filter(
             ReportDB.status == "completed",
@@ -324,9 +335,12 @@ def backfill_reports(user_id: Optional[str] = None) -> Dict[str, Any]:
             existing = db.query(SignalBacktestDB).filter(
                 SignalBacktestDB.report_id == report.id
             ).first()
-            if existing:
+            if not force and existing and existing.correct_5d is not None and existing.correct_10d is not None and existing.correct_20d is not None:
                 results.append(_serialize_backtest(existing))
                 continue
+            if existing:
+                db.delete(existing)
+                db.flush()
 
             bt_result = backtest_signal(
                 symbol=report.symbol,
@@ -431,11 +445,13 @@ def get_accuracy_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
             loss_rate = len(losses) / len(returns) if returns else 0
             expected_value = round(win_rate * avg_win + loss_rate * avg_loss, 2)
 
-            # Benchmark excess
-            excess_returns = [
-                returns[i] - benchmarks[i] for i in range(len(returns))
-                if i < len(benchmarks) and benchmarks[i] is not None
-            ]
+            # Benchmark excess — pair by item to avoid misalignment
+            excess_returns = []
+            for b in completed:
+                ret = getattr(b, f"return_{prefix}")
+                bench = getattr(b, f"benchmark_return_{prefix}")
+                if ret is not None and bench is not None:
+                    excess_returns.append(ret - bench)
             avg_excess = round(sum(excess_returns) / len(excess_returns), 2) if excess_returns else None
             beat_benchmark = sum(1 for e in excess_returns if e > 0) if excess_returns else 0
             beat_benchmark_pct = round(beat_benchmark / len(excess_returns) * 100, 1) if excess_returns else None
@@ -476,9 +492,9 @@ def get_accuracy_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
         )
 
         # By confidence level
-        high_conf = [b for b in backtests if b.confidence and b.confidence >= 70]
-        med_conf = [b for b in backtests if b.confidence and 40 <= b.confidence < 70]
-        low_conf = [b for b in backtests if b.confidence and b.confidence < 40]
+        high_conf = [b for b in backtests if b.confidence is not None and b.confidence >= 70]
+        med_conf = [b for b in backtests if b.confidence is not None and 40 <= b.confidence < 70]
+        low_conf = [b for b in backtests if b.confidence is not None and b.confidence < 40]
 
         # By symbol
         symbols: Dict[str, List[SignalBacktestDB]] = {}

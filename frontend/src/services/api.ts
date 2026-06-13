@@ -430,8 +430,8 @@ class ApiService {
     async getAccuracyDetails(limit = 50, offset = 0): Promise<any> {
         return this.request<any>(`/v1/accuracy/details?limit=${limit}&offset=${offset}`)
     }
-    async runAccuracyBackfill(): Promise<any> {
-        return this.request<any>('/v1/accuracy/backfill', { method: 'POST' })
+    async runAccuracyBackfill(force = false): Promise<any> {
+        return this.request<any>(`/v1/accuracy/backfill?force=${force}`, { method: 'POST' })
     }
 
     // Generic methods for admin and other modules
