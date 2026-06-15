@@ -381,6 +381,10 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     else:
         full_df = full_df.assign(_dt=pd.to_datetime(full_df.index, errors="coerce")).set_index("_dt").sort_index()
 
+    # 日线轨道线（用于未完成K线的趋势结构判断）
+    full_df["ema5"] = full_df["close"].ewm(span=5, adjust=False).mean()
+    full_df["ema39"] = full_df["close"].ewm(span=39, adjust=False).mean()
+
     def _resample_ohlcv(df_ohlc, rule, label):
         """Resample daily OHLCV to weekly/monthly bars.
 
@@ -600,51 +604,188 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         lines.append(f"- {w_status}")
         lines.append(f"- {m_status}")
 
-        # 标注未完成K线：当前周/月尚未结束，信号待确认
+        # ── 未完成K线的日內信号强度评估 ──
         today = pd.Timestamp.now()
         w_last = weekly_full.index[-1]
         m_last = monthly_full.index[-1]
-        partial = []
-        if w_last.isocalendar().week == today.isocalendar().week and w_last.isocalendar().year == today.isocalendar().year:
-            partial.append("本周未结束")
-        if m_last.month == today.month and m_last.year == today.year:
-            partial.append("本月未结束")
-        if partial:
-            lines.append(f"- ⚠ {'，'.join(partial)}，当前K线为未完成形态，信号待周/月收盘确认")
+        w_incomplete = (w_last.isocalendar().week == today.isocalendar().week and w_last.isocalendar().year == today.isocalendar().year)
+        m_incomplete = (m_last.month == today.month and m_last.year == today.year)
 
-        # 一致性结论
-        w_r, m_r = _dir_rank(w_dir), _dir_rank(m_dir)
-        if w_r == 99 or m_r == 99:
-            lines.append(f"- **结论**：数据不足，无法判断多周期一致性")
+        def _describe_intra_bar(bar_days_df, prev_high, prev_low):
+            """提取未完成K线内的关键事实。
+
+            返回 (cum_pct, desc, broke_range)
+            broke_range: 是否突破前一根K线的区间
+            """
+            if len(bar_days_df) == 0:
+                return 0.0, "", False
+            cum = (bar_days_df["close"].iloc[-1] - bar_days_df["open"].iloc[0]) / bar_days_df["open"].iloc[0] * 100
+            bar_vol = bar_days_df["volume"].mean()
+            first_idx = bar_days_df.index[0]
+            hist_mask = full_df.index < first_idx
+            hist_vol = full_df.loc[hist_mask, "volume"].tail(20).mean() if hist_mask.any() else bar_vol
+            vol_r = bar_vol / hist_vol if hist_vol > 0 else 1.0
+            last_c = bar_days_df["close"].iloc[-1]
+            broke_up = last_c > prev_high
+            broke_down = last_c < prev_low
+
+            desc_parts = [f"{cum:+.1f}%"]
+            if vol_r > 2.0:
+                desc_parts.append(f"量{vol_r:.0f}倍")
+            elif vol_r > 1.3:
+                desc_parts.append("放量")
+            if broke_up:
+                desc_parts.append(f"突破前高{prev_high:.2f}")
+            elif broke_down:
+                desc_parts.append(f"跌破前低{prev_low:.2f}")
+
+            # 均线结构（纯上下文标注，不做评分）
+            bar_dir = 1 if cum > 0 else -1
+            close_now = bar_days_df["close"].iloc[-1]
+            ema5_now = bar_days_df["ema5"].iloc[-1]
+            ema39_now = bar_days_df["ema39"].iloc[-1]
+            above_ema5 = close_now > ema5_now
+            above_ema39 = close_now > ema39_now
+
+            first_date = bar_days_df.index[0]
+            before = full_df.index < first_date
+            crossed_ema = False
+            if before.any():
+                prev = full_df[before].iloc[-1]
+                crossed_ema = ((prev["close"] <= prev["ema5"] and close_now > ema5_now) or
+                               (prev["close"] >= prev["ema5"] and close_now < ema5_now) or
+                               (prev["close"] <= prev["ema39"] and close_now > ema39_now) or
+                               (prev["close"] >= prev["ema39"] and close_now < ema39_now))
+
+            if bar_dir > 0 and above_ema5 and above_ema39:
+                desc_parts.append("刚站上EMA5/EMA39" if crossed_ema else "站上EMA5/EMA39")
+            elif bar_dir < 0 and not above_ema5 and not above_ema39:
+                desc_parts.append("刚跌破EMA5/EMA39" if crossed_ema else "跌破EMA5/EMA39")
+            elif bar_dir > 0 and above_ema5:
+                desc_parts.append("站上EMA5（EMA39下方）")
+            elif bar_dir < 0 and not above_ema5:
+                desc_parts.append("跌破EMA5（EMA39上方）")
+            elif bar_dir < 0 and above_ema5:
+                desc_parts.append("仍站上EMA5/EMA39" if above_ema39 else "仍站上EMA5")
+            elif bar_dir > 0 and not above_ema5:
+                desc_parts.append("仍低于EMA5/EMA39" if not above_ema39 else "仍低于EMA5")
+
+            return cum, "，".join(desc_parts), broke_up or broke_down
+
+        # 计算完成度并提取日内事实
+        import calendar
+        w_days_done = w_elapsed = 0
+        m_days_done = m_elapsed = 0
+        w_detail = m_detail = ""
+        w_broke = m_broke = False
+
+        if w_incomplete:
+            iso = full_df.index.isocalendar()
+            w_mask = (iso.year == today.isocalendar().year) & (iso.week == today.isocalendar().week)
+            w_bar_days = full_df[w_mask]
+            w_days_done = len(w_bar_days)
+            w_elapsed = min(today.weekday() + 1, 5)
+            prev_w = weekly_full.iloc[-2] if len(weekly_full) >= 2 else None
+            w_cum, w_detail, w_broke = _describe_intra_bar(
+                w_bar_days,
+                prev_w["high"] if prev_w is not None else 99999,
+                prev_w["low"] if prev_w is not None else 0,
+            )
+
+        if m_incomplete:
+            m_mask = (full_df.index.year == today.year) & (full_df.index.month == today.month)
+            m_bar_days = full_df[m_mask]
+            m_days_done = len(m_bar_days)
+            m_elapsed = today.day
+            prev_m = monthly_full.iloc[-2] if len(monthly_full) >= 2 else None
+            m_cum, m_detail, m_broke = _describe_intra_bar(
+                m_bar_days,
+                prev_m["high"] if prev_m is not None else 99999,
+                prev_m["low"] if prev_m is not None else 0,
+            )
+
+        # ── 输出未完成K线实况 ──
+        if w_incomplete:
+            w_pct = w_elapsed * 20
+            lines.append(f"- **本周实况**（{w_days_done}/{5}天，{w_pct}%）：{w_detail}")
+        if m_incomplete:
+            m_total = calendar.monthrange(today.year, today.month)[1]
+            m_pct = m_elapsed * 100 // m_total
+            lines.append(f"- **本月实况**（约{m_elapsed}/{m_total}天，{m_pct}%）：{m_detail}")
+
+        # ── 可信度：完成度为主，突破信号可提升一级 ──
+        def _confidence(complete_pct, broke_range=False):
+            base = "高" if complete_pct >= 80 else ("中" if complete_pct >= 40 else "低")
+            if broke_range and base == "低":
+                return "中"  # 突破前K区间：即使完成度低也值得关注
+            return base
+
+        w_conf = _confidence(w_elapsed * 20, w_broke) if w_incomplete else "高"
+        m_pct_val = m_elapsed * 100 // calendar.monthrange(today.year, today.month)[1] if m_incomplete else 100
+        m_conf = _confidence(m_pct_val, m_broke) if m_incomplete else "高"
+
+        def _conf_label(conf):
+            return {"高": "可信", "中": "参考", "低": "不足"}[conf]
+
+        w_tag = f"（可信度{_conf_label(w_conf)}）" if w_incomplete else ""
+        m_tag = f"（可信度{_conf_label(m_conf)}）" if m_incomplete else ""
+        lines.append(f"- **周线评估**：{w_dir}{w_tag}")
+        lines.append(f"- **月线评估**：{m_dir}{m_tag}")
+
+        if w_incomplete and w_conf == "低":
+            lines.append(f"  → 本周仅{w_days_done}天，数据不足以判断周线方向，需周三后重新评估")
+        elif w_incomplete and w_conf == "中" and w_broke:
+            lines.append(f"  → 本周已突破前周区间，信号值得关注但交易日少")
+        if m_incomplete and m_conf == "低":
+            lines.append(f"  → 本月交易日过少，月线方向暂不可判断")
+
+        # ── 综合结论（使用有效方向）──
+        w_dir_eff = w_dir if (not w_incomplete or w_conf != "低") else "不足"
+        m_dir_eff = m_dir if (not m_incomplete or m_conf != "低") else "不足"
+        w_r, m_r = _dir_rank(w_dir_eff), _dir_rank(m_dir_eff)
+
+        if w_r == 99 and m_r == 99:
+            lines.append(f"- **结论**：周线和月线均无法判断 → 中期方向不明，日线信号降权处理")
+        elif w_r == 99:
+            lines.append(f"- **结论**：周线无法判断，月线{m_dir_eff}有参考价值 → 中线{m_dir_eff}但需周线确认")
+        elif m_r == 99:
+            lines.append(f"- **结论**：月线无法判断，周线{w_dir_eff}有参考价值 → 仅短线{w_dir_eff}参考")
         elif w_r > 0 and m_r > 0:
-            suffix = "（待周/月收盘确认）" if partial else ""
-            lines.append(f"- **结论**：周线月线共振偏多 → 中期趋势向上，日线做多信号可信度较高{suffix}")
+            caveat = "（待收盘确认）" if (w_incomplete or m_incomplete) else ""
+            lines.append(f"- **结论**：周线月线共振偏多 → 中期趋势向上，日线做多信号可信度较高{caveat}")
         elif w_r < 0 and m_r < 0:
-            suffix = "（待周/月收盘确认）" if partial else ""
-            lines.append(f"- **结论**：周线月线共振偏空 → 中期趋势向下，日线做多信号需格外谨慎{suffix}")
-        elif w_dir == "震荡" and m_dir == "震荡":
+            caveat = "（待收盘确认）" if (w_incomplete or m_incomplete) else ""
+            lines.append(f"- **结论**：周线月线共振偏空 → 中期趋势向下，日线做多信号需格外谨慎{caveat}")
+        elif w_dir_eff == "震荡" and m_dir_eff == "震荡":
             lines.append(f"- **结论**：周线月线均处于震荡 → 中期方向不明，日线信号权重降低")
-        elif w_dir == "止跌" and m_r < 0:
+        elif w_dir_eff == "止跌" and m_r < 0:
             lines.append(f"- **结论**：周线出现止跌信号但月线仍在弱势 → 短线可能反弹，但中期趋势未扭转，做多仅限短线")
-        elif w_dir == "转弱" and m_r > 0:
+        elif w_dir_eff == "转弱" and m_r > 0:
             lines.append(f"- **结论**：周线转弱但月线仍偏多 → 短线回调，中期趋势未破坏，关注支撑位")
         else:
-            lines.append(f"- **结论**：周线({w_dir})与月线({m_dir})方向不一致 → 周期矛盾，日线信号降权处理")
+            lines.append(f"- **结论**：周线({w_dir_eff})与月线({m_dir_eff})方向不一致 → 周期矛盾，日线信号降权处理")
 
-    # 大周期定调回填到报告顶部
-    if w_r != 99 and m_r != 99:
-        _pfx = "（待周/月收盘确认）" if partial else ""
+    # ── 大周期定调回填到报告顶部 ──
+    if w_r == 99 and m_r == 99:
+        _top = "### 大周期定调\n\n周线和月线均完成度过低，不做大周期方向预判，待更多交易日数据后重新评估\n"
+    elif w_r == 99:
+        _top = f"### 大周期定调\n\n周线无法判断（完成度{_conf_label(w_conf)}），月线{m_dir_eff}（可信度{m_conf}）→ 中线{m_dir_eff}概率较高但周线确认不足\n"
+    elif m_r == 99:
+        _top = f"### 大周期定调\n\n月线无法判断（完成度{_conf_label(m_conf)}），周线{w_dir_eff}（可信度{w_conf}）→ 仅短线{w_dir_eff}参考\n"
+    else:
+        has_partial = w_incomplete or m_incomplete
+        _pfx = "（待收盘确认）" if has_partial else ""
         if w_r > 0 and m_r > 0:
-            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏多，日线做多信号可信度较高{_pfx}\n"
+            _top = f"### 大周期定调\n\n周线{w_dir_eff} + 月线{m_dir_eff} → 共振偏多，日线做多信号可信度较高{_pfx}\n"
         elif w_r < 0 and m_r < 0:
-            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 共振偏空，日线做多信号需格外谨慎{_pfx}\n"
+            _top = f"### 大周期定调\n\n周线{w_dir_eff} + 月线{m_dir_eff} → 共振偏空，日线做多信号需格外谨慎{_pfx}\n"
         elif w_r >= 0 and m_r < 0:
-            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线反弹但中期未扭转\n"
+            _top = f"### 大周期定调\n\n周线{w_dir_eff} + 月线{m_dir_eff} → 周期矛盾，短线反弹但中期未扭转\n"
         elif w_r < 0 and m_r >= 0:
-            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，短线回调但中期趋势未破坏\n"
+            _top = f"### 大周期定调\n\n周线{w_dir_eff} + 月线{m_dir_eff} → 周期矛盾，短线回调但中期趋势未破坏\n"
         else:
-            _top = f"### 大周期定调\n\n周线{w_dir} + 月线{m_dir} → 周期矛盾，日线信号降权处理\n"
-        lines[_mtf_slot] = _top
+            _top = f"### 大周期定调\n\n周线{w_dir_eff} + 月线{m_dir_eff} → 周期矛盾，日线信号降权处理\n"
+    lines[_mtf_slot] = _top
 
     return "\n".join(lines)
 
