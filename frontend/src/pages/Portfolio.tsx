@@ -85,6 +85,10 @@ export default function Portfolio() {
     } | null>(null)
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const [editingNotesId, setEditingNotesId] = useState<string | null>(null)
+    const [editingNotesInit, setEditingNotesInit] = useState('')
+    const notesInputRef = useRef<HTMLInputElement>(null)
+    const savingNotesRef = useRef(false)
 
     const navigate = useNavigate()
     const trimmedQuery = searchQuery.trim()
@@ -259,6 +263,36 @@ export default function Portfolio() {
             console.error('Failed to remove watchlist item:', error)
             alert(error instanceof Error ? error.message : '移除自选失败')
         }
+    }
+
+    const startEditNotes = (item: WatchlistItem) => {
+        if (savingNotesRef.current) return
+        setEditingNotesId(item.id)
+        setEditingNotesInit(item.notes || '')
+        setTimeout(() => notesInputRef.current?.focus(), 0)
+    }
+
+    const saveNotes = async (id: string) => {
+        if (savingNotesRef.current) return
+        const value = notesInputRef.current?.value
+        if (value === undefined) return
+        const trimmed = value.trim()
+        savingNotesRef.current = true
+        try {
+            await api.updateWatchlistNotes(id, trimmed)
+            setWatchlist(prev => prev.map(w => w.id === id ? { ...w, notes: trimmed } : w))
+        } catch (error) {
+            console.error('Failed to save notes:', error)
+        }
+        savingNotesRef.current = false
+        setEditingNotesId(null)
+        setEditingNotesInit('')
+    }
+
+    const cancelEditNotes = () => {
+        if (savingNotesRef.current) return
+        setEditingNotesId(null)
+        setEditingNotesInit('')
     }
 
     const toggleScheduled = async (symbol: string, hasScheduled: boolean) => {
@@ -600,6 +634,36 @@ export default function Portfolio() {
                                                     <p className="text-xs text-slate-400 mt-0.5">
                                                         最近：{report.trade_date} · {report.direction || report.decision || '—'}
                                                     </p>
+                                                )}
+                                            </div>
+                                            {/* Notes */}
+                                            <div className="flex-1 min-w-0 max-w-[160px]">
+                                                {editingNotesId === item.id ? (
+                                                    <input
+                                                        ref={notesInputRef}
+                                                        key={editingNotesInit}
+                                                        defaultValue={editingNotesInit}
+                                                        onBlur={() => saveNotes(item.id)}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') { e.preventDefault(); saveNotes(item.id) }
+                                                            if (e.key === 'Escape') cancelEditNotes()
+                                                        }}
+                                                        maxLength={200}
+                                                        placeholder="备注..."
+                                                        className="w-full text-xs px-2 py-1 rounded border border-blue-300 dark:border-blue-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                    />
+                                                ) : (
+                                                    <button
+                                                        onClick={() => startEditNotes(item)}
+                                                        className="w-full text-left text-xs px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors truncate"
+                                                        title={item.notes || '点击添加备注'}
+                                                    >
+                                                        {item.notes ? (
+                                                            <span className="text-slate-600 dark:text-slate-300">{item.notes}</span>
+                                                        ) : (
+                                                            <span className="text-slate-300 dark:text-slate-600 italic">备注...</span>
+                                                        )}
+                                                    </button>
                                                 )}
                                             </div>
                                             {/* Schedule toggle */}

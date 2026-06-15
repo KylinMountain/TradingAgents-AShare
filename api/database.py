@@ -418,6 +418,7 @@ class WatchlistItemDB(Base):
     user_id = Column(String(64), index=True, nullable=False)
     symbol = Column(String(20), nullable=False)
     sort_order = Column(Integer, default=0)
+    notes = Column(String(200), default="")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_watchlist_user_symbol'),)

@@ -29,6 +29,7 @@ def list_watchlist(db: Session, user_id: str) -> List[dict]:
             "id": item.id,
             "symbol": item.symbol,
             "sort_order": item.sort_order,
+            "notes": item.notes or "",
             "created_at": item.created_at.isoformat() if item.created_at else None,
             "has_scheduled": item.symbol in scheduled_symbols,
         }
@@ -58,6 +59,7 @@ def add_watchlist_item(db: Session, user_id: str, symbol: str) -> dict:
         "id": item.id,
         "symbol": item.symbol,
         "sort_order": item.sort_order,
+        "notes": item.notes or "",
         "created_at": item.created_at.isoformat() if item.created_at else None,
     }
 
@@ -83,6 +85,20 @@ def add_watchlist_items(db: Session, user_id: str, symbols: List[str]) -> List[d
                 "message": message,
             })
     return results
+
+
+def update_watchlist_notes(db: Session, user_id: str, item_id: str, notes: str) -> bool:
+    """Update notes for a watchlist item. Returns True if found and updated."""
+    item = (
+        db.query(WatchlistItemDB)
+        .filter(WatchlistItemDB.id == item_id, WatchlistItemDB.user_id == user_id)
+        .first()
+    )
+    if not item:
+        return False
+    item.notes = notes[:200] if notes else ""
+    db.commit()
+    return True
 
 
 def delete_watchlist_item(db: Session, user_id: str, item_id: str) -> bool:

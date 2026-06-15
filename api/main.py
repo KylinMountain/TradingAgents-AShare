@@ -948,6 +948,10 @@ class WatchlistAddRequest(BaseModel):
     symbol: Optional[str] = None
 
 
+class WatchlistUpdateRequest(BaseModel):
+    notes: Optional[str] = None
+
+
 class ScheduledBatchIdsRequest(BaseModel):
     item_ids: List[str] = Field(default_factory=list)
 
@@ -5698,6 +5702,18 @@ def delete_from_watchlist(
 ):
     if not watchlist_service.delete_watchlist_item(db, current_user.id, item_id):
         raise HTTPException(404, "未找到该自选股")
+
+
+@app.put("/v1/watchlist/{item_id}")
+def update_watchlist_item(
+    item_id: str,
+    body: WatchlistUpdateRequest,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    if not watchlist_service.update_watchlist_notes(db, current_user.id, item_id, body.notes or ""):
+        raise HTTPException(404, "未找到该自选股")
+    return {"id": item_id, "notes": body.notes or ""}
 
 
 # ── Scheduled Analysis ────────────────────────────────────────────────────────
