@@ -54,7 +54,7 @@ export default function FundFlowPanel({ symbol, onChartReady, onSyncNow }: FundF
 
     const range = useMemo(() => {
         const end = new Date()
-        const rangeDays = klinePeriod === 'daily' ? 180 : klinePeriod === 'weekly' ? 730 : 1825
+        const rangeDays = klinePeriod === 'daily' ? 365 : klinePeriod === 'weekly' ? 730 : 1825
         const start = new Date(end.getTime() - rangeDays * 24 * 60 * 60 * 1000)
         const toText = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         return { start: toText(start), end: toText(end) }

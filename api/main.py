@@ -2924,7 +2924,7 @@ def get_kline(
     if start_date:
         start = start_date
     else:
-        start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=120)).strftime("%Y-%m-%d")
+        start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=365)).strftime("%Y-%m-%d")
 
     if _is_cn_index_symbol(symbol):
         candles = _fetch_index_kline(symbol, start, end, period=period)

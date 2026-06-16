@@ -159,7 +159,7 @@ function drawCandles(candles, ctx, w, h) {
 
 async function fetchKline(apiBase, symbol) {
   const end = new Date();
-  const start = new Date(end.getTime() - 120 * 24 * 3600 * 1000);
+  const start = new Date(end.getTime() - 365 * 24 * 3600 * 1000);
   const fmt = (d) => d.toISOString().slice(0, 10);
   const url = `${apiBase}/v1/market/kline?symbol=${encodeURIComponent(symbol)}&start_date=${fmt(start)}&end_date=${fmt(end)}`;
   const resp = await fetch(url);
