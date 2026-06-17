@@ -868,6 +868,7 @@ class BiasAnalysisResponse(BaseModel):
     end_date: str
     total_days: int
     stats: BiasStats
+    points: List[BiasPoint]  # 每日乖离率时序数据
     distribution: Dict[str, int]  # {区间: 天数}
     pullback_after_high: List[BiasProbabilityRow]  # 正向高位→回撤
     rebound_after_low: List[BiasProbabilityRow]  # 负向低位→反弹
@@ -3962,6 +3963,18 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
             f"（平均收益{rb_low.day_10_avg_ret:+.1f}%）"
         )
 
+    # --- 每日乖离率时序数据 ---
+    bias_points: List[BiasPoint] = []
+    for i in dv.index:
+        row = dv.loc[i]
+        dt = str(row["datetime"])[:10]
+        bias_points.append(BiasPoint(
+            date=dt,
+            close=round(float(row["close"]), 2),
+            ma20=round(float(row["ma20"]), 2),
+            bias_pct=round(float(row["bias"]), 2),
+        ))
+
     name = None
     try:
         quote = fetch_realtime_quote(symbol)
@@ -3976,6 +3989,7 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
         end_date=end_date,
         total_days=len(dv),
         stats=stats,
+        points=bias_points,
         distribution=distribution,
         pullback_after_high=pullback_rows,
         rebound_after_low=rebound_rows,

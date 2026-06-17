@@ -1036,6 +1036,13 @@ export interface BiasProbabilityRow {
     sample_count: number
 }
 
+export interface BiasPoint {
+    date: string
+    close: number
+    ma20: number
+    bias_pct: number
+}
+
 export interface BiasAnalysisResponse {
     symbol: string
     name?: string
@@ -1043,6 +1050,7 @@ export interface BiasAnalysisResponse {
     end_date: string
     total_days: number
     stats: BiasStats
+    points: BiasPoint[]
     distribution: Record<string, number>
     pullback_after_high: BiasProbabilityRow[]
     rebound_after_low: BiasProbabilityRow[]
