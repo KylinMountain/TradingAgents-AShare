@@ -1191,6 +1191,20 @@ class UserTokenCreateRequest(BaseModel):
     name: str
 
 
+class StrategyDecisionResponse(BaseModel):
+    symbol: str
+    name: str = ""
+    market_state: str = ""
+    phase: str = ""
+    phase_reasoning: str = ""
+    effort_result: str = ""
+    checklist_score: str = ""
+    paths: dict = {}
+    final_action: str = ""
+    confidence: str = ""
+    summary: str = ""
+
+
 def _deep_merge(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in overrides.items():
         if isinstance(v, dict) and isinstance(base.get(k), dict):
@@ -4009,6 +4023,59 @@ def _instant_complete_from_report(job_id: str, report_id: str, user_id: str) -> 
             _log(f"[dedup] Reused report {report_id} for {report.symbol}/{report.trade_date} → job {job_id}")
     except Exception as e:
         _log(f"[dedup] _instant_complete_from_report error: {type(e).__name__}: {e}")
+
+
+@app.get("/v1/strategy/39rules-decision", response_model=StrategyDecisionResponse)
+def get_39rules_decision(
+    symbol: str,
+    current_user: UserDB = Depends(_require_web_user),
+) -> StrategyDecisionResponse:
+    """39规则量价快速决策。同步端点，~60s。"""
+    # 符号标准化
+    normalized = _normalize_symbol(symbol)
+    if not _RESOLVABLE_SYMBOL_RE.match(normalized):
+        raise HTTPException(status_code=400, detail=f"无法解析股票代码: {symbol!r}")
+
+    # 提取纯代码（去掉后缀）
+    code = normalized.split(".")[0]
+
+    # 获取股票名称
+    name = ""
+    try:
+        stock_map = _load_cn_stock_map()
+        name = {v.split(".")[0]: k for k, v in stock_map.items()}.get(code, code)
+    except Exception:
+        name = code
+
+    # 获取市场状态
+    market_state = "未知"
+    try:
+        from tradingagents.strategy.market_state import fetch_sh_index_data, classify_market_state, get_current_market_state
+        sh_df = fetch_sh_index_data()
+        sh_df = classify_market_state(sh_df)
+        market_state = get_current_market_state(sh_df)["state"]
+    except Exception:
+        pass
+
+    # 获取K线数据
+    from tradingagents.indicators import fetch_realtime_data
+    df = fetch_realtime_data(normalized, days=250, period="daily")
+    if df is None or df.empty:
+        raise HTTPException(status_code=500, detail=f"无法获取 {symbol} 的K线数据")
+
+    # 事实引擎计算
+    from tradingagents.strategy.fact_engine import compute_facts
+    facts = compute_facts(df, market_state=market_state)
+
+    # LLM决策
+    from tradingagents.strategy.llm_decision import run_decision
+    result = run_decision(facts, normalized, name, lookback=15, full_df=facts)
+
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=f"LLM决策失败: {result.get('error')}")
+
+    result["name"] = name
+    return StrategyDecisionResponse(**result)
 
 
 @app.post("/v1/analyze", response_model=AnalyzeResponse)

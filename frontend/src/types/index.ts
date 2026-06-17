@@ -1010,3 +1010,22 @@ export interface BriefingDetailResponse {
 export interface BriefingListResponse {
     items: BriefingItem[]
 }
+
+// 39-Rules Strategy Decision Types
+export interface StrategyDecisionResponse {
+    symbol: string
+    name: string
+    market_state: string
+    phase: string
+    phase_reasoning: string
+    effort_result: string
+    checklist_score: string
+    paths: {
+        bullish: string
+        neutral: string
+        bearish: string
+    }
+    final_action: string
+    confidence: string
+    summary: string
+}

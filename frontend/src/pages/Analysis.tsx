@@ -12,6 +12,7 @@ import FundFlowPanel from '@/components/FundFlowPanel'
 import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
+import StrategyDecisionCard from '@/components/StrategyDecisionCard'
 import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useSyncedCharts } from '@/hooks/useSyncedCharts'
@@ -255,6 +256,11 @@ export default function Analysis() {
             <div ref={reportRef}>
                 <ReportViewer activeSection={activeSection} />
             </div>
+
+            <StrategyDecisionCard
+                symbol={activeSymbol}
+                name={decisionDisplayName || undefined}
+            />
 
             <DebateDrawer debate={debateDrawer} onClose={() => setDebateDrawer(null)} />
         </div>
