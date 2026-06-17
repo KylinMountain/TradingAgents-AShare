@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { TrendingUp } from 'lucide-react'
 
+import { useAuthStore } from '@/stores/authStore'
 import { navItems } from '@/components/sidebarNav'
 
 const buildDate = __APP_BUILD_DATE__
@@ -10,6 +11,8 @@ const buildVersion = __APP_BUILD_VERSION__
 
 export default function Sidebar() {
     const [isExpanded, setIsExpanded] = useState(false)
+    const { user } = useAuthStore()
+    const visibleItems = navItems.filter(item => !item.adminOnly || user?.is_admin)
 
     return (
         <aside
@@ -34,7 +37,7 @@ export default function Sidebar() {
 
             {/* Navigation */}
             <nav className="flex-1 py-4 px-2 space-y-2">
-                {navItems.map((item) => (
+                {visibleItems.map((item) => (
                     <NavLink
                         key={item.path}
                         to={item.path}

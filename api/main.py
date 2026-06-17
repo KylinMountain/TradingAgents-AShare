@@ -4,6 +4,10 @@ import asyncio
 import json
 import os
 import re
+
+# 必须在任何第三方库导入之前清除代理，避免 urllib3/requests 缓存代理设置
+for _pv in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+    os.environ.pop(_pv, None)
 import traceback
 from contextlib import asynccontextmanager
 from io import StringIO
@@ -80,6 +84,8 @@ def _cors_allow_origins() -> list[str]:
         "http://localhost:5174",
         "http://127.0.0.1:5175",
         "http://localhost:5175",
+        "http://127.0.0.1:5176",
+        "http://localhost:5176",
         "http://127.0.0.1:5173",
         "http://localhost:5173",
         "http://127.0.0.1:5181",
@@ -261,6 +267,41 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
+
+    # Pre-market briefing auto-generator (9:00 AM Beijing time on trading days)
+    @staticmethod
+    async def _briefing_scheduler():
+        import asyncio as _asyncio
+        from tradingagents.dataflows.trade_calendar import CN_TZ, is_cn_trading_day, cn_today_str as _cn_today
+
+        while True:
+            try:
+                now_cn = datetime.now(CN_TZ)
+                today_str = now_cn.strftime("%Y-%m-%d")
+                if now_cn.hour == 9 and 0 <= now_cn.minute < 5 and is_cn_trading_day(today_str):
+                    with get_db_ctx() as chk_db:
+                        admin_user = chk_db.query(UserDB).filter(UserDB.is_admin == True).first()
+                        if admin_user:
+                            from api.services import briefing_service
+                            existing = briefing_service.get_briefing(chk_db, admin_user.id, today_str)
+                            if not existing or existing.get("status") != "completed":
+                                admin_id = admin_user.id
+                                # Generate in background
+                                async def _gen():
+                                    try:
+                                        with get_db_ctx() as gdb:
+                                            await briefing_service.generate_briefing(gdb, admin_id, today_str)
+                                    except Exception as exc:
+                                        logger.error(f"[Briefing] Auto-gen failed for {today_str}: {exc}")
+                                _create_tracked_task(_gen(), label=f"Briefing auto-gen {today_str}")
+                                _log(f"[Briefing] Auto-generation triggered for {today_str}")
+                await _asyncio.sleep(60)
+            except Exception as exc:
+                logger.error(f"[Briefing Scheduler] Error: {exc}")
+                await _asyncio.sleep(60)
+
+    _create_tracked_task(_briefing_scheduler(), label="Briefing scheduler")
+
     yield
     _log("Shutting down: Cleaning up resources...")
     _executor.shutdown(wait=True)
@@ -981,6 +1022,32 @@ class AnnouncementResponse(BaseModel):
 
 class LatestAnnouncementResponse(BaseModel):
     announcement: Optional[AnnouncementResponse] = None
+
+
+# ─── Briefing Response Models ────────────────────────────────────────
+
+class BriefingItem(BaseModel):
+    id: str
+    date: str
+    status: str
+
+
+class BriefingListResponse(BaseModel):
+    items: List[BriefingItem]
+
+
+class BriefingDetailResponse(BaseModel):
+    id: str
+    date: str
+    status: str
+    error: Optional[str] = None
+    market_data: Optional[dict] = None
+    top_news: Optional[list] = None
+    watchlist_analysis: Optional[list] = None
+    portfolio_analysis: Optional[list] = None
+    trading_advice: Optional[dict] = None
+    generated_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
 
 class UserResponse(BaseModel):
@@ -5255,6 +5322,65 @@ def admin_cleanup_query_logs(
     deleted = db.query(UserQueryLogDB).filter(UserQueryLogDB.created_at < cutoff).delete()
     db.commit()
     return {"deleted": deleted, "keep_days": keep_days}
+
+
+# ─── Pre-market Briefing ──────────────────────────────────────────────
+
+@app.get("/v1/briefing/daily", response_model=BriefingDetailResponse)
+async def get_daily_briefing(
+    date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: UserDB = Depends(_require_admin),
+):
+    """获取指定日期的盘前速递。默认今天，若不存在且为今天则自动生成。"""
+    from tradingagents.dataflows.trade_calendar import cn_today_str
+    from api.services import briefing_service
+
+    date_str = date or cn_today_str()
+    briefing = briefing_service.get_briefing(db, admin.id, date_str)
+
+    if briefing and briefing.get("status") == "completed":
+        return briefing
+
+    if briefing and briefing.get("status") == "running":
+        return briefing
+
+    if date_str == cn_today_str():
+        result = await briefing_service.generate_briefing(db, admin.id, date_str)
+        return result
+
+    if briefing and briefing.get("status") == "failed":
+        raise HTTPException(status_code=500, detail=f"简报生成失败: {briefing.get('error', '未知错误')}")
+
+    raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的盘前速递")
+
+
+@app.post("/v1/briefing/generate", response_model=BriefingDetailResponse)
+async def generate_briefing(
+    date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin: UserDB = Depends(_require_admin),
+):
+    """强制重新生成指定日期的盘前速递。"""
+    from tradingagents.dataflows.trade_calendar import cn_today_str
+    from api.services import briefing_service
+
+    date_str = date or cn_today_str()
+    result = await briefing_service.generate_briefing(db, admin.id, date_str, force=True)
+    return result
+
+
+@app.get("/v1/briefing/list", response_model=BriefingListResponse)
+def list_briefings(
+    limit: int = 30,
+    db: Session = Depends(get_db),
+    admin: UserDB = Depends(_require_admin),
+):
+    """获取历史简报日期列表。"""
+    from api.services import briefing_service
+
+    items = briefing_service.list_briefings(db, admin.id, limit=limit)
+    return BriefingListResponse(items=[BriefingItem(**it) for it in items])
 
 
 @app.get("/v1/config", response_model=UserRuntimeConfigResponse)

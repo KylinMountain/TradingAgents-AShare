@@ -846,3 +846,88 @@ export interface DebateMessage {
     isVerdict?: boolean
     horizon?: string
 }
+
+// ─── Pre-market Briefing ───────────────────────────────────────────
+
+export interface BriefingItem {
+    id: string
+    date: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+}
+
+export interface BriefingMarketData {
+    us_indices?: Array<{ name: string; symbol: string; close: number; change_pct: number }>
+    hk_index?: Array<{ name: string; close: number; change_pct: number }>
+    a50_futures?: { name: string; symbol: string; close: number; change_pct: number } | null
+    commodities?: Array<{ name: string; close: number; change_pct: number }>
+    fx?: Array<{ name: string; close: number; change_pct: number }>
+    fund_flow?: { date: string; main_net: number; super_large_net: number; large_net: number } | null
+}
+
+export interface BriefingNewsItem {
+    title: string
+    content_preview: string
+    source: string
+}
+
+export interface BriefingWatchlistItem {
+    symbol: string
+    name: string
+    notes?: string
+    latest_price?: number | null
+    change_pct?: number | null
+    news_summary: string
+    signals: Array<{ name: string; value: string; interpretation: string }>
+}
+
+export interface BriefingPortfolioItem {
+    symbol: string
+    name: string
+    position: number
+    avg_cost: number
+    current_price?: number | null
+    market_value: number
+    pnl?: number | null
+    pnl_pct?: number | null
+    risk_signals: string[]
+}
+
+export interface WatchlistPlanItem {
+    股票: string
+    策略类型: string
+    入场条件: string
+    理由: string
+}
+
+export interface PortfolioPlanItem {
+    股票: string
+    盈亏: string
+    止盈条件: string
+    止损条件: string
+    建议: string
+}
+
+export interface BriefingTradingAdvice {
+    sentiment: string
+    watchlist_plan: WatchlistPlanItem[]
+    portfolio_plan: PortfolioPlanItem[]
+    error?: string
+}
+
+export interface BriefingDetailResponse {
+    id: string
+    date: string
+    status: 'pending' | 'running' | 'completed' | 'failed'
+    error?: string | null
+    market_data?: BriefingMarketData | null
+    top_news?: BriefingNewsItem[] | null
+    watchlist_analysis?: BriefingWatchlistItem[] | null
+    portfolio_analysis?: BriefingPortfolioItem[] | null
+    trading_advice?: BriefingTradingAdvice | null
+    generated_at?: string | null
+    created_at?: string | null
+}
+
+export interface BriefingListResponse {
+    items: BriefingItem[]
+}

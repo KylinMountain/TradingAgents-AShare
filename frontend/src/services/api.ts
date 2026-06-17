@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -452,6 +452,27 @@ class ApiService {
     }
     async delete<T>(endpoint: string): Promise<T> {
         return this.request<T>(endpoint, { method: 'DELETE' })
+    }
+
+    // Pre-market Briefing
+    async getBriefing(date?: string): Promise<BriefingDetailResponse> {
+        const params = new URLSearchParams()
+        if (date) params.append('date', date)
+        const qs = params.toString()
+        return this.request<BriefingDetailResponse>(`/v1/briefing/daily${qs ? `?${qs}` : ''}`)
+    }
+
+    async generateBriefing(date?: string): Promise<BriefingDetailResponse> {
+        const params = new URLSearchParams()
+        if (date) params.append('date', date)
+        const qs = params.toString()
+        return this.request<BriefingDetailResponse>(`/v1/briefing/generate${qs ? `?${qs}` : ''}`, {
+            method: 'POST',
+        })
+    }
+
+    async listBriefings(limit = 30): Promise<BriefingListResponse> {
+        return this.request<BriefingListResponse>(`/v1/briefing/list?limit=${limit}`)
     }
 }
 

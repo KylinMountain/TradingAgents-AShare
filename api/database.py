@@ -555,3 +555,42 @@ class UserQueryLogDB(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class DailyBriefingDB(Base):
+    """Daily pre-market briefing generated at 9:00 AM Beijing time."""
+
+    __tablename__ = "daily_briefings"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    date = Column(String(10), nullable=False, index=True)
+    status = Column(String(20), default="pending", index=True)
+    error = Column(Text, nullable=True)
+    market_data = Column(JSON, nullable=True)
+    top_news = Column(JSON, nullable=True)
+    watchlist_analysis = Column(JSON, nullable=True)
+    portfolio_analysis = Column(JSON, nullable=True)
+    trading_advice = Column(JSON, nullable=True)
+    generated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_briefing_user_date"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "date": self.date,
+            "status": self.status,
+            "error": self.error,
+            "market_data": self.market_data,
+            "top_news": self.top_news,
+            "watchlist_analysis": self.watchlist_analysis,
+            "portfolio_analysis": self.portfolio_analysis,
+            "trading_advice": self.trading_advice,
+            "generated_at": self.generated_at.isoformat() if self.generated_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
