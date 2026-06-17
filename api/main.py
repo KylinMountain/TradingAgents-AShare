@@ -829,6 +829,52 @@ class FundFlowResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+# Bias Analysis Models (乖离率分析)
+class BiasPoint(BaseModel):
+    date: str
+    close: float
+    ma20: float
+    bias_pct: float  # 乖离率%
+
+
+class BiasStats(BaseModel):
+    mean: float
+    median: float
+    std: float
+    max_val: float
+    min_val: float
+    skewness: float
+    quantile_10: float
+    quantile_25: float
+    quantile_75: float
+    quantile_90: float
+
+
+class BiasProbabilityRow(BaseModel):
+    threshold_label: str  # e.g. "P75(>11.8%)"
+    threshold_value: float
+    day_1_pct: float  # 回撤/反弹概率%
+    day_3_pct: float
+    day_5_pct: float
+    day_10_pct: float
+    day_10_avg_ret: float  # 10日平均收益%
+    sample_count: int
+
+
+class BiasAnalysisResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    start_date: str
+    end_date: str
+    total_days: int
+    stats: BiasStats
+    distribution: Dict[str, int]  # {区间: 天数}
+    pullback_after_high: List[BiasProbabilityRow]  # 正向高位→回撤
+    rebound_after_low: List[BiasProbabilityRow]  # 负向低位→反弹
+    pullback_summary: str  # 结论摘要
+    rebound_summary: str
+
+
 # Dark Pool Analysis Models
 class DarkPoolEvent(BaseModel):
     start: str
@@ -3786,6 +3832,156 @@ def _normalize_ths_code(code: str) -> str:
         return f"{num}.{market}"
 
     return code
+
+
+@app.get("/v1/market/bias-analysis", response_model=BiasAnalysisResponse)
+def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
+    """乖离率分布分析 — 近1年MA20乖离率分布 + 高位回撤概率 + 低位反弹概率"""
+    from mootdx.quotes import Quotes
+    from tradingagents.indicators import fetch_realtime_quote
+
+    try:
+        client = Quotes.factory(market="std")
+        klines = client.bars(symbol=symbol, category=4, offset=250)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"K线数据获取失败: {e}")
+
+    df = pd.DataFrame(klines).reset_index(drop=True).sort_values("datetime").reset_index(drop=True)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="无K线数据")
+
+    df["ma20"] = df["close"].rolling(20).mean()
+    df["bias"] = (df["close"] - df["ma20"]) / df["ma20"] * 100
+    dv = df.dropna(subset=["ma20"])
+    if len(dv) < 50:
+        raise HTTPException(status_code=404, detail="有效交易日不足50天，无法分析")
+
+    bias = dv["bias"]
+    start_date = str(dv["datetime"].iloc[0])[:10]
+    end_date = str(dv["datetime"].iloc[-1])[:10]
+
+    # --- 分布区间统计 ---
+    dist_bins = [(-99, -10, "<-10%"), (-10, -5, "-10~-5%"), (-5, -3, "-5~-3%"),
+                 (-3, -1, "-3~-1%"), (-1, 0, "-1~0%"), (0, 1, "0~1%"),
+                 (1, 3, "1~3%"), (3, 5, "3~5%"), (5, 10, "5~10%"), (10, 99, ">10%")]
+    distribution = {}
+    for lo, hi, label in dist_bins:
+        count = int(((dv["bias"] > lo) & (dv["bias"] <= hi)).sum())
+        distribution[label] = count
+
+    # --- 统计量 ---
+    stats = BiasStats(
+        mean=round(float(bias.mean()), 2),
+        median=round(float(bias.median()), 2),
+        std=round(float(bias.std()), 2),
+        max_val=round(float(bias.max()), 2),
+        min_val=round(float(bias.min()), 2),
+        skewness=round(float(bias.skew()), 2),
+        quantile_10=round(float(bias.quantile(0.10)), 2),
+        quantile_25=round(float(bias.quantile(0.25)), 2),
+        quantile_75=round(float(bias.quantile(0.75)), 2),
+        quantile_90=round(float(bias.quantile(0.90)), 2),
+    )
+
+    # --- 正向高位乖离 → 回撤概率 ---
+    pullback_rows: List[BiasProbabilityRow] = []
+    for pct in [0.60, 0.70, 0.75, 0.80, 0.85, 0.90]:
+        thresh = float(bias.quantile(pct))
+        idxs = dv.index[dv["bias"] >= thresh]
+        row_data = {}
+        for horizon in [1, 3, 5, 10]:
+            rets = []
+            for i in idxs:
+                if i + horizon < len(dv):
+                    ret = (dv.loc[i + horizon, "close"] - dv.loc[i, "close"]) / dv.loc[i, "close"] * 100
+                    rets.append(float(ret))
+            if rets:
+                pb_prob = round(sum(1 for r in rets if r < 0) / len(rets) * 100, 1)
+                avg_ret = round(float(np.mean(rets)), 2)
+                row_data[f"day_{horizon}"] = (pb_prob, avg_ret, len(rets))
+        if row_data:
+            d1 = row_data.get("day_1")
+            d3 = row_data.get("day_3", d1)
+            d5 = row_data.get("day_5", d1)
+            d10 = row_data.get("day_10", d1)
+            if d1 is None:
+                continue
+            pullback_rows.append(BiasProbabilityRow(
+                threshold_label=f"P{int(pct*100)}(>{thresh:.1f}%)",
+                threshold_value=thresh,
+                day_1_pct=d1[0], day_3_pct=d3[0], day_5_pct=d5[0], day_10_pct=d10[0],
+                day_10_avg_ret=d10[1], sample_count=d1[2],
+            ))
+
+    # --- 负向低位乖离 → 反弹概率 ---
+    rebound_rows: List[BiasProbabilityRow] = []
+    for pct in [0.50, 0.40, 0.30, 0.25, 0.20, 0.15, 0.10]:
+        thresh = float(bias.quantile(pct))
+        idxs = dv.index[dv["bias"] <= thresh]
+        row_data = {}
+        for horizon in [1, 3, 5, 10]:
+            rets = []
+            for i in idxs:
+                if i + horizon < len(dv):
+                    ret = (dv.loc[i + horizon, "close"] - dv.loc[i, "close"]) / dv.loc[i, "close"] * 100
+                    rets.append(float(ret))
+            if rets:
+                rb_prob = round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1)
+                avg_ret = round(float(np.mean(rets)), 2)
+                row_data[f"day_{horizon}"] = (rb_prob, avg_ret, len(rets))
+        if row_data:
+            d1 = row_data.get("day_1")
+            d3 = row_data.get("day_3", d1)
+            d5 = row_data.get("day_5", d1)
+            d10 = row_data.get("day_10", d1)
+            if d1 is None:
+                continue
+            rebound_rows.append(BiasProbabilityRow(
+                threshold_label=f"P{int(pct*100)}(<{thresh:.1f}%)",
+                threshold_value=thresh,
+                day_1_pct=d1[0], day_3_pct=d3[0], day_5_pct=d5[0], day_10_pct=d10[0],
+                day_10_avg_ret=d10[1], sample_count=d1[2],
+            ))
+
+    # --- 摘要 ---
+    pb_high = pullback_rows[3] if len(pullback_rows) > 3 else pullback_rows[-1] if pullback_rows else None
+    rb_low = rebound_rows[-1] if rebound_rows else None
+
+    pullback_summary = ""
+    if pb_high:
+        pullback_summary = (
+            f"乖离率高位(>{pb_high.threshold_value:.1f}%)时，"
+            f"3-5日回撤概率约{pb_high.day_3_pct:.0f}-{pb_high.day_5_pct:.0f}%，"
+            f"但10日回撤概率骤降至{pb_high.day_10_pct:.0f}%（平均收益{pb_high.day_10_avg_ret:+.1f}%）"
+        )
+    rebound_summary = ""
+    if rb_low:
+        rebound_summary = (
+            f"乖离率低位(<{rb_low.threshold_value:.1f}%)时，"
+            f"1日反弹概率{rb_low.day_1_pct:.0f}%，10日反弹概率{rb_low.day_10_pct:.0f}%"
+            f"（平均收益{rb_low.day_10_avg_ret:+.1f}%）"
+        )
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return BiasAnalysisResponse(
+        symbol=symbol,
+        name=name,
+        start_date=start_date,
+        end_date=end_date,
+        total_days=len(dv),
+        stats=stats,
+        distribution=distribution,
+        pullback_after_high=pullback_rows,
+        rebound_after_low=rebound_rows,
+        pullback_summary=pullback_summary,
+        rebound_summary=rebound_summary,
+    )
 
 
 @app.get("/v1/market/dark-pool-analysis", response_model=DarkPoolAnalysisResponse)

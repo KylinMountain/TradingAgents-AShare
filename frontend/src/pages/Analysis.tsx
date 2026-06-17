@@ -13,6 +13,7 @@ import DecisionCard from '@/components/DecisionCard'
 import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
 import StrategyDecisionCard from '@/components/StrategyDecisionCard'
+import BiasAnalysisPanel from '@/components/BiasAnalysisPanel'
 import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useSyncedCharts } from '@/hooks/useSyncedCharts'
@@ -258,6 +259,11 @@ export default function Analysis() {
             </div>
 
             <StrategyDecisionCard
+                symbol={activeSymbol}
+                name={decisionDisplayName || undefined}
+            />
+
+            <BiasAnalysisPanel
                 symbol={activeSymbol}
                 name={decisionDisplayName || undefined}
             />

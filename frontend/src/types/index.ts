@@ -1011,6 +1011,45 @@ export interface BriefingListResponse {
     items: BriefingItem[]
 }
 
+// Bias Analysis Types (乖离率分析)
+export interface BiasStats {
+    mean: number
+    median: number
+    std: number
+    max_val: number
+    min_val: number
+    skewness: number
+    quantile_10: number
+    quantile_25: number
+    quantile_75: number
+    quantile_90: number
+}
+
+export interface BiasProbabilityRow {
+    threshold_label: string
+    threshold_value: number
+    day_1_pct: number
+    day_3_pct: number
+    day_5_pct: number
+    day_10_pct: number
+    day_10_avg_ret: number
+    sample_count: number
+}
+
+export interface BiasAnalysisResponse {
+    symbol: string
+    name?: string
+    start_date: string
+    end_date: string
+    total_days: number
+    stats: BiasStats
+    distribution: Record<string, number>
+    pullback_after_high: BiasProbabilityRow[]
+    rebound_after_low: BiasProbabilityRow[]
+    pullback_summary: string
+    rebound_summary: string
+}
+
 // 39-Rules Strategy Decision Types
 export interface StrategyDecisionResponse {
     symbol: string

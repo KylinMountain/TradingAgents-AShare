@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, StrategyDecisionResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, StrategyDecisionResponse, BiasAnalysisResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -140,6 +140,11 @@ class ApiService {
     async getStrategyDecision(symbol: string): Promise<StrategyDecisionResponse> {
         const params = new URLSearchParams({ symbol })
         return this.request<StrategyDecisionResponse>(`/v1/strategy/39rules-decision?${params}`)
+    }
+
+    async getBiasAnalysis(symbol: string): Promise<BiasAnalysisResponse> {
+        const params = new URLSearchParams({ symbol })
+        return this.request<BiasAnalysisResponse>(`/v1/market/bias-analysis?${params}`)
     }
 
     async chatCompletion(
