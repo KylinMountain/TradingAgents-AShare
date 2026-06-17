@@ -858,10 +858,88 @@ export interface BriefingItem {
 export interface BriefingMarketData {
     us_indices?: Array<{ name: string; symbol: string; close: number; change_pct: number }>
     hk_index?: Array<{ name: string; close: number; change_pct: number }>
-    a50_futures?: { name: string; symbol: string; close: number; change_pct: number } | null
+    a50_futures?: { name: string; symbol: string; close: number; change_pct: number; change_amt?: number; high?: number; low?: number; open?: number; prev_settle?: number } | null
     commodities?: Array<{ name: string; close: number; change_pct: number }>
     fx?: Array<{ name: string; close: number; change_pct: number }>
     fund_flow?: { date: string; main_net: number; super_large_net: number; large_net: number } | null
+    chinese_adrs?: Array<{ symbol: string; name: string; close: number; change_pct: number; change_amt?: number }>
+    market_sentiment?: BriefingSentiment | null
+    north_bound?: BriefingNorthBound | null
+    dragon_tiger?: BriefingDragonTiger | null
+    industry_ranking?: BriefingIndustryRanking | null
+    hot_stocks?: BriefingHotStock[]
+    global_news?: BriefingGlobalNewsItem[]
+    macro_data?: BriefingMacroData | null
+    sector_fund_flow?: BriefingSectorFundFlow | null
+    announcements?: BriefingAnnouncements | null
+}
+
+export interface BriefingSentiment {
+    limit_up_count: number
+    limit_down_count: number
+    bust_rate_pct: number
+    max_streak: number
+    top_streak_stocks: Array<{
+        name: string; code: string; streak: number; reason: string
+        seal_amount_wan?: number
+        first_seal_time?: string
+        last_seal_time?: string
+        bust_count?: number
+        change_pct?: number
+    }>
+    prev_volume?: number | null
+    volume_change_pct?: number | null
+}
+
+export interface BriefingSectorFundFlow {
+    top_inflow: Array<{ name: string; net_inflow_yi: number }>
+    top_outflow: Array<{ name: string; net_inflow_yi: number }>
+}
+
+export interface BriefingAnnouncements {
+    major_events?: Array<{ code: string; name: string; title: string }>
+    shareholder_changes?: Array<{ code: string; name: string; title: string }>
+}
+
+export interface BriefingNorthBound {
+    hgt_net?: number | null
+    sgt_net?: number | null
+    total_net?: number | null
+    recent_days?: Array<{ date: string; net_flow_yi: number }>
+}
+
+export interface BriefingDragonTiger {
+    total_records: number
+    top_net_buy: Array<{ code: string; name: string; net_buy_wan: number; buy_wan: number; sell_wan: number }>
+    top_net_sell: Array<{ code: string; name: string; net_buy_wan: number; buy_wan: number; sell_wan: number }>
+    institution_net?: number | null
+}
+
+export interface BriefingIndustryRanking {
+    top: Array<{ name: string; change_pct: number; up_count: number; down_count: number; leader: string; leader_change: number }>
+    bottom: Array<{ name: string; change_pct: number; up_count: number; down_count: number; leader: string; leader_change: number }>
+    total: number
+}
+
+export interface BriefingHotStock {
+    code: string
+    name: string
+    change_pct: number
+    turnover: number
+    reason: string
+    amount: number
+}
+
+export interface BriefingGlobalNewsItem {
+    title: string
+    summary: string
+    time: string
+}
+
+export interface BriefingMacroData {
+    pmi?: { date: string; manufacturing: number; non_manufacturing: number }
+    cpi?: { date: string; national_yoy: number }
+    social_financing?: { date: string; value_yi: number }
 }
 
 export interface BriefingNewsItem {
@@ -908,6 +986,7 @@ export interface PortfolioPlanItem {
 }
 
 export interface BriefingTradingAdvice {
+    content?: string
     sentiment: string
     watchlist_plan: WatchlistPlanItem[]
     portfolio_plan: PortfolioPlanItem[]
