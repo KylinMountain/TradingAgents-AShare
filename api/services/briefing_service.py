@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -1156,6 +1157,138 @@ async def _analyze_portfolio(db: Session, user_id: str, prev_trade_date: str) ->
     return [r for r in results if isinstance(r, dict)]
 
 
+# ─── US Tech Sector Mapping ───────────────────────────────────────────────────
+
+# 5-minute cache for US tech sector data to avoid repeated yfinance calls
+_us_tech_cache: dict = {"data": None, "ts": 0}
+
+
+async def _fetch_us_tech_sectors() -> dict:
+    """Fetch US tech sector ETFs/indices via yfinance for A-share sector mapping.
+
+    Returns structured data grouped by sector: semiconductors, broad tech, AI/cloud,
+    plus risk indicators (TLT, VIX).
+    """
+    now = time.monotonic()
+    if _us_tech_cache["data"] is not None and (now - _us_tech_cache["ts"]) < 300:
+        return _us_tech_cache["data"]
+
+    # Define symbols by sector group
+    sectors_def = [
+        {
+            "name": "半导体",
+            "a_mapping": "半导体ETF(512480)、芯片ETF(159995)",
+            "symbols": [("^SOX", "费城半导体"), ("SMH", "半导体ETF")],
+        },
+        {
+            "name": "科技宽基",
+            "a_mapping": "科创50(588000)、科技ETF(515000)",
+            "symbols": [("QQQ", "纳斯达克100"), ("XLK", "标普科技")],
+        },
+        {
+            "name": "AI/云计算",
+            "a_mapping": "AI概念、云计算ETF",
+            "symbols": [("IGV", "软件ETF"), ("SKYY", "云计算ETF"), ("ROBT", "AI机器人")],
+        },
+    ]
+    risk_symbols = [("TLT", "20年国债"), ("^VIX", "恐慌指数")]
+
+    all_symbols = [s for sec in sectors_def for s, _ in sec["symbols"]] + [s for s, _ in risk_symbols]
+
+    def _fetch():
+        result = {"sectors": [], "risk_indicators": {}, "overall_sentiment": "neutral"}
+
+        try:
+            import yfinance as yf
+        except ImportError:
+            logger.warning("yfinance not available for US tech sector fetch")
+            return result
+
+        # Sequential fetch with small delay to avoid yfinance rate limiting
+        prices: dict[str, dict] = {}
+        for sym in all_symbols:
+            try:
+                t = yf.Ticker(sym)
+                hist = t.history(period="2d")
+                if hist.empty or len(hist) < 1:
+                    logger.warning(f"US tech: no data for {sym}")
+                    continue
+                close = float(hist["Close"].iloc[-1])
+                if len(hist) >= 2:
+                    prev_close = float(hist["Close"].iloc[-2])
+                    chg_pct = round((close - prev_close) / prev_close * 100, 2)
+                else:
+                    chg_pct = 0
+                prices[sym] = {"close": round(close, 2), "change_pct": chg_pct}
+                time.sleep(1.5)  # rate limit avoidance
+            except Exception as e:
+                logger.warning(f"US tech: fetch failed for {sym}: {e}")
+                time.sleep(3.0)
+
+        # Build sector groups
+        sector_sentiments = []
+        for sec in sectors_def:
+            stocks = []
+            chgs = []
+            for sym, name in sec["symbols"]:
+                if sym in prices:
+                    stocks.append({
+                        "symbol": sym.lstrip("^"),
+                        "name": name,
+                        "close": prices[sym]["close"],
+                        "change_pct": prices[sym]["change_pct"],
+                    })
+                    chgs.append(prices[sym]["change_pct"])
+
+            if stocks:
+                avg_chg = sum(chgs) / len(chgs)
+                sentiment = "bullish" if avg_chg > 0.5 else ("bearish" if avg_chg < -0.5 else "mixed")
+                sector_sentiments.append(sentiment)
+                result["sectors"].append({
+                    "name": sec["name"],
+                    "stocks": stocks,
+                    "a_mapping": sec["a_mapping"],
+                    "sentiment": sentiment,
+                })
+
+        # Risk indicators
+        for sym, name in risk_symbols:
+            if sym in prices:
+                result["risk_indicators"][sym.lstrip("^")] = {
+                    "name": name,
+                    "close": prices[sym]["close"],
+                    "change_pct": prices[sym]["change_pct"],
+                }
+
+        # Overall sentiment: majority vote, semiconductor has double weight
+        if sector_sentiments:
+            weighted = []
+            for s in sector_sentiments:
+                weighted.append(s)
+                if s == "bearish" or s == "bullish":
+                    weighted.append(s)  # double weight non-mixed
+            bullish = weighted.count("bullish")
+            bearish = weighted.count("bearish")
+            if bullish > bearish:
+                result["overall_sentiment"] = "bullish"
+            elif bearish > bullish:
+                result["overall_sentiment"] = "bearish"
+            else:
+                result["overall_sentiment"] = "neutral"
+
+        result["update_time"] = datetime.now(timezone.utc).isoformat()
+        return result
+
+    try:
+        _us_tech_cache["data"] = await asyncio.to_thread(_fetch)
+        _us_tech_cache["ts"] = time.monotonic()
+        return _us_tech_cache["data"]
+    except Exception as e:
+        logger.warning(f"US tech sector fetch failed: {e}")
+        return {"sectors": [], "risk_indicators": {}, "overall_sentiment": "neutral",
+                "error": str(e)}
+
+
 # ─── LLM Synthesis ───────────────────────────────────────────────────────────
 
 async def _generate_trading_advice(
@@ -1301,6 +1434,24 @@ async def _generate_trading_advice(
         announce_lines.append(f"  [持股] {ev['name']}({ev['code']}): {ev['title']}")
     announce_summary = "\n".join(announce_lines) if announce_lines else "暂无个股公告"
 
+    # US tech sector mapping
+    us_tech = market_data.get("us_tech_mapping") or {}
+    us_tech_lines = []
+    for sec in us_tech.get("sectors", []):
+        stock_strs = []
+        for s in sec["stocks"]:
+            stock_strs.append(f"{s['name']}({s['symbol']}) {s['change_pct']:+.2f}%")
+        us_tech_lines.append(
+            f"- {sec['name']}[{sec['sentiment']}]: {'; '.join(stock_strs)} → {sec['a_mapping']}"
+        )
+    risk = us_tech.get("risk_indicators", {})
+    if risk:
+        risk_strs = []
+        for k, v in risk.items():
+            risk_strs.append(f"{v['name']} {v['change_pct']:+.2f}%")
+        us_tech_lines.append(f"- 风险偏好: {'; '.join(risk_strs)}")
+    us_tech_summary = "\n".join(us_tech_lines) if us_tech_lines else "暂无美股科技数据"
+
     # Watchlist
     wl_lines = []
     for w in watchlist_analysis:
@@ -1355,6 +1506,15 @@ async def _generate_trading_advice(
 ## 海外市场
 {market_summary}
 {fx_summary}
+
+## 美股科技板块映射A股
+{us_tech_summary}
+
+重点分析规则：
+- 隔夜美股科技板块强弱→A股对应板块传导方向（半导体板块映射最直接）
+- SOX/SMH跌→A股半导体/芯片大概率承压；SOX/SMH涨→A股半导体高开概率大
+- 关注TLT与QQQ的矛盾信号：TLT涨+QQQ跌=资金避险，短期利空科技；TLT跌+QQQ涨=risk-on，利好科技
+- 板块内涨跌互现时（如SOX跌但IGV涨），判断是轮动还是整体走弱
 
 ## 中概股龙头隔夜表现（上涨{adr_ratio}%）
 {adr_summary}
@@ -1448,6 +1608,12 @@ async def _generate_trading_advice(
 - **大盘预期**：[看多/看空/震荡] 理由：[一句话说明外盘与内部温度的综合判断]
 - **今日仓位**：[0-3成 / 3-5成 / 5-7成]
 - **核心战法**：[如：等恐慌低吸 / 主线首阴博弈 / 底部利好潜伏 / 多看少动]
+
+## 🔬 美股科技映射
+**隔夜概况**：[一句话总结美股科技板块隔夜表现，涵盖SOX/SMH半导体、QQQ/XLK科技宽基、AI云板块]
+**传导判断**：[对A股科技板块今日开盘影响的综合判断，含具体板块方向——半导体/芯片/科创/创业板/AI概念分别怎么看]
+**重点关注**：[今日A股开盘最值得关注的1-2个科技细分方向及理由，必须引用具体ETF或板块名称]
+**风险提示**：[科技板块今日最大风险点]
 
 ## 📊 今日主线方向
 - **主线一**：[板块名称] — 理由：[资金+涨幅+消息共振逻辑，不超过15字]
@@ -1571,14 +1737,15 @@ async def generate_briefing(db: Session, user_id: str, date_str: str, force: boo
         macro_task = _fetch_macro_data()
         sector_fund_task = _fetch_sector_fund_flow()
         announce_task = _fetch_stock_announcements(date_str)
+        us_tech_task = _fetch_us_tech_sectors()
 
         (market_data, fund_flow, top_news, a50, adrs, sentiment,
          north_bound, dragon_tiger, industry, hot_stocks, global_news, macro_data,
-         sector_fund_flow, announcements,
+         sector_fund_flow, announcements, us_tech_mapping,
         ) = await asyncio.gather(
             mkt_task, fund_task, news_task, a50_task, adr_task, senti_task,
             nb_task, dt_task, industry_task, hot_task, gnews_task, macro_task,
-            sector_fund_task, announce_task,
+            sector_fund_task, announce_task, us_tech_task,
             return_exceptions=True,
         )
 
@@ -1610,6 +1777,9 @@ async def generate_briefing(db: Session, user_id: str, date_str: str, force: boo
             sector_fund_flow = None
         if isinstance(announcements, Exception):
             announcements = None
+        if isinstance(us_tech_mapping, Exception):
+            us_tech_mapping = {"sectors": [], "risk_indicators": {}, "overall_sentiment": "neutral",
+                               "error": str(us_tech_mapping)}
 
         # Enrich market_data with all new sections
         market_data["fund_flow"] = fund_flow
@@ -1625,6 +1795,7 @@ async def generate_briefing(db: Session, user_id: str, date_str: str, force: boo
         market_data["macro_data"] = macro_data
         market_data["sector_fund_flow"] = sector_fund_flow
         market_data["announcements"] = announcements
+        market_data["us_tech_mapping"] = us_tech_mapping
 
         # Phase 2: Watchlist + Portfolio analysis in parallel
         wl_task = _analyze_watchlist(db, user_id, prev_trade_date)

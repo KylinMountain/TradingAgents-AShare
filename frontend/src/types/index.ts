@@ -872,6 +872,32 @@ export interface BriefingMarketData {
     macro_data?: BriefingMacroData | null
     sector_fund_flow?: BriefingSectorFundFlow | null
     announcements?: BriefingAnnouncements | null
+    us_tech_mapping?: USTechMapping | null
+}
+
+export interface USTechMapping {
+    sectors: USTechSector[]
+    risk_indicators?: {
+        VIX?: { name: string; close: number; change_pct: number }
+        TLT?: { name: string; close: number; change_pct: number }
+    }
+    overall_sentiment: 'bullish' | 'bearish' | 'mixed' | 'neutral'
+    update_time?: string
+    error?: string
+}
+
+export interface USTechSector {
+    name: string
+    stocks: USTechStock[]
+    a_mapping: string
+    sentiment: 'bullish' | 'bearish' | 'mixed'
+}
+
+export interface USTechStock {
+    symbol: string
+    name: string
+    close: number
+    change_pct: number
 }
 
 export interface BriefingSentiment {
