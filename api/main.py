@@ -887,6 +887,7 @@ class BiasSnapshotResponse(BaseModel):
     bias_pct: float       # MA13乖离率%
     zj_bias: Optional[float] = None  # 牛熊线乖离率%
     timestamp: str        # 行情时间
+    market_phase: str     # 交易时段: pre_open/in_session/lunch_break/post_close/closed
 
 
 # Dark Pool Analysis Models
@@ -4065,8 +4066,10 @@ def get_bias_snapshot(symbol: str) -> BiasSnapshotResponse:
     zj_val = latest.get("gs_zj")
     zj_bias = round(float(zj_val), 2) if pd.notna(zj_val) else None
 
-    # 3. 行情时间
+    # 3. 行情时间 + 交易时段
     timestamp = qt.get("time", "") or ""
+    from tradingagents.dataflows.trade_calendar import cn_market_phase
+    market_phase = cn_market_phase()
 
     return BiasSnapshotResponse(
         symbol=symbol,
@@ -4077,6 +4080,7 @@ def get_bias_snapshot(symbol: str) -> BiasSnapshotResponse:
         bias_pct=bias_pct,
         zj_bias=zj_bias,
         timestamp=timestamp,
+        market_phase=market_phase,
     )
 
 

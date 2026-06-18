@@ -1068,6 +1068,7 @@ export interface BiasSnapshotResponse {
     bias_pct: number
     zj_bias?: number | null
     timestamp: string
+    market_phase: string  // pre_open | in_session | lunch_break | post_close | closed
 }
 
 // 39-Rules Strategy Decision Types
