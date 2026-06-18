@@ -196,7 +196,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
     const xScale = useCallback((i: number) => padL + (i / Math.max(points.length - 1, 1)) * chartW, [points.length])
     const yScale = useCallback((v: number) => padT + chartH - ((v - yMin) / yRange) * chartH, [yMin, yRange])
 
-    // MA20 bias line
+    // MA13 bias line
     const maLineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.bias_pct)}`).join(' ')
 
     // Niuxiong bias line (skip nulls, use moveto on gaps)
@@ -213,7 +213,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
     }
     const zjLineD = zjSegments.join(' ')
 
-    // MA20 area fills
+    // MA13 area fills
     const zeroY = yScale(0)
     let aboveD = `M ${xScale(0)} ${zeroY}`
     let belowD = `M ${xScale(0)} ${zeroY}`
@@ -287,11 +287,11 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                     stroke="currentColor" strokeWidth="1" opacity="0.2"
                 />
 
-                {/* MA20 area fills */}
+                {/* MA13 area fills */}
                 <path d={aboveD} fill="#f87171" opacity="0.12" />
                 <path d={belowD} fill="#34d399" opacity="0.12" />
 
-                {/* MA20 bias line */}
+                {/* MA13 bias line */}
                 <path d={maLineD} fill="none" stroke="#818cf8" strokeWidth="1.5" opacity="0.85"
                     strokeLinecap="round" strokeLinejoin="round" />
 
@@ -323,7 +323,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                         <text x={tooltipX + 6} y={tooltipY + 25}
                             className="fill-indigo-500 dark:fill-indigo-400"
                             fontSize="10" fontWeight="bold">
-                            MA20: {hovered.bias_pct >= 0 ? '+' : ''}{hovered.bias_pct}%
+                            MA13: {hovered.bias_pct >= 0 ? '+' : ''}{hovered.bias_pct}%
                         </text>
                         {hovered.zj_bias != null && (
                             <text x={tooltipX + 6} y={tooltipY + 39}
@@ -362,7 +362,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                 {/* Title */}
                 <text x={W - padR} y={padT + 2} textAnchor="end"
                     className="fill-slate-300 dark:fill-slate-600" fontSize="8">
-                    乖离率对比 · MA20 vs 牛熊线
+                    乖离率对比 · MA13 vs 牛熊线
                 </text>
 
                 {/* Invisible overlay for mouse tracking */}
@@ -380,7 +380,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                     <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/40 border border-emerald-400 inline-block" /> 负乖离区
                 </span>
                 <span className="flex items-center gap-1">
-                    <span className="w-4 h-0.5 bg-indigo-400 inline-block" /> MA20乖离
+                    <span className="w-4 h-0.5 bg-indigo-400 inline-block" /> MA13乖离
                 </span>
                 <span className="flex items-center gap-1">
                     <span className="w-4 h-0.5 bg-amber-400 inline-block" /> 牛熊乖离

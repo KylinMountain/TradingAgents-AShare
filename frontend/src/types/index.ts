@@ -1039,7 +1039,7 @@ export interface BiasProbabilityRow {
 export interface BiasPoint {
     date: string
     close: number
-    ma20: number
+    ma13: number
     bias_pct: number
     zj_bias?: number | null
 }
