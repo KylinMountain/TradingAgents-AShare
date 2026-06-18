@@ -204,6 +204,7 @@ def fetch_realtime_data(symbol: str, days: int = 120, period: str = "daily") -> 
         col_map = {"日期": "date", "开盘": "open", "收盘": "close",
                     "最高": "high", "最低": "low", "成交量": "volume",
                     "成交额": "amount", "换手率": "turnover_rate",
+                    "涨跌幅": "pct_chg", "涨跌额": "change",
                     "turnover": "turnover_rate"}
         df = df.rename(columns=col_map)
         df["date"] = pd.to_datetime(df["date"])

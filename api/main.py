@@ -3127,23 +3127,26 @@ def get_kline(
                 if not df.empty:
                     # Convert to candle dicts
                     candles = []
+                    prev_close = None
                     for idx, row in df.iterrows():
+                        close = float(row["close"])
                         candle: dict = {
                             "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
                             "open": float(row["open"]),
                             "high": float(row["high"]),
                             "low": float(row["low"]),
-                            "close": float(row["close"]),
+                            "close": close,
                             "volume": int(row["volume"]) if pd.notna(row.get("volume")) else None,
                             "amount": float(row["amount"]) if "amount" in row.index and pd.notna(row.get("amount")) else None,
                             "turnover_rate": round(float(row["turnover_rate"]) * 100, 2) if "turnover_rate" in row.index and pd.notna(row.get("turnover_rate")) else None,
                         }
-                        # Tushare provides change/pct_chg directly (close - pre_close)
-                        if "change" in row.index and pd.notna(row.get("change")):
-                            candle["change"] = round(float(row["change"]), 2)
-                        if "pct_chg" in row.index and pd.notna(row.get("pct_chg")):
-                            candle["change_percent"] = round(float(row["pct_chg"]), 2)
+                        # 统一用前一根复权收盘价计算涨跌幅，避免来源pre_close与复权价不一致
+                        if prev_close is not None:
+                            chg = close - prev_close
+                            candle["change"] = round(chg, 2)
+                            candle["change_percent"] = round(chg / prev_close * 100, 2)
                         candles.append(candle)
+                        prev_close = close
                     # Filter to requested date range
                     candles = [c for c in candles if start <= c["date"] <= end]
             except Exception as e:
