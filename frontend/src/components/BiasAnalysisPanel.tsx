@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, TrendingUp, TrendingDown, Loader2, AlertTriangle } from 'lucide-react'
+import { BarChart3, TrendingUp, TrendingDown, Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { BiasAnalysisResponse, BiasProbabilityRow, BiasSnapshotResponse } from '@/types'
 import { api } from '@/services/api'
 import BiasTimeline from './BiasTimeline'
@@ -276,6 +276,14 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
                         {data.name || name || data.symbol} · {data.total_days}个交易日
                     </span>
                 </div>
+                <button
+                    onClick={load}
+                    disabled={loading}
+                    className="p-1.5 rounded-md text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+                    title="刷新分析"
+                >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
             </div>
 
             <div className="p-3 space-y-3">

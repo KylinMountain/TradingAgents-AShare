@@ -3852,19 +3852,18 @@ def _normalize_ths_code(code: str) -> str:
     return code
 
 
+
+
 @app.get("/v1/market/bias-analysis", response_model=BiasAnalysisResponse)
 def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
-    """乖离率分布分析 — 近1年MA20乖离率分布 + 高位回撤概率 + 低位反弹概率"""
-    from mootdx.quotes import Quotes
-    from tradingagents.indicators import fetch_realtime_quote
+    """乖离率分布分析 — 近1年MA13乖离率分布 + 高位回撤概率 + 低位反弹概率"""
+    from tradingagents.indicators import fetch_realtime_data, fetch_realtime_quote
 
     try:
-        client = Quotes.factory(market="std")
-        klines = client.bars(symbol=symbol, category=4, offset=250)
+        df = fetch_realtime_data(symbol, days=380, period="daily")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"K线数据获取失败: {e}")
 
-    df = pd.DataFrame(klines).reset_index(drop=True).sort_values("datetime").reset_index(drop=True)
     if df.empty:
         raise HTTPException(status_code=404, detail="无K线数据")
 
@@ -3883,9 +3882,13 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
     if len(dv) < 50:
         raise HTTPException(status_code=404, detail="有效交易日不足50天，无法分析")
 
+    # 保存日期再转整数索引（后面按位置偏移算N日后收益）
+    dates = [str(d)[:10] for d in dv.index]
+    start_date = dates[0]
+    end_date = dates[-1]
+    dv = dv.reset_index(drop=True)
+
     bias = dv["bias"]
-    start_date = str(dv["datetime"].iloc[0])[:10]
-    end_date = str(dv["datetime"].iloc[-1])[:10]
 
     # --- 分布区间统计 ---
     dist_bins = [(-99, -10, "<-10%"), (-10, -5, "-10~-5%"), (-5, -3, "-5~-3%"),
@@ -3993,7 +3996,7 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
     bias_points: List[BiasPoint] = []
     for i in dv.index:
         row = dv.loc[i]
-        dt = str(row["datetime"])[:10]
+        dt = dates[i]
         gs_val = row.get("gs_zj")
         bias_points.append(BiasPoint(
             date=dt,
@@ -4042,15 +4045,13 @@ def get_bias_snapshot(symbol: str) -> BiasSnapshotResponse:
     if not price or price <= 0:
         raise HTTPException(status_code=500, detail="无效行情价格")
 
-    # 2. 取近60天K线算MA13和牛熊线
+    # 2. 取近90天K线算MA13和牛熊线（fetch_realtime_data 已是前复权）
     try:
-        from mootdx.quotes import Quotes
-        client = Quotes.factory(market="std")
-        klines = client.bars(symbol=symbol, category=4, offset=60)
+        from tradingagents.indicators import fetch_realtime_data
+        df = fetch_realtime_data(symbol, days=90, period="daily")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"K线数据获取失败: {e}")
 
-    df = pd.DataFrame(klines).reset_index(drop=True).sort_values("datetime").reset_index(drop=True)
     if df.empty:
         raise HTTPException(status_code=404, detail="无K线数据")
 
