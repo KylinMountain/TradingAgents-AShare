@@ -174,30 +174,27 @@ function DistChart({ distribution }: { distribution: Record<string, number> }) {
     )
 }
 
-function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: BiasSnapshotResponse | null }) {
+function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot?: BiasSnapshotResponse | null }) {
     if (!points.length) return null
 
     const svgRef = useRef<SVGSVGElement>(null)
     const [hoverIdx, setHoverIdx] = useState<number | null>(null)
-    const hasRealtime = snapshot != null
 
     const W = 600, H = 180
     const padL = 44, padR = 12, padT = 8, padB = 26
     const chartW = W - padL - padR
     const chartH = H - padT - padB
 
-    // Y range must cover both bias series + snapshot
+    // Y range must cover both bias series
     const maBiases = points.map(p => p.bias_pct)
     const zjBiases = points.filter(p => p.zj_bias != null).map(p => p.zj_bias!)
-    const snapBiases = snapshot ? [snapshot.bias_pct] : []
-    const snapZj = snapshot?.zj_bias != null ? [snapshot.zj_bias] : []
-    const allBiases = maBiases.concat(zjBiases, snapBiases, snapZj)
+    const snapExtras = snapshot ? [snapshot.bias_pct, snapshot.zj_bias] : []
+    const allBiases = maBiases.concat(zjBiases, snapExtras.filter(v => v != null) as number[])
     const yMin = Math.min(-1, Math.floor(Math.min(...allBiases) - 1))
     const yMax = Math.max(1, Math.ceil(Math.max(...allBiases) + 1))
     const yRange = yMax - yMin
 
-    const xRange = points.length - 1 + (hasRealtime ? 1 : 0)
-    const xScale = useCallback((i: number) => padL + (i / Math.max(xRange, 1)) * chartW, [xRange])
+    const xScale = useCallback((i: number) => padL + (i / Math.max(points.length - 1, 1)) * chartW, [points.length])
     const yScale = useCallback((v: number) => padT + chartH - ((v - yMin) / yRange) * chartH, [yMin, yRange])
 
     // MA13 bias line
@@ -241,24 +238,15 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
     const yTicks: number[] = []
     for (let v = Math.ceil(yMin / yTickStep) * yTickStep; v <= yMax; v += yTickStep) yTicks.push(v)
 
-    // X-axis date labels (show ~5, avoid overlap with realtime marker)
+    // X-axis date labels (show ~5)
     const xLabelCount = 5
     const xStep = Math.max(1, Math.floor(points.length / (xLabelCount - 1)))
     const xLabels: { i: number; date: string }[] = []
     for (let i = 0; i < points.length; i += xStep) {
-        xLabels.push({ i, date: points[i].date.slice(5) })
+        xLabels.push({ i, date: points[i].date.slice(5) }) // MM-DD
     }
-    // Always include the last historical point
     if (xLabels.length === 0 || xLabels[xLabels.length - 1].i !== points.length - 1) {
         xLabels.push({ i: points.length - 1, date: points[points.length - 1].date.slice(5) })
-    }
-    // If realtime marker would overlap, drop the second-to-last label
-    if (hasRealtime && xLabels.length >= 2) {
-        const lastI = xLabels[xLabels.length - 1].i
-        const prevI = xLabels[xLabels.length - 2].i
-        if (lastI - prevI <= xStep / 2) {
-            xLabels.splice(xLabels.length - 2, 1)
-        }
     }
 
     const handleMouseMove = (e: React.MouseEvent<SVGRectElement>) => {
@@ -268,32 +256,19 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
         const scaleX = W / rect.width
         const mx = (e.clientX - rect.left) * scaleX
         if (mx < padL || mx > W - padR) { setHoverIdx(null); return }
-        // Check if close to real-time point (within 8px in SVG coords)
-        if (hasRealtime && Math.abs(mx - rtX) < 8) {
-            setHoverIdx(rtIdx)
-            return
-        }
         const idx = Math.round(((mx - padL) / chartW) * (points.length - 1))
         setHoverIdx(Math.max(0, Math.min(idx, points.length - 1)))
     }
 
     const handleMouseLeave = () => setHoverIdx(null)
 
-    // Real-time point position (one step beyond last data point)
-    const rtIdx = points.length
-    const rtX = xScale(rtIdx)
-    const rtMaY = hasRealtime ? yScale(snapshot.bias_pct) : 0
-    const rtZjY = hasRealtime && snapshot.zj_bias != null ? yScale(snapshot.zj_bias) : 0
-
     const hovered = hoverIdx !== null ? points[hoverIdx] : null
-    const hoverIsRealtime = hoverIdx === rtIdx && hasRealtime
     const hx = hoverIdx !== null ? xScale(hoverIdx) : 0
-    const hy = (hoverIsRealtime) ? rtMaY : (hovered ? yScale(hovered.bias_pct) : 0)
+    const hy = hovered ? yScale(hovered.bias_pct) : 0
 
     // Tooltip sizing: wider to show both bias values
-    const hasZj = (hoverIsRealtime && snapshot.zj_bias != null) || (hovered && hovered.zj_bias != null)
-    const tooltipH = hasZj ? 46 : 32
-    const tooltipW = hoverIsRealtime ? 160 : 160
+    const hasZj = hovered && hovered.zj_bias != null
+    const tooltipW = 160, tooltipH = hasZj ? 46 : 32
     const tooltipX = Math.max(padL, Math.min(W - padR - tooltipW, hx - tooltipW / 2))
     const tooltipY = Math.max(padT, hy - tooltipH - 6)
 
@@ -327,34 +302,28 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
                         strokeLinecap="round" strokeLinejoin="round" />
                 )}
 
-                {/* Real-time point separator + markers */}
-                {hasRealtime && (
+                {/* Real-time snapshot dots (at last historical point position) */}
+                {snapshot && (
                     <>
-                        <line x1={rtX} y1={padT} x2={rtX} y2={H - padB}
-                            stroke="#f59e0b" strokeWidth="0.8" opacity="0.3" strokeDasharray="2 3" />
-                        <circle cx={rtX} cy={rtMaY} r="4"
+                        <circle cx={lastX} cy={yScale(snapshot.bias_pct)} r="4"
                             fill="#6366f1" stroke="white" strokeWidth="2" />
                         {snapshot.zj_bias != null && (
-                            <circle cx={rtX} cy={rtZjY} r="4"
+                            <circle cx={lastX} cy={yScale(snapshot.zj_bias)} r="4"
                                 fill="#f59e0b" stroke="white" strokeWidth="2" />
                         )}
                     </>
                 )}
 
                 {/* Hover crosshair */}
-                {(hovered || hoverIsRealtime) && (
+                {hovered && (
                     <>
-                        {hovered && (
-                            <>
-                                <line x1={hx} y1={padT} x2={hx} y2={H - padB}
-                                    stroke="currentColor" strokeWidth="0.8" opacity="0.2" strokeDasharray="3 2" />
-                                <circle cx={hx} cy={hy} r="3"
-                                    fill="#818cf8" stroke="white" strokeWidth="1.5" />
-                                {hovered.zj_bias != null && (
-                                    <circle cx={hx} cy={yScale(hovered.zj_bias)} r="3"
-                                        fill="#f59e0b" stroke="white" strokeWidth="1.5" />
-                                )}
-                            </>
+                        <line x1={hx} y1={padT} x2={hx} y2={H - padB}
+                            stroke="currentColor" strokeWidth="0.8" opacity="0.2" strokeDasharray="3 2" />
+                        <circle cx={hx} cy={hy} r="3"
+                            fill="#818cf8" stroke="white" strokeWidth="1.5" />
+                        {hovered.zj_bias != null && (
+                            <circle cx={hx} cy={yScale(hovered.zj_bias)} r="3"
+                                fill="#f59e0b" stroke="white" strokeWidth="1.5" />
                         )}
                         {/* Tooltip box */}
                         <rect x={tooltipX} y={tooltipY} width={tooltipW} height={tooltipH} rx="3"
@@ -362,18 +331,18 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
                             stroke="currentColor" strokeWidth="0.6" />
                         <text x={tooltipX + 6} y={tooltipY + 13}
                             className="fill-slate-500 dark:fill-slate-400" fontSize="9">
-                            {hoverIsRealtime ? '盘中实时' : hovered!.date}
+                            {hovered.date}
                         </text>
                         <text x={tooltipX + 6} y={tooltipY + 25}
                             className="fill-indigo-500 dark:fill-indigo-400"
                             fontSize="10" fontWeight="bold">
-                            MA13: {(hoverIsRealtime ? snapshot.bias_pct : hovered!.bias_pct) >= 0 ? '+' : ''}{hoverIsRealtime ? snapshot.bias_pct : hovered!.bias_pct}%
+                            MA13: {hovered.bias_pct >= 0 ? '+' : ''}{hovered.bias_pct}%
                         </text>
-                        {hasZj && (
+                        {hovered.zj_bias != null && (
                             <text x={tooltipX + 6} y={tooltipY + 39}
                                 className="fill-amber-500 dark:fill-amber-400"
                                 fontSize="10" fontWeight="bold">
-                                牛熊: {(hoverIsRealtime ? snapshot.zj_bias! : hovered!.zj_bias!) >= 0 ? '+' : ''}{hoverIsRealtime ? snapshot.zj_bias : hovered!.zj_bias}%
+                                牛熊: {hovered.zj_bias >= 0 ? '+' : ''}{hovered.zj_bias}%
                             </text>
                         )}
                     </>
@@ -390,12 +359,6 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
                         </text>
                     </g>
                 ))}
-                {hasRealtime && (
-                    <text x={rtX} y={H - 6} textAnchor="middle"
-                        className="fill-amber-500 dark:fill-amber-400" fontSize="8">
-                        实时
-                    </text>
-                )}
 
                 {/* Y-axis ticks & labels */}
                 {yTicks.map(v => (
