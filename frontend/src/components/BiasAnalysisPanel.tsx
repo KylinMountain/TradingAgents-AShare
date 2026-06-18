@@ -241,15 +241,24 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
     const yTicks: number[] = []
     for (let v = Math.ceil(yMin / yTickStep) * yTickStep; v <= yMax; v += yTickStep) yTicks.push(v)
 
-    // X-axis date labels (show ~5)
+    // X-axis date labels (show ~5, avoid overlap with realtime marker)
     const xLabelCount = 5
     const xStep = Math.max(1, Math.floor(points.length / (xLabelCount - 1)))
     const xLabels: { i: number; date: string }[] = []
     for (let i = 0; i < points.length; i += xStep) {
-        xLabels.push({ i, date: points[i].date.slice(5) }) // MM-DD
+        xLabels.push({ i, date: points[i].date.slice(5) })
     }
+    // Always include the last historical point
     if (xLabels.length === 0 || xLabels[xLabels.length - 1].i !== points.length - 1) {
         xLabels.push({ i: points.length - 1, date: points[points.length - 1].date.slice(5) })
+    }
+    // If realtime marker would overlap, drop the second-to-last label
+    if (hasRealtime && xLabels.length >= 2) {
+        const lastI = xLabels[xLabels.length - 1].i
+        const prevI = xLabels[xLabels.length - 2].i
+        if (lastI - prevI <= xStep / 2) {
+            xLabels.splice(xLabels.length - 2, 1)
+        }
     }
 
     const handleMouseMove = (e: React.MouseEvent<SVGRectElement>) => {
