@@ -196,7 +196,8 @@ function BiasTimeline({ points, snapshot }: { points: BiasPoint[]; snapshot: Bia
     const yMax = Math.max(1, Math.ceil(Math.max(...allBiases) + 1))
     const yRange = yMax - yMin
 
-    const xScale = useCallback((i: number) => padL + (i / Math.max(points.length - 1, 1)) * chartW, [points.length])
+    const xRange = points.length - 1 + (hasRealtime ? 1 : 0)
+    const xScale = useCallback((i: number) => padL + (i / Math.max(xRange, 1)) * chartW, [xRange])
     const yScale = useCallback((v: number) => padT + chartH - ((v - yMin) / yRange) * chartH, [yMin, yRange])
 
     // MA13 bias line
