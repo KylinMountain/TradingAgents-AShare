@@ -180,23 +180,40 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
     const svgRef = useRef<SVGSVGElement>(null)
     const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
-    const W = 600, H = 170
+    const W = 600, H = 180
     const padL = 44, padR = 12, padT = 8, padB = 26
     const chartW = W - padL - padR
     const chartH = H - padT - padB
 
-    const biases = points.map(p => p.bias_pct)
-    const yMin = Math.min(-1, Math.floor(Math.min(...biases) - 1))
-    const yMax = Math.max(1, Math.ceil(Math.max(...biases) + 1))
+    // Y range must cover both bias series
+    const maBiases = points.map(p => p.bias_pct)
+    const zjBiases = points.filter(p => p.zj_bias != null).map(p => p.zj_bias!)
+    const allBiases = maBiases.concat(zjBiases)
+    const yMin = Math.min(-1, Math.floor(Math.min(...allBiases) - 1))
+    const yMax = Math.max(1, Math.ceil(Math.max(...allBiases) + 1))
     const yRange = yMax - yMin
 
     const xScale = useCallback((i: number) => padL + (i / Math.max(points.length - 1, 1)) * chartW, [points.length])
     const yScale = useCallback((v: number) => padT + chartH - ((v - yMin) / yRange) * chartH, [yMin, yRange])
 
-    // Build line path
-    const lineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.bias_pct)}`).join(' ')
+    // MA20 bias line
+    const maLineD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.bias_pct)}`).join(' ')
 
-    // Build area paths: split at zero crossing
+    // Niuxiong bias line (skip nulls, use moveto on gaps)
+    const zjSegments: string[] = []
+    let zjActive = false
+    for (let i = 0; i < points.length; i++) {
+        if (points[i].zj_bias != null) {
+            const cmd = zjActive ? 'L' : 'M'
+            zjSegments.push(`${cmd} ${xScale(i)} ${yScale(points[i].zj_bias!)}`)
+            zjActive = true
+        } else {
+            zjActive = false
+        }
+    }
+    const zjLineD = zjSegments.join(' ')
+
+    // MA20 area fills
     const zeroY = yScale(0)
     let aboveD = `M ${xScale(0)} ${zeroY}`
     let belowD = `M ${xScale(0)} ${zeroY}`
@@ -248,8 +265,9 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
     const hx = hoverIdx !== null ? xScale(hoverIdx) : 0
     const hy = hovered ? yScale(hovered.bias_pct) : 0
 
-    // Tooltip positioning: show above the point, clamped to chart bounds
-    const tooltipW = 102, tooltipH = 32
+    // Tooltip sizing: wider to show both bias values
+    const hasZj = hovered && hovered.zj_bias != null
+    const tooltipW = 160, tooltipH = hasZj ? 46 : 32
     const tooltipX = Math.max(padL, Math.min(W - padR - tooltipW, hx - tooltipW / 2))
     const tooltipY = Math.max(padT, hy - tooltipH - 6)
 
@@ -269,13 +287,19 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                     stroke="currentColor" strokeWidth="1" opacity="0.2"
                 />
 
-                {/* Area fills */}
+                {/* MA20 area fills */}
                 <path d={aboveD} fill="#f87171" opacity="0.12" />
                 <path d={belowD} fill="#34d399" opacity="0.12" />
 
-                {/* Line */}
-                <path d={lineD} fill="none" stroke="#818cf8" strokeWidth="1.5" opacity="0.85"
+                {/* MA20 bias line */}
+                <path d={maLineD} fill="none" stroke="#818cf8" strokeWidth="1.5" opacity="0.85"
                     strokeLinecap="round" strokeLinejoin="round" />
+
+                {/* Niuxiong bias line */}
+                {zjLineD && (
+                    <path d={zjLineD} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.85"
+                        strokeLinecap="round" strokeLinejoin="round" />
+                )}
 
                 {/* Hover crosshair */}
                 {hovered && (
@@ -284,6 +308,10 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                             stroke="currentColor" strokeWidth="0.8" opacity="0.2" strokeDasharray="3 2" />
                         <circle cx={hx} cy={hy} r="3"
                             fill="#818cf8" stroke="white" strokeWidth="1.5" />
+                        {hovered.zj_bias != null && (
+                            <circle cx={hx} cy={yScale(hovered.zj_bias)} r="3"
+                                fill="#f59e0b" stroke="white" strokeWidth="1.5" />
+                        )}
                         {/* Tooltip box */}
                         <rect x={tooltipX} y={tooltipY} width={tooltipW} height={tooltipH} rx="3"
                             fill="white" className="dark:fill-slate-800" opacity="0.95"
@@ -293,10 +321,17 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                             {hovered.date}
                         </text>
                         <text x={tooltipX + 6} y={tooltipY + 25}
-                            className="fill-slate-800 dark:fill-slate-200"
+                            className="fill-indigo-500 dark:fill-indigo-400"
                             fontSize="10" fontWeight="bold">
-                            乖离率: {hovered.bias_pct >= 0 ? '+' : ''}{hovered.bias_pct}%
+                            MA20: {hovered.bias_pct >= 0 ? '+' : ''}{hovered.bias_pct}%
                         </text>
+                        {hovered.zj_bias != null && (
+                            <text x={tooltipX + 6} y={tooltipY + 39}
+                                className="fill-amber-500 dark:fill-amber-400"
+                                fontSize="10" fontWeight="bold">
+                                牛熊: {hovered.zj_bias >= 0 ? '+' : ''}{hovered.zj_bias}%
+                            </text>
+                        )}
                     </>
                 )}
 
@@ -327,7 +362,7 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
                 {/* Title */}
                 <text x={W - padR} y={padT + 2} textAnchor="end"
                     className="fill-slate-300 dark:fill-slate-600" fontSize="8">
-                    MA20乖离率时序
+                    乖离率对比 · MA20 vs 牛熊线
                 </text>
 
                 {/* Invisible overlay for mouse tracking */}
@@ -339,13 +374,16 @@ function BiasTimeline({ points }: { points: BiasPoint[] }) {
             </svg>
             <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 mt-1">
                 <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-red-400/40 border border-red-400 inline-block" /> 正乖离
+                    <span className="w-2.5 h-2.5 rounded-sm bg-red-400/40 border border-red-400 inline-block" /> 正乖离区
                 </span>
                 <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/40 border border-emerald-400 inline-block" /> 负乖离
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/40 border border-emerald-400 inline-block" /> 负乖离区
                 </span>
                 <span className="flex items-center gap-1">
-                    <span className="w-4 h-0.5 bg-indigo-400 inline-block" /> 乖离率线
+                    <span className="w-4 h-0.5 bg-indigo-400 inline-block" /> MA20乖离
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="w-4 h-0.5 bg-amber-400 inline-block" /> 牛熊乖离
                 </span>
             </div>
         </div>

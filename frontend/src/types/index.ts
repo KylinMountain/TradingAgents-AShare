@@ -1041,6 +1041,7 @@ export interface BiasPoint {
     close: number
     ma20: number
     bias_pct: number
+    zj_bias?: number | null
 }
 
 export interface BiasAnalysisResponse {

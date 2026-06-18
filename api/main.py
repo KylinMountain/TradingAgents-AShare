@@ -834,7 +834,8 @@ class BiasPoint(BaseModel):
     date: str
     close: float
     ma20: float
-    bias_pct: float  # 乖离率%
+    bias_pct: float  # MA20乖离率%
+    zj_bias: Optional[float] = None  # 牛熊线乖离率 (a_line/bb-1)%
 
 
 class BiasStats(BaseModel):
@@ -3853,6 +3854,15 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
 
     df["ma20"] = df["close"].rolling(20).mean()
     df["bias"] = (df["close"] - df["ma20"]) / df["ma20"] * 100
+
+    # 计算牛熊线乖离率 (gs_zj)
+    try:
+        from tradingagents.indicators.niuxiong_line import calculate_gs_strategy
+        gs = calculate_gs_strategy(df)
+        df["gs_zj"] = gs["gs_zj"]
+    except Exception:
+        df["gs_zj"] = float("nan")
+
     dv = df.dropna(subset=["ma20"])
     if len(dv) < 50:
         raise HTTPException(status_code=404, detail="有效交易日不足50天，无法分析")
@@ -3968,11 +3978,13 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
     for i in dv.index:
         row = dv.loc[i]
         dt = str(row["datetime"])[:10]
+        gs_val = row.get("gs_zj")
         bias_points.append(BiasPoint(
             date=dt,
             close=round(float(row["close"]), 2),
             ma20=round(float(row["ma20"]), 2),
             bias_pct=round(float(row["bias"]), 2),
+            zj_bias=round(float(gs_val), 2) if pd.notna(gs_val) else None,
         ))
 
     name = None
