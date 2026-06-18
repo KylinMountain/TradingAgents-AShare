@@ -273,7 +273,7 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
                         乖离率统计分析
                     </span>
                     <span className="text-[11px] text-slate-400">
-                        {name || data.symbol} · {data.total_days}个交易日
+                        {data.name || name || data.symbol} · {data.total_days}个交易日
                     </span>
                 </div>
             </div>
