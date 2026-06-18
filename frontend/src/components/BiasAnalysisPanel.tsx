@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BarChart3, TrendingUp, TrendingDown, Loader2, AlertTriangle } from 'lucide-react'
-import type { BiasAnalysisResponse, BiasPoint, BiasProbabilityRow } from '@/types'
+import type { BiasAnalysisResponse, BiasPoint, BiasProbabilityRow, BiasSnapshotResponse } from '@/types'
 import { api } from '@/services/api'
 
 interface Props {
@@ -394,6 +394,8 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
     const [data, setData] = useState<BiasAnalysisResponse | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [snapshot, setSnapshot] = useState<BiasSnapshotResponse | null>(null)
+    const [snapLoading, setSnapLoading] = useState(false)
 
     const load = async () => {
         setLoading(true)
@@ -401,6 +403,8 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
         try {
             const result = await api.getBiasAnalysis(symbol)
             setData(result)
+            // 自动拉一次盘中快照
+            api.getBiasSnapshot(symbol).then(setSnapshot).catch(() => {})
         } catch (e: any) {
             setError(e?.message || '分析失败')
         } finally {
@@ -408,9 +412,22 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
         }
     }
 
+    const refreshSnapshot = async () => {
+        setSnapLoading(true)
+        try {
+            const snap = await api.getBiasSnapshot(symbol)
+            setSnapshot(snap)
+        } catch {
+            // silently ignore snapshot failures
+        } finally {
+            setSnapLoading(false)
+        }
+    }
+
     useEffect(() => {
         setData(null)
         setError(null)
+        setSnapshot(null)
     }, [symbol])
 
     if (!data && !loading && !error) {
@@ -491,6 +508,43 @@ export default function BiasAnalysisPanel({ symbol, name = '' }: Props) {
                             <div className={`text-xs font-mono font-semibold ${color} dark:opacity-90`}>{value}</div>
                         </div>
                     ))}
+                </div>
+
+                {/* Real-time Snapshot */}
+                <div className="flex items-center gap-2 p-2 rounded bg-indigo-50/50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">
+                    <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1">
+                        <div className="text-center">
+                            <div className="text-[10px] text-slate-400">当前价</div>
+                            <div className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                {snapshot ? snapshot.price.toFixed(2) : '--'}
+                            </div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-[10px] text-slate-400">涨跌幅</div>
+                            <div className={`text-xs font-mono font-semibold ${snapshot ? (snapshot.change_pct >= 0 ? 'text-red-600' : 'text-green-600') : ''}`}>
+                                {snapshot ? `${snapshot.change_pct >= 0 ? '+' : ''}${snapshot.change_pct}%` : '--'}
+                            </div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-[10px] text-slate-400">MA13乖离</div>
+                            <div className={`text-xs font-mono font-semibold ${snapshot ? (snapshot.bias_pct >= 0 ? 'text-red-600' : 'text-green-600') : ''}`}>
+                                {snapshot ? `${snapshot.bias_pct >= 0 ? '+' : ''}${snapshot.bias_pct}%` : '--'}
+                            </div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-[10px] text-slate-400">牛熊乖离</div>
+                            <div className={`text-xs font-mono font-semibold ${snapshot?.zj_bias != null ? (snapshot.zj_bias >= 0 ? 'text-amber-600' : 'text-sky-600') : ''}`}>
+                                {snapshot?.zj_bias != null ? `${snapshot.zj_bias >= 0 ? '+' : ''}${snapshot.zj_bias}%` : '--'}
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        onClick={refreshSnapshot}
+                        disabled={snapLoading}
+                        className="shrink-0 px-2 py-1 text-[11px] rounded bg-indigo-100 dark:bg-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-500/40 disabled:opacity-50 transition-colors"
+                    >
+                        {snapLoading ? '刷新中' : '刷新'}
+                    </button>
                 </div>
 
                 {/* Daily Bias Timeline */}

@@ -877,6 +877,18 @@ class BiasAnalysisResponse(BaseModel):
     rebound_summary: str
 
 
+class BiasSnapshotResponse(BaseModel):
+    """盘中实时乖离率快照"""
+    symbol: str
+    name: Optional[str] = None
+    price: float          # 当前价
+    change_pct: float     # 涨跌幅%
+    ma13: float           # MA13均线值
+    bias_pct: float       # MA13乖离率%
+    zj_bias: Optional[float] = None  # 牛熊线乖离率%
+    timestamp: str        # 行情时间
+
+
 # Dark Pool Analysis Models
 class DarkPoolEvent(BaseModel):
     start: str
@@ -4007,6 +4019,64 @@ def get_bias_analysis(symbol: str) -> BiasAnalysisResponse:
         rebound_after_low=rebound_rows,
         pullback_summary=pullback_summary,
         rebound_summary=rebound_summary,
+    )
+
+
+@app.get("/v1/market/bias-snapshot", response_model=BiasSnapshotResponse)
+def get_bias_snapshot(symbol: str) -> BiasSnapshotResponse:
+    """盘中实时乖离率快照 — 用实时价÷MA13计算当前乖离率"""
+    from tradingagents.indicators import fetch_realtime_quote
+    from tradingagents.indicators.niuxiong_line import calculate_gs_strategy
+
+    # 1. 取实时行情
+    try:
+        qt = fetch_realtime_quote(symbol)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"行情获取失败: {e}")
+
+    price = qt.get("price", 0)
+    if not price or price <= 0:
+        raise HTTPException(status_code=500, detail="无效行情价格")
+
+    # 2. 取近60天K线算MA13和牛熊线
+    try:
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market="std")
+        klines = client.bars(symbol=symbol, category=4, offset=60)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"K线数据获取失败: {e}")
+
+    df = pd.DataFrame(klines).reset_index(drop=True).sort_values("datetime").reset_index(drop=True)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="无K线数据")
+
+    df["ma13"] = df["close"].rolling(13).mean()
+
+    try:
+        gs = calculate_gs_strategy(df)
+        df["gs_zj"] = gs["gs_zj"]
+    except Exception:
+        df["gs_zj"] = float("nan")
+
+    latest = df.dropna(subset=["ma13"]).iloc[-1]
+    ma13_val = float(latest["ma13"])
+    bias_pct = round((price - ma13_val) / ma13_val * 100, 2)
+
+    zj_val = latest.get("gs_zj")
+    zj_bias = round(float(zj_val), 2) if pd.notna(zj_val) else None
+
+    # 3. 行情时间
+    timestamp = qt.get("time", "") or ""
+
+    return BiasSnapshotResponse(
+        symbol=symbol,
+        name=qt.get("name"),
+        price=round(price, 2),
+        change_pct=round(float(qt.get("change_pct", 0)), 2),
+        ma13=round(ma13_val, 2),
+        bias_pct=bias_pct,
+        zj_bias=zj_bias,
+        timestamp=timestamp,
     )
 
 

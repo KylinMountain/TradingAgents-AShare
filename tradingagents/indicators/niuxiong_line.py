@@ -359,6 +359,7 @@ def fetch_realtime_quote(symbol: str) -> dict:
             "pe_ttm": float(vals[39]) if vals[39] else 0,
             "pb": float(vals[46]) if vals[46] else 0,
             "mcap_yi": float(vals[44]) if vals[44] else 0,
+            "time": vals[30] if len(vals) > 30 and vals[30] else "",
         }
         _set_cached_quote(symbol, result)
         return result

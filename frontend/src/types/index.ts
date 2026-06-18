@@ -1059,6 +1059,17 @@ export interface BiasAnalysisResponse {
     rebound_summary: string
 }
 
+export interface BiasSnapshotResponse {
+    symbol: string
+    name?: string | null
+    price: number
+    change_pct: number
+    ma13: number
+    bias_pct: number
+    zj_bias?: number | null
+    timestamp: string
+}
+
 // 39-Rules Strategy Decision Types
 export interface StrategyDecisionResponse {
     symbol: string
