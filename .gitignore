@@ -1,3 +1,6 @@
+# Data cache (large, regenerated at runtime)
+data/yang_yin_cache/daily_k/
+
 # Docs (local design/plan documents)
 docs/
 
