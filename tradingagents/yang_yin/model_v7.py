@@ -116,5 +116,14 @@ def predict_yangpu(factors: dict[str, float]) -> float:
     std_arr = np.array([X_STD[f] for f in FEATURE_COLS], dtype=np.float64)
 
     raw = np.array([factors.get(f, 0.0) or 0.0 for f in FEATURE_COLS], dtype=np.float64)
+    # NaN/Inf 检查：数据异常时返回中性值
+    if not np.isfinite(raw).all():
+        return 50.0
     scaled = (raw - mean_arr) / std_arr
-    return float(scaled @ coef_arr + INTERCEPT)
+    result = float(scaled @ coef_arr + INTERCEPT)
+    # 钳位到 [0, 100]
+    if result < 0:
+        return 0.0
+    if result > 100:
+        return 100.0
+    return result

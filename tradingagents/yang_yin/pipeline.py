@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import tushare as ts
 
 from .rate_limiter import RateLimiter
@@ -363,6 +364,140 @@ class YangYinPipeline:
         if not path.exists():
             return None
         return pd.read_parquet(path)
+
+    # ── 特征面板（预计算逐股滚动特征，因子计算秒级）────────
+
+    FEATURE_PANEL_FILE = "panel_features.parquet"
+
+    def build_feature_panel(self):
+        """基于面板预计算所有逐股滚动特征 → panel_features.parquet。
+        之后因子计算只需按日期过滤+截面聚合，无需 groupby rolling。
+        """
+        panel = self.load_panel()
+        if panel is None or panel.empty:
+            raise RuntimeError("先执行 build_panel() / update_panel()")
+
+        panel = panel.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
+        g = panel.groupby("ts_code")
+
+        logger.info("计算 MA5 / shift / MA20 ...")
+        panel["ma5"] = g["close"].transform(
+            lambda x: x.rolling(5, min_periods=1).mean()
+        )
+        panel["close_5d"] = g["close"].shift(5)
+        panel["vol_5d"] = g["vol"].shift(5)
+        panel["prev_vol"] = g["vol"].shift(1)
+        panel["vol_ma20"] = g["vol"].transform(
+            lambda x: x.rolling(20, min_periods=1).mean()
+        )
+
+        logger.info("计算 RSI14 ...")
+        panel["avg_gain14"] = g["pct_chg"].transform(
+            lambda x: x.clip(lower=0).rolling(14, min_periods=1).mean()
+        )
+        panel["avg_loss14"] = g["pct_chg"].transform(
+            lambda x: (-x).clip(lower=0).rolling(14, min_periods=1).mean()
+        )
+        rs = panel["avg_gain14"] / panel["avg_loss14"].replace(0, np.nan)
+        panel["rsi14"] = 100 - 100 / (1 + rs)
+
+        cols = [
+            "ts_code", "trade_date",
+            "close", "vol", "pct_chg",
+            "ma5", "close_5d", "vol_5d", "prev_vol", "vol_ma20",
+            "rsi14",
+        ]
+        panel = panel[cols]
+
+        path = self.cache_dir / self.FEATURE_PANEL_FILE
+        panel.to_parquet(path, index=False)
+        logger.info(f"特征面板已保存: {path} ({len(panel)} 行)")
+        return panel
+
+    def update_feature_panel(self, trade_date=None):
+        """更新特征面板 — 当前简单重建（向量化秒级完成）"""
+        if trade_date:
+            self.update_panel(trade_date)
+        return self.build_feature_panel()
+
+    def load_feature_panel(self) -> pd.DataFrame | None:
+        path = self.cache_dir / self.FEATURE_PANEL_FILE
+        if not path.exists():
+            return None
+        return pd.read_parquet(path)
+
+    # ── 盘中实时快照 ──────────────────────────────────────
+
+    REALTIME_BATCH_SIZE = 700
+
+    @staticmethod
+    def fetch_realtime_snapshot(ts_codes: list[str] | None = None,
+                                batch_size: int = None,
+                                max_retries: int = 2) -> pd.DataFrame:
+        """一次拉全市场实时报价 → DataFrame。单批失败自动重试。
+
+        返回:
+            DataFrame 列: ts_code, price, vol, amount, open,
+                          high, low, pre_close, pct_chg
+            网络全断时返回空 DataFrame（调用方自行判断）
+        """
+        import time as _time
+        batch_sz = batch_size or YangYinPipeline.REALTIME_BATCH_SIZE
+
+        if ts_codes is None:
+            stocks = get_stock_list()
+            ts_codes = stocks["ts_code"].tolist()
+
+        all_rows = []
+        total_batches = (len(ts_codes) + batch_sz - 1) // batch_sz
+        failed_batches = 0
+
+        for i in range(0, len(ts_codes), batch_sz):
+            batch = ts_codes[i : i + batch_sz]
+            code_str = ",".join(batch)
+
+            ok = False
+            for attempt in range(max_retries + 1):
+                try:
+                    df = ts.realtime_quote(ts_code=code_str, src="sina")
+                    if df is not None and not df.empty:
+                        all_rows.append(df)
+                        ok = True
+                    break
+                except Exception as e:
+                    if attempt < max_retries:
+                        _time.sleep(1 + attempt)
+                    else:
+                        logger.debug(f"realtime batch {i//batch_sz+1}/{total_batches} 失败: {e}")
+
+            if not ok:
+                failed_batches += 1
+
+            if total_batches > 1 and (i // batch_sz) % 5 == 0:
+                _time.sleep(0.3)
+
+        if not all_rows:
+            logger.warning(f"realtime_quote 全部失败 ({total_batches} 批无数据)")
+            return pd.DataFrame()
+
+        if failed_batches:
+            logger.warning(f"realtime_quote {failed_batches}/{total_batches} 批失败")
+
+        raw = pd.concat(all_rows, ignore_index=True)
+        raw = raw.rename(columns={
+            "TS_CODE": "ts_code", "PRICE": "price", "VOLUME": "vol",
+            "AMOUNT": "amount", "OPEN": "open", "HIGH": "high",
+            "LOW": "low", "PRE_CLOSE": "pre_close",
+            "NAME": "name",
+        })
+        raw["price"] = raw["price"].astype(float)
+        raw["vol"] = raw["vol"].astype(float)
+        raw["pre_close"] = raw["pre_close"].astype(float)
+        raw["pct_chg"] = ((raw["price"] - raw["pre_close"]) / raw["pre_close"] * 100).round(2)
+
+        cols = ["ts_code", "price", "vol", "amount", "open",
+                "high", "low", "pre_close", "pct_chg"]
+        return raw[[c for c in cols if c in raw.columns]].reset_index(drop=True)
 
     # ── 读取缓存 ──────────────────────────────────────────
 

@@ -426,6 +426,10 @@ async def _startup():
     _log("Stock map pre-loaded on startup.")
 
     # Run the scheduler loop (blocks until cancelled)
+    # 启动阳谱定时任务（盘中15分钟快照 + 盘后存储）
+    from scheduler.yang_yin_scheduler import yang_yin_loop
+    _create_tracked_task(yang_yin_loop(), label="yang_yin_scheduler")
+
     await _scheduler_loop()
 
 

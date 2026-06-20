@@ -74,6 +74,9 @@ def run_scan_v7(
         yin_pct=round(100 - yang_pct, 1),
     )
 
+    # 持久化 prev_yangpu 供下一日（盘中或盘后）
+    save_prev_yangpu(yang_pct, trade_date, pipeline)
+
     logger.info(
         f"扫描完成 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
         f"有效股票 {total} | prev_yangpu={factors.get('prev_yangpu', 'N/A')}"
@@ -114,3 +117,87 @@ def load_history(pipeline: YangYinPipeline = None) -> pd.DataFrame:
     if not history_path.exists():
         return pd.DataFrame()
     return pd.read_parquet(history_path)
+
+
+# ── prev_yangpu 持久化 ──────────────────────────────────
+
+def _prev_yangpu_path(pipeline: YangYinPipeline = None):
+    if pipeline is None:
+        pipeline = YangYinPipeline()
+    return pipeline.summary_dir / "prev_yangpu.json"
+
+
+def load_prev_yangpu(pipeline: YangYinPipeline = None) -> float:
+    """读取前一日预测的阳谱值，文件不存在则返回50"""
+    import json
+    path = _prev_yangpu_path(pipeline)
+    if not path.exists():
+        return 50.0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return float(data.get("yang_pct", 50.0))
+
+
+def save_prev_yangpu(yang_pct: float, trade_date: str = None,
+                     pipeline: YangYinPipeline = None):
+    """保存当日阳谱预测值供下一日盘中使用"""
+    import json
+    path = _prev_yangpu_path(pipeline)
+    data = {"yang_pct": round(yang_pct, 2), "trade_date": trade_date or ""}
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    logger.info(f"prev_yangpu 已保存: {yang_pct:.1f}%")
+
+
+# ── 盘中实时扫描 ──────────────────────────────────────
+
+def run_scan_intraday(
+    pipeline: YangYinPipeline = None,
+    trade_date: str = None,
+) -> YangYinSnapshot:
+    """盘中实时阳谱：realtime_quote拉现价 → 合并面板历史 → 因子+预测。
+
+    不保存快照（盘后 run_scan_v7 覆盖）。
+    """
+    from .factors_v7 import compute_factors_intraday
+    from .model_v7 import predict_yangpu
+
+    if pipeline is None:
+        pipeline = YangYinPipeline()
+    if trade_date is None:
+        trade_date = pd.Timestamp.now().strftime("%Y%m%d")
+
+    prev = load_prev_yangpu(pipeline)
+
+    # 加载面板
+    panel = pipeline.load_panel()
+    if panel is None:
+        raise RuntimeError("面板不存在，先执行 build_panel()")
+
+    # 拉实时报价
+    logger.info("拉取全市场实时报价...")
+    realtime = pipeline.fetch_realtime_snapshot()
+    if realtime.empty:
+        raise RuntimeError("实时报价为空")
+
+    # 计算因子
+    factors = compute_factors_intraday(panel, realtime, trade_date, prev_yangpu=prev)
+    if factors is None:
+        raise RuntimeError(f"盘中因子计算失败: {trade_date}")
+
+    yang_pct = predict_yangpu(factors)
+    total = len(realtime)
+
+    # 保存 prev 供下次使用
+    save_prev_yangpu(yang_pct, trade_date, pipeline)
+
+    snapshot = YangYinSnapshot(
+        trade_date=trade_date,
+        total_scored=total,
+        yang_pct=round(yang_pct, 1),
+        yin_pct=round(100 - yang_pct, 1),
+    )
+
+    logger.info(
+        f"盘中扫描 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
+        f"实时报价 {total} 只 | prev_yangpu={prev:.1f}"
+    )
+    return snapshot

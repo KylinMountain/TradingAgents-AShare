@@ -52,16 +52,92 @@ def compute_factors(
     trade_date: str,
     prev_yangpu: float | None = None,
 ) -> dict[str, float] | None:
-    """计算单个交易日的20个截面因子。
+    """计算单个交易日的20个截面因子。（兼容旧接口，底层调用快速版）
 
     参数:
-        panel: 面板数据 (ts_code, trade_date, close, high, low, vol, pct_chg)
-        trade_date: 目标交易日 YYYYMMDD
-        prev_yangpu: 前一日阳谱值，None则用50中性值
-
-    返回:
-        {factor_name: raw_value} 或 None(无数据)
+        panel: 原始面板或特征面板均可
+        trade_date: 目标交易日
+        prev_yangpu: 前一日阳谱值
     """
+    # 检测是否为特征面板（含 rsi14 列）
+    if "rsi14" in panel.columns:
+        return _compute_factors_from_features(panel, trade_date, prev_yangpu)
+    return _compute_factors_raw(panel, trade_date, prev_yangpu)
+
+
+def _compute_factors_from_features(
+    feat: pd.DataFrame,
+    trade_date: str,
+    prev_yangpu: float | None = None,
+) -> dict[str, float] | None:
+    """从预计算特征面板直接聚合 — 单日 <0.1秒"""
+    import numpy as np
+    import pandas as pd
+
+    day = feat[feat["trade_date"] == trade_date].copy()
+    n = len(day)
+    if n == 0:
+        return None
+
+    above_ma5 = (day["close"] > day["ma5"]).astype(int)
+    price_up = (day["pct_chg"] > 0).astype(int)
+    sd = np.where(day["pct_chg"] > 0, 1, -1)
+
+    # 背离
+    close_5d_ret = (day["close"] - day["close_5d"]) / day["close_5d"].replace(0, np.nan)
+    vol_5d_ret = (day["vol"] - day["vol_5d"]) / day["vol_5d"].replace(0, np.nan)
+    divergence = pd.Series(0.0, index=day.index)
+    divergence.loc[(close_5d_ret > 0) & (vol_5d_ret < 0)] = -1
+    divergence.loc[(close_5d_ret < 0) & (vol_5d_ret < 0)] = 1
+
+    # OBV
+    obv_dir = pd.Series(0.0, index=day.index)
+    obv_dir.loc[(day["pct_chg"] > 0) & (day["vol"] > day["prev_vol"])] = 1
+    obv_dir.loc[(day["pct_chg"] < 0) & (day["vol"] > day["prev_vol"])] = -1
+
+    # 量比
+    vol_ratio = day["vol"] / day["vol_ma20"].replace(0, np.nan)
+
+    # 强度
+    strength = pd.Series(0.0, index=day.index)
+    strength.loc[day["pct_chg"] > 3] = 1
+    strength.loc[day["pct_chg"] < -3] = -1
+
+    yang_pct = price_up.mean()
+    ve_mean = vol_ratio.mean()
+    mo_mean = day["pct_chg"].mean()
+
+    factors = {
+        "trend_mean": float(above_ma5.mean()),
+        "trend_yang": float(yang_pct),
+        "momentum_mean": float(mo_mean),
+        "momentum_yang": float(yang_pct),
+        "supply_demand_mean": float(sd.mean()),
+        "supply_demand_yang": float(yang_pct),
+        "divergence_mean": float(divergence.mean()),
+        "divergence_yang": float((divergence > 0).mean()),
+        "obv_mean": float(obv_dir.mean()),
+        "obv_yang": float((obv_dir > 0).mean()),
+        "vol_extreme_mean": float(ve_mean),
+        "volprice_new_mean": float(mo_mean * ve_mean),
+        "volprice_new_yang": float(yang_pct * (vol_ratio > 1.5).mean()),
+        "rsi_mean": float(day["rsi14"].mean()),
+        "rsi_yang": float((day["rsi14"] > 50).mean()),
+        "strength_mean": float(strength.mean()),
+        "strength_yang": float((strength > 0).mean()),
+        "money_mean": 0.0,
+        "money_yang": 0.0,
+        "prev_yangpu": float(prev_yangpu) if prev_yangpu is not None else 50.0,
+    }
+    return factors
+
+
+def _compute_factors_raw(
+    panel: pd.DataFrame,
+    trade_date: str,
+    prev_yangpu: float | None = None,
+) -> dict[str, float] | None:
+    """从原始面板计算因子（含 groupby rolling，较慢）"""
     all_dates = sorted(panel["trade_date"].unique())
     if trade_date not in all_dates:
         return None
@@ -194,3 +270,37 @@ def compute_factors_batch(
         rows.append({"trade_date": dt, **factors})
 
     return pd.DataFrame(rows).set_index("trade_date")
+
+
+def compute_factors_intraday(
+    panel: pd.DataFrame,
+    realtime_df: pd.DataFrame,
+    trade_date: str,
+    prev_yangpu: float | None = None,
+) -> dict[str, float] | None:
+    """盘中实时因子计算：本地面板历史 + realtime_quote当日数据。
+
+    参数:
+        panel: 原始面板 (ts_code, trade_date, close, vol, pct_chg)
+        realtime_df: fetch_realtime_snapshot() 返回的实时报价
+        trade_date: 当日 YYYYMMDD
+        prev_yangpu: 前一日阳谱值
+
+    返回:
+        20个因子 dict
+    """
+    # 1. 构建当日行（对齐面板列）
+    today = realtime_df[["ts_code", "vol", "pct_chg"]].copy()
+    today["trade_date"] = trade_date
+    today["close"] = realtime_df["price"]  # 现价
+
+    # 2. 取面板最近20天 + 今日
+    all_dates = sorted(panel["trade_date"].unique())
+    lookback = all_dates[-20:]
+    window = panel[panel["trade_date"].isin(lookback)].copy()
+
+    cols = ["ts_code", "trade_date", "close", "vol", "pct_chg"]
+    combined = pd.concat([window[cols], today[cols]], ignore_index=True)
+
+    # 3. 复用原始因子计算
+    return _compute_factors_raw(combined, trade_date, prev_yangpu)
