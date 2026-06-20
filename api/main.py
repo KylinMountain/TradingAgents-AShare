@@ -5,9 +5,6 @@ import json
 import os
 import re
 
-# 必须在任何第三方库导入之前清除代理，避免 urllib3/requests 缓存代理设置
-for _pv in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
-    os.environ.pop(_pv, None)
 import traceback
 from contextlib import asynccontextmanager
 from io import StringIO
@@ -4323,6 +4320,20 @@ def _instant_complete_from_report(job_id: str, report_id: str, user_id: str) -> 
             _log(f"[dedup] Reused report {report_id} for {report.symbol}/{report.trade_date} → job {job_id}")
     except Exception as e:
         _log(f"[dedup] _instant_complete_from_report error: {type(e).__name__}: {e}")
+
+
+@app.get("/v1/yang-yin/history")
+def get_yang_yin_history(days: int = 30) -> List[Dict]:
+    """返回v0.7模型阳谱/阴谱历史数据。"""
+    from tradingagents.yang_yin import load_history
+    hist = load_history()
+    if hist.empty:
+        return []
+    hist = hist.sort_values("trade_date").tail(days)
+    cols = ["trade_date", "yang_pct", "yin_pct"]
+    if "updated_at" in hist.columns:
+        cols.append("updated_at")
+    return hist[cols].to_dict(orient="records")
 
 
 @app.get("/v1/strategy/39rules-decision", response_model=StrategyDecisionResponse)

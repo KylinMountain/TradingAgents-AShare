@@ -55,11 +55,12 @@ async def _wait_until(target_hour: int, target_min: int = 0):
 async def _run_intraday_scan(trade_date: str):
     """执行一次盘中快照。单次失败静默跳过，连续失败告警。"""
     try:
-        from tradingagents.yang_yin import YangYinPipeline, run_scan_intraday
+        from tradingagents.yang_yin import YangYinPipeline, run_scan_intraday, save_snapshot
         pipeline = YangYinPipeline()
         snapshot = await asyncio.to_thread(run_scan_intraday, pipeline, trade_date)
+        await asyncio.to_thread(save_snapshot, snapshot, pipeline)
         now = datetime.now(CST).strftime("%H:%M")
-        logger.info(f"[{now}] 盘中阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}%")
+        logger.info(f"[{now}] 盘中阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}% (已写入)")
         _intraday_fail_count = 0
         return snapshot
     except Exception as e:

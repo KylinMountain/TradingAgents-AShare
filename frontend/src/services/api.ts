@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, YangYinHistoryPoint, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -488,6 +488,10 @@ class ApiService {
 
     async listBriefings(limit = 30): Promise<BriefingListResponse> {
         return this.request<BriefingListResponse>(`/v1/briefing/list?limit=${limit}`)
+    }
+
+    async getYangYinHistory(days = 30): Promise<YangYinHistoryPoint[]> {
+        return this.request<YangYinHistoryPoint[]>(`/v1/yang-yin/history?days=${days}`)
     }
 }
 

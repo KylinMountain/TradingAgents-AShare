@@ -17,6 +17,7 @@ class YangYinSnapshot:
     total_scored: int            # 有效股票数（面板中当日有数据的股票）
     yang_pct: float              # 阳谱% (0-100) — v0.7岭回归预测值
     yin_pct: float               # 阴谱% = 100 - 阳谱%
+    data_time: str = ""          # 数据对应的时间点: 盘中=报价拉取时刻, 盘后=15:00收盘
     # 废弃的旧字段（保留兼容性，恒为0）
     yang_count: int = 0
     yin_count: int = 0
@@ -72,6 +73,7 @@ def run_scan_v7(
         total_scored=total,
         yang_pct=round(yang_pct, 1),
         yin_pct=round(100 - yang_pct, 1),
+        data_time=f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]} 15:00",
     )
 
     # 持久化 prev_yangpu 供下一日（盘中或盘后）
@@ -90,11 +92,13 @@ def save_snapshot(snapshot: YangYinSnapshot, pipeline: YangYinPipeline = None):
         pipeline = YangYinPipeline()
     history_path = pipeline.summary_dir / "yang_yin_history.parquet"
 
+    data_time = snapshot.data_time or datetime.now().strftime("%Y-%m-%d %H:%M")
     row = {
         "trade_date": snapshot.trade_date,
         "total_scored": snapshot.total_scored,
         "yang_pct": snapshot.yang_pct,
         "yin_pct": snapshot.yin_pct,
+        "updated_at": data_time,
     }
     new_row = pd.DataFrame([row])
 
@@ -194,6 +198,7 @@ def run_scan_intraday(
         total_scored=total,
         yang_pct=round(yang_pct, 1),
         yin_pct=round(100 - yang_pct, 1),
+        data_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
     logger.info(

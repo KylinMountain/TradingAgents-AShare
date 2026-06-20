@@ -898,6 +898,7 @@ export interface USTechStock {
     name: string
     close: number
     change_pct: number
+    is_stock?: boolean
 }
 
 export interface BriefingSentiment {
@@ -1035,6 +1036,13 @@ export interface BriefingDetailResponse {
 
 export interface BriefingListResponse {
     items: BriefingItem[]
+}
+
+export interface YangYinHistoryPoint {
+    trade_date: string
+    yang_pct: number
+    yin_pct: number
+    updated_at?: string
 }
 
 // Bias Analysis Types (乖离率分析)

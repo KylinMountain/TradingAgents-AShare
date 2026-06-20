@@ -135,9 +135,6 @@ def _parallel_fetch(ak_symbol, full_symbol, date):
     import akshare as ak
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for k in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-        os.environ.pop(k, None)
-
     pro = _get_tushare_pro()
     results = {'tick': None, 'mf': None, 'k5': None, 'error': None}
 
@@ -185,9 +182,6 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
     """v4盘面资金分析: 机构参与度 + 尾盘异动 + 拆单检测"""
     import os, json
     import requests as req
-
-    for k in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-        os.environ.pop(k, None)
 
     if not date:
         date = datetime.now().strftime('%Y-%m-%d')
@@ -681,128 +675,3 @@ def analyze_dark_pool(symbol: str, date: str = None) -> Dict[str, Any]:
     # 写入缓存
     _cache[cache_key] = (result, datetime.now().timestamp())
     return result
-
-
-def analyze_market(symbol: str = "600938", days: int = 730) -> Dict[str, Any]:
-    pro = _get_tushare_pro()
-
-    idx_df = _fetch_index_kline(pro, days)
-    stock_mf = _fetch_stock_moneyflow(pro, symbol, days)
-    stock_kline = _fetch_stock_kline(pro, symbol, days)
-
-    if idx_df.empty or stock_mf.empty:
-        return {"error": "数据获取失败"}
-
-    common = idx_df.index.intersection(stock_mf.index).intersection(stock_kline.index) if not stock_kline.empty else idx_df.index.intersection(stock_mf.index)
-    idx_df = idx_df.loc[common]
-    stock_mf = stock_mf.loc[common]
-    if not stock_kline.empty:
-        stock_kline = stock_kline.loc[common]
-
-    sc = _calc_smart_chart(idx_df)
-    gs = _calc_gold_silver_finger(stock_mf)
-
-    # 金手指后N日涨跌
-    finger_stats = {}
-    for ft_name, ft_mask in [('gold', gs['gold_finger']), ('silver', gs['silver_finger'])]:
-        stats = {}
-        for hold_days in [1, 3, 5]:
-            returns = []
-            for d in gs[ft_mask].index:
-                idx_pos = stock_kline.index.get_loc(d) if not stock_kline.empty else -1
-                if idx_pos >= 0 and idx_pos + hold_days < len(stock_kline):
-                    future_p = stock_kline['close'].iloc[idx_pos + hold_days]
-                    curr_p = stock_kline['close'].iloc[idx_pos]
-                    returns.append(round((future_p / curr_p - 1) * 100, 2))
-            if returns:
-                stats[str(hold_days)] = {
-                    "avg_return": round(float(np.mean(returns)), 2),
-                    "win_rate": round(sum(1 for r in returns if (r > 0 if ft_name == 'gold' else r < 0)) / len(returns) * 100, 1),
-                    "count": len(returns),
-                }
-        finger_stats[ft_name] = stats
-
-    # K线数据 (上证指数)
-    kline_data = []
-    for d in idx_df.index:
-        row = {"date": d.strftime("%Y-%m-%d")}
-        row["open"] = round(float(idx_df.loc[d, 'open']), 2)
-        row["high"] = round(float(idx_df.loc[d, 'high']), 2)
-        row["low"] = round(float(idx_df.loc[d, 'low']), 2)
-        row["close"] = round(float(idx_df.loc[d, 'close']), 2)
-        if d in sc.index:
-            row["m5"] = round(float(sc.loc[d, 'm5']), 2) if pd.notna(sc.loc[d, 'm5']) else None
-            row["m34"] = round(float(sc.loc[d, 'm34']), 2) if pd.notna(sc.loc[d, 'm34']) else None
-            row["zone"] = "red" if sc.loc[d, 'red'] == 1 else "green"
-            row["az"] = round(float(sc.loc[d, 'az']), 1) if pd.notna(sc.loc[d, 'az']) else None
-            row["yang_pct"] = round(float(sc.loc[d, 'yang_pct']), 1) if pd.notna(sc.loc[d, 'yang_pct']) else None
-            row["yin_pct"] = round(float(sc.loc[d, 'yin_pct']), 1) if pd.notna(sc.loc[d, 'yin_pct']) else None
-        if d in gs.index:
-            row["gold_finger"] = bool(gs.loc[d, 'gold_finger'])
-            row["silver_finger"] = bool(gs.loc[d, 'silver_finger'])
-        kline_data.append(row)
-
-    # 当前状态
-    last_date = idx_df.index[-1]
-    last_sc = sc.iloc[-1]
-    last_gs = gs.iloc[-1]
-
-    status = {
-        "date": last_date.strftime("%Y-%m-%d"),
-        "index_close": round(float(last_sc['close']), 2),
-        "zone": "red" if last_sc['red'] == 1 else "green",
-        "az": round(float(last_sc['az']), 1),
-        "yang_pct": round(float(last_sc['yang_pct']), 1) if pd.notna(last_sc['yang_pct']) else None,
-        "yin_pct": round(float(last_sc['yin_pct']), 1) if pd.notna(last_sc['yin_pct']) else None,
-        "stock_close": round(float(stock_kline['close'].iloc[-1]), 2) if not stock_kline.empty else None,
-        "net_inflow": bool(last_gs['net_inflow']),
-        "gold_finger": bool(last_gs['gold_finger']),
-        "silver_finger": bool(last_gs['silver_finger']),
-    }
-
-    # 信号统计
-    signal_stats = {
-        "gold_count": int(gs['gold_finger'].sum()),
-        "silver_count": int(gs['silver_finger'].sum()),
-        "red_days": int(sc['red'].sum()),
-        "green_days": int(sc['green'].sum()),
-    }
-
-    # 金手指买→银手指卖 配对回测
-    trades = []
-    position = None
-    for i in range(len(stock_kline)):
-        d = stock_kline.index[i]
-        close = stock_kline['close'].iloc[i]
-        if d in gs.index:
-            if gs.loc[d, 'gold_finger'] and position is None:
-                position = {'entry_date': d, 'entry_price': close}
-            elif gs.loc[d, 'silver_finger'] and position is not None:
-                pnl = round((close / position['entry_price'] - 1) * 100, 2)
-                trades.append({
-                    "entry_date": position['entry_date'].strftime("%Y-%m-%d"),
-                    "exit_date": d.strftime("%Y-%m-%d"),
-                    "entry_price": round(float(position['entry_price']), 2),
-                    "exit_price": round(float(close), 2),
-                    "pnl_pct": pnl,
-                    "holding_days": (d - position['entry_date']).days,
-                })
-                position = None
-
-    wins = sum(1 for t in trades if t['pnl_pct'] > 0)
-    trade_stats = {
-        "total": len(trades),
-        "wins": wins,
-        "losses": len(trades) - wins,
-        "win_rate": round(wins / len(trades) * 100, 1) if trades else 0,
-        "avg_pnl": round(float(np.mean([t['pnl_pct'] for t in trades])), 2) if trades else 0,
-        "trades": trades[-20:],  # 最近20笔
-    }
-
-    return {
-        "status": status,
-        "signal_stats": signal_stats,
-        "finger_stats": finger_stats,
-        "trade_stats": trade_stats,
-        "kline": kline_data,
-    }

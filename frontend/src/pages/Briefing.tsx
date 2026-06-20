@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Newspaper, RefreshCw, AlertCircle, Globe, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark, Cpu, ShieldAlert, TrendingDown, Minus } from 'lucide-react'
 import { api } from '@/services/api'
-import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice } from '@/types'
+import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint } from '@/types'
 
 function cnTodayStr(): string {
     const d = new Date()
@@ -15,6 +15,7 @@ export default function Briefing() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [availableDates, setAvailableDates] = useState<string[]>([])
+    const [yangYinHistory, setYangYinHistory] = useState<YangYinHistoryPoint[]>([])
 
     useEffect(() => {
         api.listBriefings(60).then(res => {
@@ -24,6 +25,7 @@ export default function Briefing() {
             )].sort().reverse()
             setAvailableDates(dates)
         }).catch(() => {})
+        api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
     }, [])
 
     useEffect(() => {
@@ -60,6 +62,9 @@ export default function Briefing() {
                     <p className="mt-1 text-slate-500">每日盘前市场简报，快速把握今日风向</p>
                 </div>
             </div>
+
+            {/* 大盘点金 -- always shown, independent of briefing */}
+            <DapanDianJin history={yangYinHistory} />
 
             {/* Date picker + actions */}
             <div className="flex items-center gap-3">
@@ -126,11 +131,11 @@ export default function Briefing() {
             {/* Completed */}
             {!loading && briefing && briefing.status === 'completed' && (
                 <div className="space-y-6">
-                    <TradingPlanSection advice={briefing.trading_advice} />
                     <USTechMappingSection
                         data={briefing.market_data?.us_tech_mapping}
                         adviceContent={briefing.trading_advice?.content}
                     />
+                    <TradingPlanSection advice={briefing.trading_advice} />
                     <MarketOverview data={briefing.market_data} />
 
                     {/* LLM input data — collapsed for reference */}
@@ -193,6 +198,67 @@ function PctBadge({ pct }: { pct?: number | null }) {
     const color = pct >= 0 ? 'text-red-500' : 'text-green-500'
     const prefix = pct >= 0 ? '+' : ''
     return <span className={color}>{prefix}{pct.toFixed(2)}%</span>
+}
+
+function DapanDianJin({ history }: { history?: YangYinHistoryPoint[] }) {
+    if (!history || history.length < 2) return null
+    const latest = history[history.length - 1]
+    const prev = history[history.length - 2]
+    const diff = latest.yang_pct - prev.yang_pct
+    const recent = [...history].reverse()
+
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-700/50 dark:bg-slate-900/50">
+            <h2 className="mb-3 sm:mb-4 flex items-center gap-2 text-base sm:text-lg font-semibold">
+                <Activity className="h-4 w-4 sm:h-5 sm:w-5 text-amber-400" />
+                大盘点金
+            </h2>
+            <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
+                <div>
+                    <div className="text-[10px] sm:text-xs text-slate-400">最新阳谱{latest.updated_at ? ` ${latest.updated_at}` : ''}</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-red-400 tabular-nums">{latest.yang_pct.toFixed(1)}%</div>
+                </div>
+                <div className="flex items-center gap-1 ml-2 sm:ml-4">
+                    {diff > 0 ? (
+                        <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-red-400" />
+                    ) : diff < 0 ? (
+                        <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-green-400" />
+                    ) : (
+                        <Minus className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-slate-400" />
+                    )}
+                    <span className={`text-xs sm:text-sm font-medium tabular-nums ${diff > 0 ? 'text-red-400' : diff < 0 ? 'text-green-400' : 'text-slate-400'}`}>
+                        较前日 {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+                    </span>
+                </div>
+            </div>
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="text-xs sm:text-sm border-separate border-spacing-0">
+                <thead>
+                    <tr className="text-center text-[10px] sm:text-xs text-slate-400">
+                        <th className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 pb-2 sm:pb-3 pr-3 sm:pr-4 font-medium text-left">日期</th>
+                        {recent.map(r => (
+                            <th key={r.trade_date} className="pb-2 sm:pb-3 px-2 sm:px-4 font-medium min-w-[4.5rem] sm:min-w-[5rem]">{r.trade_date}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr className="border-b border-slate-50 dark:border-slate-800/50">
+                        <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阳谱</td>
+                        {recent.map(r => (
+                            <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yang_pct.toFixed(1)}%</td>
+                        ))}
+                    </tr>
+                    <tr>
+                        <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阴谱</td>
+                        {recent.map(r => (
+                            <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yin_pct.toFixed(1)}%</td>
+                        ))}
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+    )
 }
 
 function MarketOverview({ data }: { data?: BriefingMarketData | null }) {
@@ -382,7 +448,14 @@ function USTechMappingSection({ data, adviceContent }: {
                         <div className="space-y-1 mb-2">
                             {sec.stocks.map(s => (
                                 <div key={s.symbol} className="flex items-center justify-between text-xs">
-                                    <span className="text-slate-500">{s.name}</span>
+                                    <span className="flex items-center gap-1">
+                                        <span className="text-slate-600 dark:text-slate-400">{s.name}</span>
+                                        {s.is_stock ? (
+                                            <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">龙头</span>
+                                        ) : (
+                                            <span className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-400 dark:bg-slate-800">ETF</span>
+                                        )}
+                                    </span>
                                     <span className="tabular-nums font-medium">{(s.close ?? 0).toFixed(2)}</span>
                                     <PctBadge pct={s.change_pct} />
                                 </div>
