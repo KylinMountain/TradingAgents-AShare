@@ -405,6 +405,25 @@ export interface FundFlowResponse {
     signal?: Record<string, any> | null
 }
 
+export interface BollingerDeviationPoint {
+    date: string
+    close: number
+    mccd: number
+    ub?: number | null
+    lb?: number | null
+    uub?: number | null
+    llb?: number | null
+    is_cross_lp: boolean
+    is_warning: boolean
+}
+
+export interface BollingerDeviationResponse {
+    symbol: string
+    name?: string | null
+    points: BollingerDeviationPoint[]
+    signal?: Record<string, any> | null
+}
+
 export interface DarkPoolEvent {
     start: string
     end: string

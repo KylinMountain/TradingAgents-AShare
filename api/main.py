@@ -826,6 +826,26 @@ class FundFlowResponse(BaseModel):
     signal: Optional[Dict[str, Any]] = None
 
 
+# Bollinger Deviation Models (布林乖离)
+class BollingerDeviationPoint(BaseModel):
+    date: str
+    close: float
+    mccd: float  # 2*(C-MA20)*VOL
+    ub: Optional[float] = None   # 1.618*(UP-MA20)
+    lb: Optional[float] = None   # 1.618*(LP-MA20)
+    uub: Optional[float] = None  # 2.33*(UP-MA20)
+    llb: Optional[float] = None  # 2.33*(LP-MA20)
+    is_cross_lp: bool = False    # CROSS(C, LP) 乖离反转
+    is_warning: bool = False     # MCCD>UUB & 收阴
+
+
+class BollingerDeviationResponse(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    points: List[BollingerDeviationPoint]
+    signal: Optional[Dict[str, Any]] = None
+
+
 # Bias Analysis Models (乖离率分析)
 class BiasPoint(BaseModel):
     date: str
@@ -3849,6 +3869,87 @@ def _normalize_ths_code(code: str) -> str:
     return code
 
 
+
+
+@app.get("/v1/market/bollinger-deviation", response_model=BollingerDeviationResponse)
+def get_bollinger_deviation(
+    symbol: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    period: Optional[str] = "daily",
+) -> BollingerDeviationResponse:
+    """布林乖离指标接口 — MCCD柱状图 + 布林带延展线"""
+    from tradingagents.indicators import calculate_bollinger_deviation, get_bollinger_deviation_signal, fetch_realtime_data, fetch_realtime_quote
+
+    period = period if period in _KLINE_PERIOD_MAP else "daily"
+    if start_date and end_date:
+        days = max(250, (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days + 60)
+    else:
+        days = _indicator_days_map.get(period, 250)
+
+    try:
+        df = fetch_realtime_data(symbol, days=days, period=period)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据获取失败: {e}")
+
+    if period != "daily":
+        df = _aggregate_daily_df(df, period)
+        df.index = pd.to_datetime(df.index)
+
+    result = calculate_bollinger_deviation(df)
+    signal = get_bollinger_deviation_signal(result)
+
+    def _to_native(obj):
+        if isinstance(obj, dict):
+            return {k: _to_native(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_native(v) for v in obj]
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, pd.Timestamp):
+            return obj.strftime("%Y-%m-%d %H:%M:%S")
+        return obj
+
+    signal = _to_native(signal)
+
+    if start_date:
+        result = result[result.index >= start_date]
+    if end_date:
+        end_dt = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        result = result[result.index <= end_dt]
+
+    points = []
+    for idx, row in result.iterrows():
+        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10]
+        points.append(BollingerDeviationPoint(
+            date=date_str,
+            close=round(float(row["close"]), 2) if pd.notna(row["close"]) else 0,
+            mccd=round(float(row["mccd"]), 2) if pd.notna(row["mccd"]) else 0,
+            ub=round(float(row["ub"]), 2) if pd.notna(row["ub"]) else None,
+            lb=round(float(row["lb"]), 2) if pd.notna(row["lb"]) else None,
+            uub=round(float(row["uub"]), 2) if pd.notna(row["uub"]) else None,
+            llb=round(float(row["llb"]), 2) if pd.notna(row["llb"]) else None,
+            is_cross_lp=bool(row.get("is_cross_lp", False)),
+            is_warning=bool(row.get("is_warning", False)),
+        ))
+
+    name = None
+    try:
+        quote = fetch_realtime_quote(symbol)
+        name = quote.get("name")
+    except Exception:
+        pass
+
+    return BollingerDeviationResponse(
+        symbol=symbol,
+        name=name,
+        points=points,
+        signal=signal,
+    )
 
 
 @app.get("/v1/market/bias-analysis", response_model=BiasAnalysisResponse)

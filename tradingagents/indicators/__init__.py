@@ -26,6 +26,10 @@ from .volume_wash import (
     calculate_volume_wash,
     get_volume_wash_signal,
 )
+from .bollinger_deviation import (
+    calculate_bollinger_deviation,
+    get_bollinger_deviation_signal,
+)
 
 __all__ = [
     'calculate_niuxiong_line',
@@ -50,4 +54,6 @@ __all__ = [
     'get_position_signal',
     'calculate_volume_wash',
     'get_volume_wash_signal',
+    'calculate_bollinger_deviation',
+    'get_bollinger_deviation_signal',
 ]
