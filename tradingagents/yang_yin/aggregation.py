@@ -224,6 +224,8 @@ def run_scan_intraday(
         data_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
+    _update_gold_finger(panel, pipeline, trade_date)
+
     logger.info(
         f"盘中扫描 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
         f"实时报价 {total} 只 | prev_yangpu={prev:.1f}"
