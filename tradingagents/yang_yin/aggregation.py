@@ -79,6 +79,9 @@ def run_scan_v7(
     # 持久化 prev_yangpu 供下一日（盘中或盘后）
     save_prev_yangpu(yang_pct, trade_date, pipeline)
 
+    # 金/银手指信号
+    _update_gold_finger(panel, pipeline, trade_date)
+
     logger.info(
         f"扫描完成 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
         f"有效股票 {total} | prev_yangpu={factors.get('prev_yangpu', 'N/A')}"
@@ -149,6 +152,26 @@ def save_prev_yangpu(yang_pct: float, trade_date: str = None,
     data = {"yang_pct": round(yang_pct, 2), "trade_date": trade_date or ""}
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     logger.info(f"prev_yangpu 已保存: {yang_pct:.1f}%")
+
+
+# ── 金/银手指 ──────────────────────────────────────
+
+
+def _update_gold_finger(panel, pipeline, trade_date):
+    """在盘后 run_scan_v7 中调用，更新金/银手指历史。"""
+    try:
+        from .gold_silver_v8_1 import generate_history, save_gold_finger_history, load_gold_finger_history
+
+        yang_hist = load_history(pipeline)
+        gold_df = generate_history(panel, yang_hist)
+        if not gold_df.empty:
+            save_gold_finger_history(gold_df, pipeline)
+            latest = gold_df[gold_df["trade_date"] == str(trade_date)]
+            if not latest.empty:
+                sig = "金" if latest.iloc[0]["signal"] == 1 else "银"
+                logger.info(f"金/银手指: {trade_date} → {sig} ({latest.iloc[0]['prob']:.3f})")
+    except Exception:
+        logger.warning("金/银手指更新失败", exc_info=True)
 
 
 # ── 盘中实时扫描 ──────────────────────────────────────

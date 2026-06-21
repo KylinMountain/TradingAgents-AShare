@@ -4336,6 +4336,17 @@ def get_yang_yin_history(days: int = 30) -> List[Dict]:
     return hist[cols].to_dict(orient="records")
 
 
+@app.get("/v1/gold-finger/history")
+def get_gold_finger_history(days: int = 30) -> List[Dict]:
+    """返回金/银手指历史信号。signal: 1=金, 0=银"""
+    from tradingagents.yang_yin.gold_silver_v8_1 import load_gold_finger_history
+    hist = load_gold_finger_history()
+    if hist.empty:
+        return []
+    hist = hist.sort_values("trade_date").tail(days)
+    return hist[["trade_date", "signal", "prob"]].to_dict(orient="records")
+
+
 @app.get("/v1/strategy/39rules-decision", response_model=StrategyDecisionResponse)
 def get_39rules_decision(
     symbol: str,

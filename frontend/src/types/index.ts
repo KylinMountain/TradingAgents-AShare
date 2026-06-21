@@ -1045,6 +1045,12 @@ export interface YangYinHistoryPoint {
     updated_at?: string
 }
 
+export interface GoldFingerPoint {
+    trade_date: string
+    signal: number   // 1 = 金, 0 = 银
+    prob: number
+}
+
 // Bias Analysis Types (乖离率分析)
 export interface BiasStats {
     mean: number

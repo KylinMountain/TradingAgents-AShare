@@ -26,6 +26,12 @@ from .aggregation import (
 )
 from .factors_v7 import compute_factors, compute_factors_batch, compute_factors_intraday
 from .model_v7 import predict_yangpu
+from .gold_silver_v8_1 import (
+    predict_gold_finger,
+    generate_history as generate_gold_finger_history,
+    load_gold_finger_history,
+    save_gold_finger_history,
+)
 
 __all__ = [
     "YangYinPipeline",
@@ -45,4 +51,8 @@ __all__ = [
     "compute_factors_batch",
     "compute_factors_intraday",
     "predict_yangpu",
+    "predict_gold_finger",
+    "generate_gold_finger_history",
+    "load_gold_finger_history",
+    "save_gold_finger_history",
 ]
