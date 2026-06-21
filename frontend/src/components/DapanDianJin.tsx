@@ -65,7 +65,7 @@ export default function DapanDianJin({ history, goldFingerHistory, redGreenBgHis
                 <thead>
                     <tr className="text-center text-[10px] sm:text-xs text-slate-400">
                         <th className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 pb-2 sm:pb-3 pr-3 sm:pr-4 font-medium text-left">日期</th>
-                        {recent.map(r => <th key={r.trade_date} className="pb-2 sm:pb-3 px-2 sm:px-4 font-medium min-w-[4.5rem] sm:min-w-[5rem]">{r.trade_date}</th>)}
+                        {recent.map(r => <th key={r.trade_date} className={`pb-2 sm:pb-3 px-2 sm:px-4 font-medium min-w-[4.5rem] sm:min-w-[5rem] ${getBgClass(bgMap.get(r.trade_date))}`}>{r.trade_date}</th>)}
                     </tr>
                 </thead>
                 <tbody>
