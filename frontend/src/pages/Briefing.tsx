@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Newspaper, RefreshCw, AlertCircle, Globe, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark, Cpu, ShieldAlert, TrendingDown, Minus } from 'lucide-react'
 import DapanDianJin from '@/components/DapanDianJin'
-import { api } from '@/services/api'
+import { api, getBaseUrl } from '@/services/api'
 import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
 
 function cnTodayStr(): string {
@@ -28,9 +28,15 @@ export default function Briefing() {
             )].sort().reverse()
             setAvailableDates(dates)
         }).catch(() => {})
-        api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
-        api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
-        api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
+        const refresh = () => {
+            api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
+            api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
+            api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
+        }
+        refresh()
+        const es = new EventSource(`${getBaseUrl()}/v1/dapan-dianjin/events`)
+        es.addEventListener('scan_completed', () => refresh())
+        return () => es.close()
     }, [])
 
     useEffect(() => {

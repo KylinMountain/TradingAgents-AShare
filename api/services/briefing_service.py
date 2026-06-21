@@ -11,31 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
-# ── Aggressively clear ALL proxy env vars before any HTTP library imports ──
-for _pv in list(os.environ.keys()):
-    if "proxy" in _pv.lower():
-        os.environ.pop(_pv, None)
-os.environ["NO_PROXY"] = "*"
 
 import requests
-
-# Monkey-patch: force requests to never use system proxy (trust_env bypasses Windows registry proxy)
-_ORIG_REQUESTS_GET = requests.get
-_ORIG_REQUESTS_POST = requests.post
-
-def _no_proxy_get(url, **kwargs):
-    kwargs.setdefault("timeout", 15)
-    kwargs["proxies"] = {"http": None, "https": None}
-    return _ORIG_REQUESTS_GET(url, **kwargs)
-
-def _no_proxy_post(url, **kwargs):
-    kwargs.setdefault("timeout", 15)
-    kwargs["proxies"] = {"http": None, "https": None}
-    return _ORIG_REQUESTS_POST(url, **kwargs)
-
-requests.get = _no_proxy_get
-requests.post = _no_proxy_post
-
 from sqlalchemy.orm import Session
 
 from api.database import DailyBriefingDB, UserLLMConfigDB
@@ -1159,122 +1136,276 @@ async def _analyze_portfolio(db: Session, user_id: str, prev_trade_date: str) ->
 
 # ─── US Tech Sector Mapping ───────────────────────────────────────────────────
 
-# 5-minute cache for US tech sector data to avoid repeated yfinance calls
+# 5-minute cache for US tech sector data
 _us_tech_cache: dict = {"data": None, "ts": 0}
+# 24h cache for stock industry classification (industries don't change often)
+_industry_cache: dict = {"data": None, "ts": 0}
+
+# ETFs — Sina code -> (display name, sector group)
+_US_TECH_ETFS = {
+    "gb_sox":  ("费城半导体", "半导体"),
+    "gb_soxx": ("半导体ETF", "半导体"),
+    "gb_smh":  ("半导体指数", "半导体"),
+    "gb_xsd":  ("半导体等权", "半导体"),
+    "gb_qqq":  ("纳指100", "科技宽基"),
+    "gb_xlk":  ("标普科技", "科技宽基"),
+    "gb_vgt":  ("信息技术", "科技宽基"),
+    "gb_igv":  ("软件服务", "云计算"),
+    "gb_skyy": ("云计算", "云计算"),
+    "gb_clou": ("云算力", "云计算"),
+    "gb_wcld": ("云服务", "云计算"),
+    "gb_xsw":  ("软件等权", "云计算"),
+    "gb_fdn":  ("互联网", "云计算"),
+    "gb_botz": ("机器人与AI", "机器人"),
+    "gb_robo": ("机器人自动化", "机器人"),
+    "gb_ufo":  ("航天", "商业航天"),
+    "gb_arkk": ("ARK创新", "创新科技"),
+    "gb_arkq": ("ARK工业", "创新科技"),
+    "gb_arkw": ("ARK互联网", "创新科技"),
+}
+
+# Individual stocks — Sina code -> display name. Industry classification from East Money.
+_US_TECH_STOCKS_SINA = {
+    "gb_nvda": "英伟达",   "gb_avgo": "博通",     "gb_amd":  "AMD",
+    "gb_asml": "阿斯麦",   "gb_amat": "应用材料",  "gb_lrcx": "拉姆研究",
+    "gb_klac": "科磊",     "gb_mrvl": "Marvell",  "gb_mu":   "美光",
+    "gb_intc": "英特尔",   "gb_qcom": "高通",     "gb_txn":  "德州仪器",
+    "gb_adi":  "ADI",      "gb_arm":  "ARM",
+    "gb_anet": "Arista",   "gb_csco": "思科",
+    "gb_aapl": "苹果",     "gb_msft": "微软",
+    "gb_googl":"谷歌",     "gb_amzn": "亚马逊",    "gb_meta": "Meta",
+    "gb_nflx": "奈飞",     "gb_tsla": "特斯拉",
+    "gb_crm":  "Salesforce","gb_orcl":"甲骨文",   "gb_now":  "ServiceNow",
+    "gb_adbe": "Adobe",    "gb_pltr": "Palantir", "gb_snow": "Snowflake",
+    "gb_sndk": "闪迪",     "gb_wdc":  "西部数据",  "gb_stx":  "希捷",
+    "gb_mdb":  "MongoDB",  "gb_panw": "PaloAlto", "gb_crwd": "CrowdStrike",
+    "gb_zs":   "Zscaler",  "gb_net":  "Cloudflare","gb_ddog":"Datadog",
+}
+
+# Sina code -> East Money SECURITY_CODE (for industry lookup)
+_SINA_TO_EM_CODE = {
+    "gb_nvda":"NVDA","gb_avgo":"AVGO","gb_amd":"AMD","gb_asml":"ASML",
+    "gb_amat":"AMAT","gb_lrcx":"LRCX","gb_klac":"KLAC","gb_mrvl":"MRVL",
+    "gb_mu":"MU","gb_intc":"INTC","gb_qcom":"QCOM","gb_txn":"TXN",
+    "gb_adi":"ADI","gb_arm":"ARM","gb_anet":"ANET","gb_csco":"CSCO",
+    "gb_aapl":"AAPL","gb_msft":"MSFT","gb_googl":"GOOGL","gb_amzn":"AMZN",
+    "gb_meta":"META","gb_nflx":"NFLX","gb_tsla":"TSLA","gb_crm":"CRM",
+    "gb_orcl":"ORCL","gb_now":"NOW","gb_adbe":"ADBE","gb_pltr":"PLTR",
+    "gb_snow":"SNOW","gb_mdb":"MDB","gb_panw":"PANW","gb_crwd":"CRWD",
+    "gb_zs":"ZS","gb_net":"NET","gb_ddog":"DDOG","gb_sndk":"SNDK","gb_wdc":"WDC","gb_stx":"STX",
+}
+
+# Risk indicator — separate from sector groups
+_US_TECH_RISK = {
+    "gb_tlt": "20年国债",
+}
+
+# A-share sector mapping (ETF groups + East Money industries)
+_INDUSTRY_A_MAPPING = {
+    # ETF groups
+    "半导体": "半导体ETF(512480)/芯片ETF(159995)/科创芯片(588200)",
+    "科技宽基": "科创50(588000)/创业板(159915)/科技ETF(515000)",
+    "云计算": "云计算ETF/算力租赁/数据要素/AI应用",
+    "机器人": "机器人ETF(562500)/具身智能/工业母机",
+    "商业航天": "商业航天/卫星互联网/军工电子",
+    "创新科技": "AI应用/智能驾驶/AI医疗/AI Agent",
+    # East Money industries
+    "半导体产品": "半导体ETF(512480)/芯片ETF(159995)",
+    "半导体材料与设备": "半导体设备ETF(561980)/科创芯片(588200)",
+    "通信设备": "CPO/光通信(中际旭创/新易盛)/交换机",
+    "系统软件": "信创/AI应用/国产软件",
+    "应用软件": "AI应用/SaaS/网络安全",
+    "数据处理与外包服务": "数据要素/AI应用/云计算",
+    "互联网软件基础设施": "算力租赁/云计算/AI Agent",
+    "电脑硬件存储设备与周边": "存储芯片(江波龙/佰维)/消费电子(立讯/歌尔)",
+    "互动媒体与服务": "AI应用/AI Agent",
+    "消费品零售": "云计算(AWS映射)/AI应用",
+    "汽车制造商": "机器人/智能驾驶/具身智能",
+    "电影与娱乐": "AI应用/多模态",
+    "综合类资本市场": "区块链/金融科技",
+    "铁路运输": "共享出行",
+}
+
+
+async def _fetch_us_stock_industries() -> dict[str, str]:
+    """Fetch US stock industry classification from East Money datacenter. Cached 24h."""
+    now = time.monotonic()
+    if _industry_cache["data"] is not None and (now - _industry_cache["ts"]) < 86400:
+        return _industry_cache["data"]
+
+    def _fetch():
+        result: dict[str, str] = {}
+        codes = list(_SINA_TO_EM_CODE.values())
+        # East Money filter supports up to ~50 codes in IN clause; batch if needed
+        code_str = ",".join([f'"{c}"' for c in codes])
+        try:
+            params = {
+                "reportName": "RPT_USF10_INFO_ORGPROFILE",
+                "columns": "SECURITY_CODE,BELONG_INDUSTRY",
+                "filter": f"(SECURITY_CODE in ({code_str}))",
+                "pageNumber": "1", "pageSize": str(len(codes) + 10),
+                "source": "SECURITIES", "client": "PC",
+                "v": str(int(time.time() * 1000)),
+            }
+            r = requests.get(
+                "https://datacenter.eastmoney.com/securities/api/data/v1/get",
+                params=params, timeout=15,
+            )
+            data = r.json()
+            if data.get("success") and data.get("result", {}).get("data"):
+                for item in data["result"]["data"]:
+                    em_code = item.get("SECURITY_CODE", "")
+                    industry = item.get("BELONG_INDUSTRY", "")
+                    if em_code and industry:
+                        # Map EM code back to Sina code
+                        for sina_code, ec in _SINA_TO_EM_CODE.items():
+                            if ec == em_code:
+                                result[sina_code] = industry
+                                break
+                logger.info(f"US tech: got industry for {len(result)}/{len(codes)} stocks")
+            else:
+                logger.warning(f"US tech industry API failed: {data.get('message', 'unknown')}")
+        except Exception as e:
+            logger.warning(f"US tech industry fetch failed: {e}")
+        return result
+
+    try:
+        _industry_cache["data"] = await asyncio.to_thread(_fetch)
+        _industry_cache["ts"] = time.monotonic()
+        return _industry_cache["data"]
+    except Exception as e:
+        logger.warning(f"US tech industry classification failed: {e}")
+        return {}
 
 
 async def _fetch_us_tech_sectors() -> dict:
-    """Fetch US tech sector ETFs/indices via yfinance for A-share sector mapping.
-
-    Returns structured data grouped by sector: semiconductors, broad tech, AI/cloud,
-    plus risk indicators (TLT, VIX).
-    """
+    """Fetch US tech ETFs + stocks from Sina, group stocks by East Money industry dynamically."""
     now = time.monotonic()
     if _us_tech_cache["data"] is not None and (now - _us_tech_cache["ts"]) < 300:
         return _us_tech_cache["data"]
 
-    # Define symbols by sector group
-    sectors_def = [
-        {
-            "name": "半导体",
-            "a_mapping": "半导体ETF(512480)、芯片ETF(159995)",
-            "symbols": [("^SOX", "费城半导体"), ("SMH", "半导体ETF")],
-        },
-        {
-            "name": "科技宽基",
-            "a_mapping": "科创50(588000)、科技ETF(515000)",
-            "symbols": [("QQQ", "纳斯达克100"), ("XLK", "标普科技")],
-        },
-        {
-            "name": "AI/云计算",
-            "a_mapping": "AI概念、云计算ETF",
-            "symbols": [("IGV", "软件ETF"), ("SKYY", "云计算ETF"), ("ROBT", "AI机器人")],
-        },
-    ]
-    risk_symbols = [("TLT", "20年国债"), ("^VIX", "恐慌指数")]
+    # Pre-fetch industry classification (cached 24h, runs in background)
+    industries = await _fetch_us_stock_industries()
 
-    all_symbols = [s for sec in sectors_def for s, _ in sec["symbols"]] + [s for s, _ in risk_symbols]
+    # Build flat list of all Sina codes to fetch
+    _ALL_SINA_CODES = (
+        list(_US_TECH_ETFS) + list(_US_TECH_STOCKS_SINA) + list(_US_TECH_RISK)
+    )
 
     def _fetch():
         result = {"sectors": [], "risk_indicators": {}, "overall_sentiment": "neutral"}
 
         try:
-            import yfinance as yf
-        except ImportError:
-            logger.warning("yfinance not available for US tech sector fetch")
+            codes = ",".join(_ALL_SINA_CODES)
+            req = urllib.request.Request(
+                f"https://hq.sinajs.cn/list={codes}",
+                headers={"Referer": "https://finance.sina.com.cn"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                text = resp.read().decode("gbk", errors="replace")
+        except Exception as e:
+            logger.warning(f"US tech Sina fetch failed: {e}")
             return result
 
-        # Sequential fetch with small delay to avoid yfinance rate limiting
+        # Parse Sina response into flat price dict
         prices: dict[str, dict] = {}
-        for sym in all_symbols:
+        for line in text.strip().split("\n"):
+            if "=" not in line or "," not in line:
+                continue
+            sym = line.split("=")[0].strip().replace("var hq_str_", "")
+            content = line.split("=", 1)[1].strip().strip('"')
+            parts = content.split(",")
+            if len(parts) < 5 or not parts[1]:
+                continue
             try:
-                t = yf.Ticker(sym)
-                hist = t.history(period="2d")
-                if hist.empty or len(hist) < 1:
-                    logger.warning(f"US tech: no data for {sym}")
-                    continue
-                close = float(hist["Close"].iloc[-1])
-                if len(hist) >= 2:
-                    prev_close = float(hist["Close"].iloc[-2])
-                    chg_pct = round((close - prev_close) / prev_close * 100, 2)
-                else:
-                    chg_pct = 0
-                prices[sym] = {"close": round(close, 2), "change_pct": chg_pct}
-                time.sleep(1.5)  # rate limit avoidance
-            except Exception as e:
-                logger.warning(f"US tech: fetch failed for {sym}: {e}")
-                time.sleep(3.0)
+                price = float(parts[1])
+                chg_pct = float(parts[2]) if parts[2] else 0
+                prices[sym] = {"close": round(price, 2), "change_pct": round(chg_pct, 2)}
+            except (ValueError, IndexError):
+                pass
 
-        # Build sector groups
+        # Build sector groups:
+        #   ETFs → grouped by their fixed sector label
+        #   Stocks → grouped by East Money BELONG_INDUSTRY
+        sectors_data: dict[str, list] = {}
+
+        # ETFs
+        for sym, (name, group) in _US_TECH_ETFS.items():
+            if sym not in prices:
+                continue
+            if group not in sectors_data:
+                sectors_data[group] = []
+            sectors_data[group].append({
+                "symbol": sym.replace("gb_", ""), "name": name,
+                "close": prices[sym]["close"], "change_pct": prices[sym]["change_pct"],
+                "is_stock": False,
+            })
+
+        # Stocks — grouped by industry
+        for sym, name in _US_TECH_STOCKS_SINA.items():
+            if sym not in prices:
+                continue
+            industry = industries.get(sym, "科技")
+            if industry not in sectors_data:
+                sectors_data[industry] = []
+            sectors_data[industry].append({
+                "symbol": sym.replace("gb_", ""), "name": name,
+                "close": prices[sym]["close"], "change_pct": prices[sym]["change_pct"],
+                "is_stock": True,
+            })
+
+        # Sort sectors: ETFs first (fixed order), then industries by stock count desc.
+        # Small industry groups (< 3 stocks) merged into "其他科技".
+        etf_groups = {g for _, g in _US_TECH_ETFS.values()}
+        etf_order = ["半导体", "科技宽基", "云计算", "机器人", "商业航天", "创新科技"]
+        etf_sectors = []
+        industry_sectors = []
+        other_stocks = []
+        for group, stocks in sectors_data.items():
+            if group in etf_groups:
+                etf_sectors.append((group, stocks))
+            elif len(stocks) >= 3:
+                industry_sectors.append((group, stocks))
+            else:
+                other_stocks.extend(stocks)
+        etf_sectors.sort(key=lambda x: etf_order.index(x[0]) if x[0] in etf_order else 99)
+        industry_sectors.sort(key=lambda x: -len(x[1]))
+        if other_stocks:
+            industry_sectors.append(("其他科技", other_stocks))
+
         sector_sentiments = []
-        for sec in sectors_def:
-            stocks = []
-            chgs = []
-            for sym, name in sec["symbols"]:
-                if sym in prices:
-                    stocks.append({
-                        "symbol": sym.lstrip("^"),
-                        "name": name,
-                        "close": prices[sym]["close"],
-                        "change_pct": prices[sym]["change_pct"],
-                    })
-                    chgs.append(prices[sym]["change_pct"])
-
-            if stocks:
-                avg_chg = sum(chgs) / len(chgs)
-                sentiment = "bullish" if avg_chg > 0.5 else ("bearish" if avg_chg < -0.5 else "mixed")
-                sector_sentiments.append(sentiment)
-                result["sectors"].append({
-                    "name": sec["name"],
-                    "stocks": stocks,
-                    "a_mapping": sec["a_mapping"],
-                    "sentiment": sentiment,
-                })
+        for group, stocks in etf_sectors + industry_sectors:
+            chgs = [s["change_pct"] for s in stocks]
+            avg_chg = sum(chgs) / len(chgs)
+            sentiment = "bullish" if avg_chg > 0.5 else ("bearish" if avg_chg < -0.5 else "mixed")
+            sector_sentiments.append(sentiment)
+            a_map = _INDUSTRY_A_MAPPING.get(group, "") if group != "其他科技" else "消费电子/智能驾驶/AI应用"
+            result["sectors"].append({
+                "name": group,
+                "stocks": stocks,
+                "a_mapping": a_map,
+                "sentiment": sentiment,
+            })
 
         # Risk indicators
-        for sym, name in risk_symbols:
-            if sym in prices:
-                result["risk_indicators"][sym.lstrip("^")] = {
-                    "name": name,
-                    "close": prices[sym]["close"],
-                    "change_pct": prices[sym]["change_pct"],
-                }
+        for sym, name in _US_TECH_RISK.items():
+            if sym not in prices:
+                continue
+            result["risk_indicators"][sym.replace("gb_", "")] = {
+                "name": name, "close": prices[sym]["close"],
+                "change_pct": prices[sym]["change_pct"],
+            }
 
-        # Overall sentiment: majority vote, semiconductor has double weight
+        # Overall sentiment
         if sector_sentiments:
-            weighted = []
-            for s in sector_sentiments:
-                weighted.append(s)
-                if s == "bearish" or s == "bullish":
-                    weighted.append(s)  # double weight non-mixed
-            bullish = weighted.count("bullish")
-            bearish = weighted.count("bearish")
+            bullish = sector_sentiments.count("bullish")
+            bearish = sector_sentiments.count("bearish")
             if bullish > bearish:
                 result["overall_sentiment"] = "bullish"
             elif bearish > bullish:
                 result["overall_sentiment"] = "bearish"
             else:
-                result["overall_sentiment"] = "neutral"
+                result["overall_sentiment"] = "mixed"
 
         result["update_time"] = datetime.now(timezone.utc).isoformat()
         return result
@@ -1510,11 +1641,9 @@ async def _generate_trading_advice(
 ## 美股科技板块映射A股
 {us_tech_summary}
 
-重点分析规则：
-- 隔夜美股科技板块强弱→A股对应板块传导方向（半导体板块映射最直接）
-- SOX/SMH跌→A股半导体/芯片大概率承压；SOX/SMH涨→A股半导体高开概率大
-- 关注TLT与QQQ的矛盾信号：TLT涨+QQQ跌=资金避险，短期利空科技；TLT跌+QQQ涨=risk-on，利好科技
-- 板块内涨跌互现时（如SOX跌但IGV涨），判断是轮动还是整体走弱
+分析规则：
+- 根据美股科技板块隔夜强弱，结合你的市场知识，自行判断哪些A股概念板块会受影响及传导方向
+- TLT涨+QQQ跌=资金避险；TLT跌+QQQ涨=risk-on；板块内涨跌互现时判断轮动还是整体走弱
 
 ## 中概股龙头隔夜表现（上涨{adr_ratio}%）
 {adr_summary}
@@ -1610,10 +1739,12 @@ async def _generate_trading_advice(
 - **核心战法**：[如：等恐慌低吸 / 主线首阴博弈 / 底部利好潜伏 / 多看少动]
 
 ## 🔬 美股科技映射
-**隔夜概况**：[一句话总结美股科技板块隔夜表现，涵盖SOX/SMH半导体、QQQ/XLK科技宽基、AI云板块]
-**传导判断**：[对A股科技板块今日开盘影响的综合判断，含具体板块方向——半导体/芯片/科创/创业板/AI概念分别怎么看]
-**重点关注**：[今日A股开盘最值得关注的1-2个科技细分方向及理由，必须引用具体ETF或板块名称]
-**风险提示**：[科技板块今日最大风险点]
+**隔夜概况**：[一句话总结美股科技隔夜表现，点了哪些方向]
+**概念映射**：（根据上面美股数据，自行判断受影响的A股概念板块，每行一个）
+- **[概念名]** → [偏多/偏空/中性]：[一句话依据，必须引用具体美股标的涨跌]
+- ...（列出所有你判断受影响的概念板块，数量不限）
+**重点关注**：[1-2个最值得关注的A股概念板块及开盘应对思路]
+**风险提示**：[最大风险点]
 
 ## 📊 今日主线方向
 - **主线一**：[板块名称] — 理由：[资金+涨幅+消息共振逻辑，不超过15字]

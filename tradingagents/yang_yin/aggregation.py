@@ -1,6 +1,8 @@
 """全市场聚合统计 — v0.7截面因子 → 岭回归直接预测阳谱%"""
 
+import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -82,6 +84,7 @@ def run_scan_v7(
     # 金/银手指信号 + 红绿背景
     _update_gold_finger(panel, pipeline, trade_date)
     _update_red_green_bg(pipeline, trade_date)
+    _notify_dapan_update(pipeline)
 
     logger.info(
         f"扫描完成 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
@@ -191,6 +194,18 @@ def _update_red_green_bg(pipeline, trade_date):
         logger.info(f"红绿背景: {trade_date} → {state.get('background', '?')}")
     except Exception:
         logger.warning("红绿背景更新失败", exc_info=True)
+
+
+def _notify_dapan_update(pipeline):
+    """写入更新标记，供 SSE 端点推送给前端。"""
+    try:
+        summary_dir = pipeline.summary_dir if hasattr(pipeline, 'summary_dir') else pipeline.cache_dir
+        os.makedirs(summary_dir, exist_ok=True)
+        notify_file = os.path.join(summary_dir, "dapan_update.json")
+        with open(notify_file, "w", encoding="utf-8") as f:
+            json.dump({"updated_at": datetime.now().isoformat()}, f)
+    except Exception:
+        pass
 
 
 # ── 盘中实时扫描 ──────────────────────────────────────

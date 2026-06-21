@@ -15,7 +15,7 @@ import RiskRadar from '@/components/RiskRadar'
 import KeyMetrics from '@/components/KeyMetrics'
 import StrategyDecisionCard from '@/components/StrategyDecisionCard'
 import BiasAnalysisPanel from '@/components/BiasAnalysisPanel'
-import { api } from '@/services/api'
+import { api, getBaseUrl } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useSyncedCharts } from '@/hooks/useSyncedCharts'
 import type { StockSearchResult, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
@@ -101,9 +101,15 @@ export default function Analysis() {
     }, [symbolSearch])
 
     useEffect(() => {
-        api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
-        api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
-        api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
+        const refresh = () => {
+            api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
+            api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
+            api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
+        }
+        refresh()
+        const es = new EventSource(`${getBaseUrl()}/v1/dapan-dianjin/events`)
+        es.addEventListener('scan_completed', () => refresh())
+        return () => es.close()
     }, [])
 
     // 点击外部关闭下拉

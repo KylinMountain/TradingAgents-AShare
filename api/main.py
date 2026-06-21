@@ -4355,6 +4355,29 @@ def get_red_green_bg_history(days: int = 30) -> List[Dict]:
     return get_bg_history(pipeline, days=days)
 
 
+@app.get("/v1/dapan-dianjin/events")
+async def dapan_dianjin_events(request: Request):
+    """SSE 推送：大盘点金扫描完成时通知前端刷新数据（阳谱/金手指/红绿背景）"""
+    async def event_generator():
+        notify_file = Path("data/yang_yin_cache/summary/dapan_update.json")
+        last_mtime = 0.0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                if notify_file.exists():
+                    mtime = notify_file.stat().st_mtime
+                    if mtime > last_mtime:
+                        last_mtime = mtime
+                        yield f"data: {json.dumps({'type': 'scan_completed', 'ts': datetime.now().isoformat()})}\n\n"
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/v1/strategy/39rules-decision", response_model=StrategyDecisionResponse)
 def get_39rules_decision(
     symbol: str,
