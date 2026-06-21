@@ -37,7 +37,7 @@ export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJi
                     </span>
                     {latestGold && (
                         <span className={`ml-2 text-xs sm:text-sm font-medium ${latestGold.signal === 1 ? 'text-amber-400' : 'text-slate-400'}`}>
-                            {latestGold.signal === 1 ? '🖐️ 金' : '👇 银'}
+                            {latestGold.signal === 1 ? <span className="text-amber-400">🖐️ 金</span> : <span className="text-slate-400"><span className="grayscale">👇</span> 银</span>}
                         </span>
                     )}
                 </div>
@@ -56,20 +56,20 @@ export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJi
                         {recent.map(r => <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yang_pct.toFixed(1)}%</td>)}
                     </tr>
                     <tr className="border-b border-slate-50 dark:border-slate-800/50">
+                        <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阴谱</td>
+                        {recent.map(r => <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yin_pct.toFixed(1)}%</td>)}
+                    </tr>
+                    <tr>
                         <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">金/银</td>
                         {recent.map(r => {
                             const g = goldMap.get(r.trade_date)
                             if (!g) return <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-slate-300">—</td>
                             return (
                                 <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center font-medium ${g.signal === 1 ? 'text-amber-400' : 'text-slate-400'}`}>
-                                    {g.signal === 1 ? '🖐️ 金' : '👇 银'}
+                                    {g.signal === 1 ? <span className="text-amber-400">🖐️ 金</span> : <span className="text-slate-400"><span className="grayscale">👇</span> 银</span>}
                                 </td>
                             )
                         })}
-                    </tr>
-                    <tr>
-                        <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阴谱</td>
-                        {recent.map(r => <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yin_pct.toFixed(1)}%</td>)}
                     </tr>
                 </tbody>
             </table>
