@@ -4347,6 +4347,14 @@ def get_gold_finger_history(days: int = 30) -> List[Dict]:
     return hist[["trade_date", "signal", "prob"]].to_dict(orient="records")
 
 
+@app.get("/v1/red-green-bg/history")
+def get_red_green_bg_history(days: int = 30) -> List[Dict]:
+    """返回红绿背景历史。background: 红/绿"""
+    from tradingagents.yang_yin import YangYinPipeline, get_bg_history
+    pipeline = YangYinPipeline()
+    return get_bg_history(pipeline, days=days)
+
+
 @app.get("/v1/strategy/39rules-decision", response_model=StrategyDecisionResponse)
 def get_39rules_decision(
     symbol: str,

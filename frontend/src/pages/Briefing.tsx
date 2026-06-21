@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Newspaper, RefreshCw, AlertCircle, Globe, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark, Cpu, ShieldAlert, TrendingDown, Minus } from 'lucide-react'
 import DapanDianJin from '@/components/DapanDianJin'
 import { api } from '@/services/api'
-import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint } from '@/types'
+import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
 
 function cnTodayStr(): string {
     const d = new Date()
@@ -18,6 +18,7 @@ export default function Briefing() {
     const [availableDates, setAvailableDates] = useState<string[]>([])
     const [yangYinHistory, setYangYinHistory] = useState<YangYinHistoryPoint[]>([])
     const [goldFingerHistory, setGoldFingerHistory] = useState<GoldFingerPoint[]>([])
+    const [redGreenBgHistory, setRedGreenBgHistory] = useState<RedGreenBgPoint[]>([])
 
     useEffect(() => {
         api.listBriefings(60).then(res => {
@@ -29,6 +30,7 @@ export default function Briefing() {
         }).catch(() => {})
         api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
         api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
+        api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
     }, [])
 
     useEffect(() => {
@@ -67,7 +69,7 @@ export default function Briefing() {
             </div>
 
             {/* 大盘点金 -- always shown, independent of briefing */}
-            <DapanDianJin history={yangYinHistory} goldFingerHistory={goldFingerHistory} />
+            <DapanDianJin history={yangYinHistory} goldFingerHistory={goldFingerHistory} redGreenBgHistory={redGreenBgHistory} />
 
             {/* Date picker + actions */}
             <div className="flex items-center gap-3">

@@ -1,12 +1,19 @@
 import { Activity, TrendingDown, TrendingUp, Minus } from 'lucide-react'
-import type { YangYinHistoryPoint, GoldFingerPoint } from '@/types'
+import type { YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
+
+function getBgClass(bg: string | undefined): string {
+    if (bg === '红') return 'bg-red-50 dark:bg-red-950/30'
+    if (bg === '绿') return 'bg-green-50 dark:bg-green-950/30'
+    return ''
+}
 
 interface DapanDianJinProps {
     history?: YangYinHistoryPoint[]
     goldFingerHistory?: GoldFingerPoint[]
+    redGreenBgHistory?: RedGreenBgPoint[]
 }
 
-export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJinProps) {
+export default function DapanDianJin({ history, goldFingerHistory, redGreenBgHistory }: DapanDianJinProps) {
     if (!history || history.length < 2) return null
     const latest = history[history.length - 1]
     const prev = history[history.length - 2]
@@ -18,6 +25,12 @@ export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJi
         for (const g of goldFingerHistory) goldMap.set(g.trade_date, g)
     }
     const latestGold = goldMap.get(latest.trade_date)
+
+    const bgMap = new Map<string, string>()
+    if (redGreenBgHistory) {
+        for (const bg of redGreenBgHistory) bgMap.set(bg.trade_date, bg.background)
+    }
+    const latestBg = bgMap.get(latest.trade_date)
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 dark:border-slate-700/50 dark:bg-slate-900/50">
@@ -40,6 +53,11 @@ export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJi
                             {latestGold.signal === 1 ? <span className="text-amber-400">🖐️ 金</span> : <span className="text-slate-400"><span className="grayscale">👇</span> 银</span>}
                         </span>
                     )}
+                    {latestBg && (
+                        <span className={`ml-1 text-xs sm:text-sm font-medium ${latestBg === '红' ? 'text-red-500' : 'text-green-500'}`}>
+                            {latestBg === '红' ? '▲' : '▼'}
+                        </span>
+                    )}
                 </div>
             </div>
             <div className="overflow-x-auto -mx-3 sm:mx-0">
@@ -53,20 +71,33 @@ export default function DapanDianJin({ history, goldFingerHistory }: DapanDianJi
                 <tbody>
                     <tr className="border-b border-slate-50 dark:border-slate-800/50">
                         <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阳谱</td>
-                        {recent.map(r => <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yang_pct.toFixed(1)}%</td>)}
+                        {recent.map(r => <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums ${getBgClass(bgMap.get(r.trade_date))}`}>{r.yang_pct.toFixed(1)}%</td>)}
                     </tr>
                     <tr className="border-b border-slate-50 dark:border-slate-800/50">
                         <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">阴谱</td>
-                        {recent.map(r => <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums">{r.yin_pct.toFixed(1)}%</td>)}
+                        {recent.map(r => <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center text-black dark:text-white tabular-nums ${getBgClass(bgMap.get(r.trade_date))}`}>{r.yin_pct.toFixed(1)}%</td>)}
                     </tr>
                     <tr>
                         <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">金/银</td>
                         {recent.map(r => {
                             const g = goldMap.get(r.trade_date)
-                            if (!g) return <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-slate-300">—</td>
+                            const bgClass = getBgClass(bgMap.get(r.trade_date))
+                            if (!g) return <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center text-slate-300 ${bgClass}`}>—</td>
                             return (
-                                <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center font-medium ${g.signal === 1 ? 'text-amber-400' : 'text-slate-400'}`}>
+                                <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center font-medium ${g.signal === 1 ? 'text-amber-400' : 'text-slate-400'} ${bgClass}`}>
                                     {g.signal === 1 ? <span className="text-amber-400">🖐️ 金</span> : <span className="text-slate-400"><span className="grayscale">👇</span> 银</span>}
+                                </td>
+                            )
+                        })}
+                    </tr>
+                    <tr>
+                        <td className="sticky left-0 z-10 bg-white dark:bg-slate-900/50 py-1.5 sm:py-2 pr-3 sm:pr-4 font-medium text-black dark:text-white">趋势</td>
+                        {recent.map(r => {
+                            const bg = bgMap.get(r.trade_date)
+                            if (!bg) return <td key={r.trade_date} className="py-1.5 sm:py-2 px-2 sm:px-4 text-center text-slate-300">—</td>
+                            return (
+                                <td key={r.trade_date} className={`py-1.5 sm:py-2 px-2 sm:px-4 text-center ${getBgClass(bg)}`}>
+                                    {bg === '红' ? <span className="text-red-500">▲</span> : <span className="text-green-500">▼</span>}
                                 </td>
                             )
                         })}

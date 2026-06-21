@@ -18,7 +18,7 @@ import BiasAnalysisPanel from '@/components/BiasAnalysisPanel'
 import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useSyncedCharts } from '@/hooks/useSyncedCharts'
-import type { StockSearchResult, YangYinHistoryPoint, GoldFingerPoint } from '@/types'
+import type { StockSearchResult, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
 
 function mapDecision(decision?: string): 'buy' | 'sell' | 'hold' | 'add' | 'reduce' | 'watch' | undefined {
     if (!decision) return undefined
@@ -78,6 +78,7 @@ export default function Analysis() {
     const [showSymbolDropdown, setShowSymbolDropdown] = useState(false)
     const [yangYinHistory, setYangYinHistory] = useState<YangYinHistoryPoint[]>([])
     const [goldFingerHistory, setGoldFingerHistory] = useState<GoldFingerPoint[]>([])
+    const [redGreenBgHistory, setRedGreenBgHistory] = useState<RedGreenBgPoint[]>([])
     const [symbolError, setSymbolError] = useState('')
     const [decisionDisplayName, setDecisionDisplayName] = useState('')
     const symbolTimerRef = useRef<ReturnType<typeof setTimeout>>()
@@ -102,6 +103,7 @@ export default function Analysis() {
     useEffect(() => {
         api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
         api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
+        api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
     }, [])
 
     // 点击外部关闭下拉
@@ -166,7 +168,7 @@ export default function Analysis() {
     return (
         <div className="space-y-4 max-w-[1400px] mx-auto max-sm:space-y-2 max-sm:px-1">
             {/* 大盘点金 -- always shown */}
-            <DapanDianJin history={yangYinHistory} goldFingerHistory={goldFingerHistory} />
+            <DapanDianJin history={yangYinHistory} goldFingerHistory={goldFingerHistory} redGreenBgHistory={redGreenBgHistory} />
 
             {/* 标的搜索栏 */}
             <div ref={symbolContainerRef} className="relative">

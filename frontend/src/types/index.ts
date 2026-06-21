@@ -1051,6 +1051,14 @@ export interface GoldFingerPoint {
     prob: number
 }
 
+export interface RedGreenBgPoint {
+    trade_date: string
+    background: string  // "红" | "绿"
+    gs_signal: string   // "G" | "S"
+    a_line: number
+    bb_line: number
+}
+
 // Bias Analysis Types (乖离率分析)
 export interface BiasStats {
     mean: number

@@ -79,8 +79,9 @@ def run_scan_v7(
     # 持久化 prev_yangpu 供下一日（盘中或盘后）
     save_prev_yangpu(yang_pct, trade_date, pipeline)
 
-    # 金/银手指信号
+    # 金/银手指信号 + 红绿背景
     _update_gold_finger(panel, pipeline, trade_date)
+    _update_red_green_bg(pipeline, trade_date)
 
     logger.info(
         f"扫描完成 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
@@ -174,6 +175,24 @@ def _update_gold_finger(panel, pipeline, trade_date):
         logger.warning("金/银手指更新失败", exc_info=True)
 
 
+# ── 红绿背景（中期趋势）──────────────────────────────
+
+
+def _update_red_green_bg(pipeline, trade_date):
+    """更新红绿背景（中期趋势）。拉上证K线 → 计算GS → 合并阳谱 → 判定背景。"""
+    try:
+        from .red_green_bg import fetch_index_kline, compute_gs, compute_background, update_bg_state
+
+        kline = fetch_index_kline(days=120)
+        gs = compute_gs(kline)
+        yang_hist = load_history(pipeline)
+        bg = compute_background(gs, yang_hist)
+        state = update_bg_state(kline, yang_hist, pipeline, trade_date)
+        logger.info(f"红绿背景: {trade_date} → {state.get('background', '?')}")
+    except Exception:
+        logger.warning("红绿背景更新失败", exc_info=True)
+
+
 # ── 盘中实时扫描 ──────────────────────────────────────
 
 def run_scan_intraday(
@@ -225,6 +244,7 @@ def run_scan_intraday(
     )
 
     _update_gold_finger(panel, pipeline, trade_date)
+    _update_red_green_bg(pipeline, trade_date)
 
     logger.info(
         f"盘中扫描 {trade_date}: 阳谱 {snapshot.yang_pct}% | "

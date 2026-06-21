@@ -32,6 +32,15 @@ from .gold_silver_v8_1 import (
     load_gold_finger_history,
     save_gold_finger_history,
 )
+from .red_green_bg import (
+    compute_gs,
+    compute_background,
+    generate_history as generate_bg_history,
+    get_history as get_bg_history,
+    load_bg_state,
+    save_bg_state,
+    update_bg_state,
+)
 
 __all__ = [
     "YangYinPipeline",
@@ -55,4 +64,11 @@ __all__ = [
     "generate_gold_finger_history",
     "load_gold_finger_history",
     "save_gold_finger_history",
+    "compute_gs",
+    "compute_background",
+    "generate_bg_history",
+    "get_bg_history",
+    "load_bg_state",
+    "save_bg_state",
+    "update_bg_state",
 ]
