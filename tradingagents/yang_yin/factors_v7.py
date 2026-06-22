@@ -290,7 +290,9 @@ def compute_factors_intraday(
         20个因子 dict
     """
     # 1. 构建当日行（对齐面板列）
+    # 实时报价 vol 单位是股，面板 vol 单位是手（100股），统一为手
     today = realtime_df[["ts_code", "vol", "pct_chg"]].copy()
+    today["vol"] = today["vol"] / 100
     today["trade_date"] = trade_date
     today["close"] = realtime_df["price"]  # 现价
 
