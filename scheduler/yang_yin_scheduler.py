@@ -5,7 +5,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -158,9 +158,19 @@ async def yang_yin_loop():
 
             # ── 盘后 ──
             if _is_post_market_time(now):
+                # 当天已跑过盘后扫描就等到次日盘中
+                if getattr(yang_yin_loop, "_post_market_done_date", "") == today_yyyymmdd:
+                    await asyncio.sleep(600)
+                    continue
                 await _run_post_market_scan(today_yyyymmdd)
-                # 等到次日再检查
-                await asyncio.sleep(3600)
+                yang_yin_loop._post_market_done_date = today_yyyymmdd
+                # 等到次日9:25
+                tomorrow_date = now.date() + timedelta(days=1)
+                tomorrow = datetime(tomorrow_date.year, tomorrow_date.month, tomorrow_date.day,
+                                    9, 25, 0, tzinfo=CST)
+                wait = (tomorrow - now).total_seconds()
+                logger.info(f"[阳谱] 盘后扫描完成，{wait/3600:.1f}h后恢复盘中检查")
+                await asyncio.sleep(wait)
                 continue
 
             # 非交易时间，每分钟检查一次
