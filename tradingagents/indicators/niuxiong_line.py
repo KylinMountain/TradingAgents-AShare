@@ -276,12 +276,14 @@ def _try_append_today_row(symbol: str, df: pd.DataFrame, exchange: str | None = 
         prev_close = float(parts[2])  # 昨收
         change = round(close_val - prev_close, 4)
         pct_chg = round(change / prev_close * 100, 4) if prev_close else None
+        amount_val = float(parts[9]) if len(parts) > 9 and parts[9] else 0.0
         row = pd.DataFrame([{
             "open": float(parts[1]),
             "high": float(parts[4]),
             "low": float(parts[5]),
             "close": close_val,
-            "volume": float(parts[8]) / 100,  # Sina返回股，转为手对齐tushare/akshare
+            "volume": float(parts[8]) / 100,  # Sina返回股→手，对齐tushare/akshare
+            "amount": amount_val,              # Sina返回元，对齐akshare amount单位
             "pre_close": prev_close,
             "change": change,
             "pct_chg": pct_chg,

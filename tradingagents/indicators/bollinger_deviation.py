@@ -37,7 +37,9 @@ def calculate_bollinger_deviation(df: pd.DataFrame) -> pd.DataFrame:
     if 'volume' in result.columns:
         volume = result['volume'].astype(float)
     elif 'amount' in result.columns:
-        volume = result['amount'].astype(float) / close  # 成交额/收盘价 ≈ 成交量(股)
+        # amount单位可能为元/千元/万元（取决于数据源），统一折算为手对齐tushare volume
+        # amount(元) / close(元/股) = 股 → /100 = 手
+        volume = result['amount'].astype(float) / close / 100
     else:
         volume = pd.Series(1.0, index=result.index)  # fallback: use close diff only
 
