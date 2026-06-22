@@ -346,6 +346,8 @@ class YangYinPipeline:
 
         if new_rows:
             new_df = pd.DataFrame(new_rows)
+            # 删除当日旧数据（防止重复调用导致数据叠加）
+            panel = panel[panel["trade_date"] != trade_date]
             panel = pd.concat([panel, new_df], ignore_index=True)
             # 维持150天长度
             cutoff = panel["trade_date"].unique()
