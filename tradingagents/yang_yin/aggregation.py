@@ -256,9 +256,8 @@ def run_scan_intraday(
         data_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
-    # 金/银手指和红绿背景的更新移到 scheduler 中 save_snapshot 之后执行
-    # 因为它们的计算依赖 yang_hist 中已有当日数据
-    _notify_dapan_update(pipeline)
+    # 金/银手指、红绿背景更新和SSE通知均移到 scheduler 中 save_snapshot 之后执行
+    # 确保数据已持久化后再通知前端刷新
 
     logger.info(
         f"盘中扫描 {trade_date}: 阳谱 {snapshot.yang_pct}% | "

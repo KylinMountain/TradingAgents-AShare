@@ -64,6 +64,9 @@ async def _run_intraday_scan(trade_date: str):
         panel = pipeline.load_panel()
         await asyncio.to_thread(_update_gold_finger, panel, pipeline, trade_date)
         await asyncio.to_thread(_update_red_green_bg, pipeline, trade_date)
+        # SSE 推送通知前端刷新
+        from tradingagents.yang_yin.aggregation import _notify_dapan_update
+        _notify_dapan_update(pipeline)
         now = datetime.now(CST).strftime("%H:%M")
         logger.info(f"[{now}] 盘中阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}% (已写入)")
         _intraday_fail_count = 0
