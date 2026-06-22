@@ -70,8 +70,8 @@ def calculate_bollinger_deviation(df: pd.DataFrame) -> pd.DataFrame:
     result['uub'] = uub
     result['llb'] = llb
 
-    # CROSS(C, LP): close crosses above LP
-    cross_lp = (close > lp) & (close.shift(1) <= lp.shift(1))
+    # 乖离反转: MCCD从极端超卖区(LLB下方)回穿，量价乖离真实收敛
+    cross_lp = (mccd > llb) & (mccd.shift(1) <= llb.shift(1))
     result['is_cross_lp'] = cross_lp
 
     # MCCD > UUB AND (C < O OR C < REF(C,1))
@@ -107,7 +107,7 @@ def get_bollinger_deviation_signal(df: pd.DataFrame) -> dict:
         signal_text = "双重信号，密切关注方向选择"
     elif is_cross_lp:
         type_name = "乖离反转"
-        signal_text = "收盘价上穿下轨，短线反弹信号"
+        signal_text = "MCCD从极端超卖区回穿，量价乖离开始收敛"
     elif is_warning:
         type_name = "顶部警示"
         signal_text = "MCCD突破极端上轨且收阴，注意回落风险"
