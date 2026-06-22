@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Newspaper, RefreshCw, AlertCircle, Globe, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark, Cpu, ShieldAlert, TrendingDown, Minus } from 'lucide-react'
 import DapanDianJin from '@/components/DapanDianJin'
+import OpportunityBoard from '@/components/OpportunityBoard'
+import SentimentBoard from '@/components/SentimentBoard'
+import NewsBoard from '@/components/NewsBoard'
 import { api, getBaseUrl } from '@/services/api'
 import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
 
@@ -172,6 +175,11 @@ export default function Briefing() {
             {/* Completed */}
             {!loading && briefing && briefing.status === 'completed' && (
                 <div className="space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <OpportunityBoard data={briefing.opportunity_report} />
+                        <SentimentBoard data={briefing.sentiment_report} />
+                        <NewsBoard data={briefing.news_briefing} />
+                    </div>
                     <USTechMappingSection
                         data={briefing.market_data?.us_tech_mapping}
                         adviceContent={briefing.trading_advice?.content}
@@ -220,16 +228,19 @@ export default function Briefing() {
 
 // ─── Section Components ───────────────────────────────────────────
 
-function SectionCard({ title, icon: Icon, children }: {
+function SectionCard({ title, icon: Icon, children, maxH = 'max-h-[55vh]' }: {
     title: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode
+    maxH?: string
 }) {
     return (
-        <div className="card">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+        <div className="card flex flex-col">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold shrink-0">
                 <Icon className="h-5 w-5 text-blue-500" />
                 {title}
             </h2>
-            {children}
+            <div className={`overflow-y-auto ${maxH}`}>
+                {children}
+            </div>
         </div>
     )
 }
