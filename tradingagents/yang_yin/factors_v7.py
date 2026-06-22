@@ -51,24 +51,26 @@ def compute_factors(
     panel: pd.DataFrame,
     trade_date: str,
     prev_yangpu: float | None = None,
+    moneyflow: dict[str, float] | None = None,
 ) -> dict[str, float] | None:
-    """计算单个交易日的20个截面因子。（兼容旧接口，底层调用快速版）
+    """计算单个交易日的20个截面因子。
 
     参数:
         panel: 原始面板或特征面板均可
         trade_date: 目标交易日
         prev_yangpu: 前一日阳谱值
+        moneyflow: {ts_code: net_mf_vol} 资金流，None则money因子=0
     """
-    # 检测是否为特征面板（含 rsi14 列）
     if "rsi14" in panel.columns:
-        return _compute_factors_from_features(panel, trade_date, prev_yangpu)
-    return _compute_factors_raw(panel, trade_date, prev_yangpu)
+        return _compute_factors_from_features(panel, trade_date, prev_yangpu, moneyflow)
+    return _compute_factors_raw(panel, trade_date, prev_yangpu, moneyflow)
 
 
 def _compute_factors_from_features(
     feat: pd.DataFrame,
     trade_date: str,
     prev_yangpu: float | None = None,
+    moneyflow: dict[str, float] | None = None,
 ) -> dict[str, float] | None:
     """从预计算特征面板直接聚合 — 单日 <0.1秒"""
     import numpy as np
@@ -127,8 +129,15 @@ def _compute_factors_from_features(
         "strength_yang": float((strength > 0).mean()),
         "money_mean": 0.0,
         "money_yang": 0.0,
-        "prev_yangpu": float(prev_yangpu) if prev_yangpu is not None else 50.0,
     }
+    # 资金流因子（覆盖默认0值）
+    if moneyflow:
+        mf_vals = [moneyflow.get(c, 0.0) for c in day["ts_code"]]
+        n_mf = len(mf_vals)
+        factors["money_mean"] = float(np.mean(mf_vals)) if mf_vals else 0.0
+        factors["money_yang"] = float(sum(1 for v in mf_vals if v > 0) / n_mf) if n_mf > 0 else 0.0
+
+    factors["prev_yangpu"] = float(prev_yangpu) if prev_yangpu is not None else 50.0
     return factors
 
 
@@ -136,6 +145,7 @@ def _compute_factors_raw(
     panel: pd.DataFrame,
     trade_date: str,
     prev_yangpu: float | None = None,
+    moneyflow: dict[str, float] | None = None,
 ) -> dict[str, float] | None:
     """从原始面板计算因子（含 groupby rolling，较慢）"""
     all_dates = sorted(panel["trade_date"].unique())
@@ -235,6 +245,12 @@ def _compute_factors_raw(
         "money_mean": 0.0,
         "money_yang": 0.0,
     }
+    # 资金流因子（覆盖默认0值）
+    if moneyflow:
+        mf_vals = [moneyflow.get(c, 0.0) for c in day["ts_code"]]
+        n_mf = len(mf_vals)
+        factors["money_mean"] = float(np.mean(mf_vals)) if mf_vals else 0.0
+        factors["money_yang"] = float(sum(1 for v in mf_vals if v > 0) / n_mf) if n_mf > 0 else 0.0
 
     factors["prev_yangpu"] = float(prev_yangpu) if prev_yangpu is not None else 50.0
 
@@ -277,6 +293,7 @@ def compute_factors_intraday(
     realtime_df: pd.DataFrame,
     trade_date: str,
     prev_yangpu: float | None = None,
+    moneyflow: dict[str, float] | None = None,
 ) -> dict[str, float] | None:
     """盘中实时因子计算：本地面板历史 + realtime_quote当日数据。
 
@@ -305,4 +322,4 @@ def compute_factors_intraday(
     combined = pd.concat([window[cols], today[cols]], ignore_index=True)
 
     # 3. 复用原始因子计算
-    return _compute_factors_raw(combined, trade_date, prev_yangpu)
+    return _compute_factors_raw(combined, trade_date, prev_yangpu, moneyflow)
