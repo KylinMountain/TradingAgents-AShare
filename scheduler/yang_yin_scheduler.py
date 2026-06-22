@@ -62,8 +62,7 @@ async def _run_intraday_scan(trade_date: str):
         # 先存快照再更新金/银手指和红绿背景（依赖 yang_hist 中已有当日数据）
         from tradingagents.yang_yin.aggregation import _update_gold_finger, _update_red_green_bg
         panel = pipeline.load_panel()
-        realtime_df = getattr(snapshot, 'realtime_df', None)
-        await asyncio.to_thread(_update_gold_finger, panel, pipeline, trade_date, realtime_df)
+        await asyncio.to_thread(_update_gold_finger, panel, pipeline, trade_date)
         await asyncio.to_thread(_update_red_green_bg, pipeline, trade_date)
         now = datetime.now(CST).strftime("%H:%M")
         logger.info(f"[{now}] 盘中阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}% (已写入)")

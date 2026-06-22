@@ -30,7 +30,6 @@ class YangYinSnapshot:
     d4_capital_pct: float = 0.0
     sector_breakdown: dict = field(default_factory=dict)
     scores: pd.DataFrame | None = None
-    realtime_df: pd.DataFrame | None = None  # 盘中实时报价，供金手指更新复用
 
 
 def run_scan_v7(
@@ -160,13 +159,13 @@ def save_prev_yangpu(yang_pct: float, trade_date: str = None,
 # ── 金/银手指 ──────────────────────────────────────
 
 
-def _update_gold_finger(panel, pipeline, trade_date, realtime_df=None):
-    """更新金/银手指历史。盘中传入 realtime_df 补充今日市场特征。"""
+def _update_gold_finger(panel, pipeline, trade_date):
+    """更新金/银手指历史。盘后 panel 已更新时调用。"""
     try:
         from .gold_silver_v8_1 import generate_history, save_gold_finger_history, load_gold_finger_history
 
         yang_hist = load_history(pipeline)
-        gold_df = generate_history(panel, yang_hist, realtime_df=realtime_df)
+        gold_df = generate_history(panel, yang_hist)
         if not gold_df.empty:
             save_gold_finger_history(gold_df, pipeline)
             latest = gold_df[gold_df["trade_date"] == str(trade_date)]
@@ -255,7 +254,6 @@ def run_scan_intraday(
         yang_pct=round(yang_pct, 1),
         yin_pct=round(100 - yang_pct, 1),
         data_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        realtime_df=realtime,  # 复用给金手指算今日市场特征
     )
 
     # 金/银手指和红绿背景的更新移到 scheduler 中 save_snapshot 之后执行
