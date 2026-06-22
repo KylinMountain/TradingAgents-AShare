@@ -168,17 +168,26 @@ async def _fetch_overseas_market() -> dict:
     result = {}
 
     def _em_indices(fs: str):
-        """Query EastMoney push API for index data."""
-        r = requests.get(
-            "https://push2.eastmoney.com/api/qt/clist/get",
-            params={
-                "np": 2, "fltt": 1, "invt": 2, "fs": fs,
-                "fields": "f12,f14,f2,f3,f4",
-                "fid": "f3", "pn": 1, "pz": 20, "po": 1, "dect": 1,
-            },
-            timeout=10,
-        )
-        data = r.json()
+        """Query EastMoney push API for index data. Uses urllib to bypass proxy."""
+        import urllib.request
+        params = {
+            "np": 2, "fltt": 1, "invt": 2, "fs": fs,
+            "fields": "f12,f14,f2,f3,f4",
+            "fid": "f3", "pn": 1, "pz": 20, "po": 1, "dect": 1,
+        }
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        url = f"https://push2.eastmoney.com/api/qt/clist/get?{qs}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception:
+            # fallback to requests
+            r = requests.get(
+                "https://push2.eastmoney.com/api/qt/clist/get",
+                params=params, timeout=10,
+            )
+            data = r.json()
         items = []
         if data.get("data") and data["data"].get("diff"):
             for v in data["data"]["diff"].values():
@@ -1227,6 +1236,106 @@ _INDUSTRY_A_MAPPING = {
 }
 
 
+# A-share concept sector with historically top-3 leading stocks
+_CONCEPT_LEADER_LIBRARY = {
+    "半导体": [
+        {"code": "688981", "name": "中芯国际", "reason": "晶圆代工龙头，板块风向标"},
+        {"code": "002371", "name": "北方华创", "reason": "半导体设备龙头，设备国产化核心"},
+        {"code": "603501", "name": "韦尔股份", "reason": "CIS芯片龙头，消费电子+汽车双驱动"},
+    ],
+    "芯片": [
+        {"code": "688981", "name": "中芯国际", "reason": "大陆晶圆代工绝对龙头"},
+        {"code": "002049", "name": "紫光国微", "reason": "特种芯片+FPGA，辨识度极高"},
+        {"code": "603986", "name": "兆易创新", "reason": "存储MCU双主线，NOR Flash龙头"},
+    ],
+    "人工智能/AI": [
+        {"code": "002230", "name": "科大讯飞", "reason": "AI语音+大模型，A股AI标杆"},
+        {"code": "688111", "name": "金山办公", "reason": "AI+办公，大模型应用落地标杆"},
+        {"code": "300624", "name": "万兴科技", "reason": "AI创意工具，出海+多模态"},
+    ],
+    "算力/算力租赁": [
+        {"code": "000977", "name": "浪潮信息", "reason": "AI服务器龙头，算力基建核心"},
+        {"code": "603019", "name": "中科曙光", "reason": "超算+国产算力，辨识度高"},
+        {"code": "688256", "name": "寒武纪", "reason": "AI芯片+算力卡，情绪标杆"},
+    ],
+    "CPO/光通信": [
+        {"code": "300308", "name": "中际旭创", "reason": "光模块全球龙头，800G/1.6T领先"},
+        {"code": "300502", "name": "新易盛", "reason": "光模块第二梯队龙头"},
+        {"code": "300394", "name": "天孚通信", "reason": "光器件龙头，CPO核心供应商"},
+    ],
+    "机器人": [
+        {"code": "300024", "name": "机器人", "reason": "工业机器人龙头，名字辨识度极高"},
+        {"code": "002747", "name": "埃斯顿", "reason": "工业机器人+人形机器人核心"},
+        {"code": "688017", "name": "绿的谐波", "reason": "谐波减速器龙头，机器人关节核心"},
+    ],
+    "低空经济": [
+        {"code": "002389", "name": "航天彩虹", "reason": "无人机龙头，低空经济核心标的"},
+        {"code": "300045", "name": "华力创通", "reason": "卫星导航+低空管控"},
+        {"code": "688568", "name": "中科星图", "reason": "空天信息+低空数字底座"},
+    ],
+    "固态电池": [
+        {"code": "300750", "name": "宁德时代", "reason": "电池全球龙头，固态电池技术储备"},
+        {"code": "002074", "name": "国轩高科", "reason": "半固态电池已装车，产业化领先"},
+        {"code": "300014", "name": "亿纬锂能", "reason": "锂电龙头+固态电池布局"},
+    ],
+    "新能源车/智能驾驶": [
+        {"code": "002594", "name": "比亚迪", "reason": "新能源车全球销冠，产业链核心"},
+        {"code": "601127", "name": "赛力斯", "reason": "华为智选车，智能驾驶标杆"},
+        {"code": "300496", "name": "中科创达", "reason": "智能座舱+驾驶域控龙头"},
+    ],
+    "光伏/储能": [
+        {"code": "601012", "name": "隆基绿能", "reason": "光伏硅片龙头，板块风向标"},
+        {"code": "300274", "name": "阳光电源", "reason": "逆变器+储能龙头"},
+        {"code": "688599", "name": "天合光能", "reason": "组件+分布式龙头"},
+    ],
+    "信创/国产软件": [
+        {"code": "688111", "name": "金山办公", "reason": "国产办公软件龙头"},
+        {"code": "000066", "name": "中国长城", "reason": "国产CPU+整机，信创标杆"},
+        {"code": "600536", "name": "中国软件", "reason": "国产操作系统龙头"},
+    ],
+    "数据要素": [
+        {"code": "603138", "name": "海量数据", "reason": "数据库龙头，数据要素基础设施"},
+        {"code": "300212", "name": "易华录", "reason": "数据湖+数据资产化核心标的"},
+        {"code": "600602", "name": "云赛智联", "reason": "上海数据交易所参股，数据要素运营"},
+    ],
+    "消费电子": [
+        {"code": "002475", "name": "立讯精密", "reason": "消费电子代工龙头，苹果产业链核心"},
+        {"code": "002241", "name": "歌尔股份", "reason": "VR/AR+声学龙头"},
+        {"code": "300433", "name": "蓝思科技", "reason": "玻璃盖板龙头，消费电子+汽车"},
+    ],
+    "券商/金融科技": [
+        {"code": "600030", "name": "中信证券", "reason": "券商龙头，牛市风向标"},
+        {"code": "300059", "name": "东方财富", "reason": "互联网券商龙头，散户情绪标杆"},
+        {"code": "300033", "name": "同花顺", "reason": "金融IT+AI投顾，高弹性"},
+    ],
+    "军工/卫星互联网": [
+        {"code": "600760", "name": "中航沈飞", "reason": "战斗机龙头，军工辨识度最高"},
+        {"code": "600118", "name": "中国卫星", "reason": "卫星制造龙头，卫星互联网核心"},
+        {"code": "300342", "name": "天银机电", "reason": "星敏感器龙头，卫星互联网弹性标的"},
+    ],
+    "医药/CXO": [
+        {"code": "300759", "name": "康龙化成", "reason": "CXO龙头，医药研发外包核心"},
+        {"code": "603259", "name": "药明康德", "reason": "CXO绝对龙头，行业标杆"},
+        {"code": "300122", "name": "智飞生物", "reason": "疫苗龙头，医药板块辨识度高"},
+    ],
+    "白酒/食品饮料": [
+        {"code": "600519", "name": "贵州茅台", "reason": "A股股王，消费板块绝对风向标"},
+        {"code": "000858", "name": "五粮液", "reason": "白酒第二极，机构重仓"},
+        {"code": "000568", "name": "泸州老窖", "reason": "高端白酒老三，弹性大"},
+    ],
+    "中特估/央企改革": [
+        {"code": "601857", "name": "中国石油", "reason": "央企市值第一，中特估标杆"},
+        {"code": "600941", "name": "中国移动", "reason": "运营商龙头，高分红代表"},
+        {"code": "601088", "name": "中国神华", "reason": "煤炭央企，高股息标杆"},
+    ],
+    "电力/电网": [
+        {"code": "600900", "name": "长江电力", "reason": "水电龙头，电力板块定海神针"},
+        {"code": "601985", "name": "中国核电", "reason": "核电龙头，绿色电力核心"},
+        {"code": "600406", "name": "国电南瑞", "reason": "电网自动化龙头，特高压核心"},
+    ],
+}
+
+
 async def _fetch_us_stock_industries() -> dict[str, str]:
     """Fetch US stock industry classification from East Money datacenter. Cached 24h."""
     now = time.monotonic()
@@ -1835,6 +1944,187 @@ async def _generate_trading_advice(
         }
 
 
+async def _call_briefing_llm(prompt: str) -> str:
+    """Call LLM for briefing sub-reports. Returns cleaned text content."""
+    from tradingagents.default_config import DEFAULT_CONFIG
+    provider = DEFAULT_CONFIG["llm_provider"]
+    model = DEFAULT_CONFIG["quick_think_llm"]
+    base_url = DEFAULT_CONFIG["backend_url"]
+    api_key = DEFAULT_CONFIG["api_key"]
+
+    provider_map = {"deepseek": "openai", "zhipu": "openai", "moonshot": "openai"}
+    mapped_provider = provider_map.get(provider.lower(), provider.lower())
+
+    from tradingagents.llm_clients.factory import create_llm_client
+    client = create_llm_client(provider=mapped_provider, model=model, base_url=base_url, api_key=api_key)
+    llm = client.get_llm()
+    response = await llm.ainvoke(prompt)
+    content = response.content if hasattr(response, "content") else str(response)
+    content = content.strip()
+    # Remove outer code fences if present
+    if content.startswith("```"):
+        lines = content.split("\n")
+        if lines[-1].strip() == "```":
+            content = "\n".join(lines[1:-1])
+        else:
+            content = "\n".join(lines[1:])
+    return content
+
+
+async def _generate_opportunity_report(market_data: dict, top_news: list) -> dict:
+    """Generate pre-market opportunity report: concept mining + leader stock prediction."""
+
+    # Build US sector performance summary
+    us_sector_lines = []
+    us_tech = market_data.get("us_tech_mapping") or {}
+    for sec in us_tech.get("sectors", []):
+        stocks_str = ", ".join(
+            f"{s['name']}({s['change_pct']:+.2f}%)" for s in sec["stocks"]
+        )
+        us_sector_lines.append(
+            f"- {sec['name']}[{sec['sentiment']}]: {stocks_str} -> A股映射: {sec['a_mapping']}"
+        )
+    us_sectors_summary = "\n".join(us_sector_lines) if us_sector_lines else "暂无美股板块数据"
+
+    # Build policy/news summary
+    policy_lines = []
+    for n in top_news[:15]:
+        policy_lines.append(f"- {n['title']}")
+    policy_news_summary = "\n".join(policy_lines) if policy_lines else "暂无政策新闻"
+
+    # Global news summary
+    gn_lines = []
+    for n in market_data.get("global_news", [])[:20]:
+        gn_lines.append(f"- {n['title']}")
+    global_news_summary = "\n".join(gn_lines) if gn_lines else "暂无"
+
+    # Concept library summary
+    lib_lines = []
+    for concept, leaders in _CONCEPT_LEADER_LIBRARY.items():
+        stock_strs = ", ".join(f"{l['name']}({l['code']})" for l in leaders)
+        lib_lines.append(f"- {concept}: {stock_strs}")
+    concept_lib_summary = "\n".join(lib_lines)
+
+    from tradingagents.prompts.zh import PROMPTS as ZH_PROMPTS
+    template = ZH_PROMPTS["briefing_opportunity"]
+    prompt = template.format(
+        us_sectors=us_sectors_summary,
+        policy_news=policy_news_summary,
+        concept_library=concept_lib_summary,
+        global_news=global_news_summary,
+    )
+
+    content = await _call_briefing_llm(prompt)
+    try:
+        import json
+        parsed = json.loads(content)
+        return {"raw_content": content, **parsed}
+    except (json.JSONDecodeError, TypeError):
+        return {"raw_content": content, "热点预测": [], "综述": "AI解析失败，请查看原始内容"}
+
+
+async def _generate_sentiment_report(market_data: dict) -> dict:
+    """Generate overnight global market sentiment recap briefing (300 chars max)."""
+
+    # US indices
+    us_lines = []
+    if market_data.get("us_indices"):
+        for idx in market_data["us_indices"]:
+            us_lines.append(f"{idx['name']}: {idx['close']} ({idx['change_pct']:+.2f}%)")
+    us_indices_str = "\n".join(us_lines) if us_lines else "暂无美股数据"
+
+    # Chinese ADRs
+    adr_lines = []
+    for a in market_data.get("chinese_adrs", [])[:13]:
+        adr_lines.append(f"{a['name']}({a['symbol']}): {a['close']} ({a['change_pct']:+.2f}%)")
+    chinese_adrs_str = "\n".join(adr_lines) if adr_lines else "暂无中概股数据"
+
+    # HK market
+    hk_lines = []
+    if market_data.get("hk_index"):
+        for idx in market_data["hk_index"]:
+            hk_lines.append(f"{idx['name']}: {idx['close']} ({idx['change_pct']:+.2f}%)")
+    hk_market_str = "\n".join(hk_lines) if hk_lines else "暂无港股数据"
+
+    # A50 futures
+    a50_futures_str = "暂无A50数据"
+    if market_data.get("a50_futures"):
+        a50 = market_data["a50_futures"]
+        a50_futures_str = f"{a50['close']} ({a50['change_pct']:+.2f}%)"
+
+    # RMB exchange rate
+    rmb_str = "暂无汇率数据"
+    if market_data.get("fx"):
+        fx_lines = []
+        for f in market_data["fx"]:
+            fx_lines.append(f"{f['name']}: {f['close']} ({f['change_pct']:+.2f}%)")
+        rmb_str = "; ".join(fx_lines)
+
+    # Commodities
+    comm_lines = []
+    if market_data.get("commodities"):
+        for c in market_data["commodities"]:
+            comm_lines.append(f"{c['name']}: {c['close']} ({c['change_pct']:+.2f}%)")
+    commodities_str = "\n".join(comm_lines) if comm_lines else "暂无大宗商品数据"
+
+    from tradingagents.prompts.zh import PROMPTS as ZH_PROMPTS
+    template = ZH_PROMPTS["briefing_sentiment"]
+    prompt = template.format(
+        us_indices=us_indices_str,
+        chinese_adrs=chinese_adrs_str,
+        hk_market=hk_market_str,
+        a50_futures=a50_futures_str,
+        rmb_exchange=rmb_str,
+        commodities=commodities_str,
+    )
+
+    content = await _call_briefing_llm(prompt)
+    try:
+        import json
+        parsed = json.loads(content)
+        return {"raw_content": content, **parsed}
+    except (json.JSONDecodeError, TypeError):
+        return {"raw_content": content, "核心结论": "AI解析失败，请查看原始内容"}
+
+
+async def _generate_news_briefing(market_data: dict, top_news: list) -> dict:
+    """Generate top-3 market-moving news briefing from past 12h global financial news."""
+
+    gn_lines = []
+    for n in market_data.get("global_news", [])[:30]:
+        gn_lines.append(f"- {n['title']}")
+    global_news_str = "\n".join(gn_lines) if gn_lines else "暂无财经快讯"
+
+    news_lines = []
+    for n in top_news[:10]:
+        news_lines.append(f"- {n['title']}")
+    top_news_str = "\n".join(news_lines) if news_lines else "暂无宏观要闻"
+
+    announce = market_data.get("announcements") or {}
+    announce_lines = []
+    for ev in announce.get("major_events", [])[:10]:
+        announce_lines.append(f"[重大] {ev['name']}({ev['code']}): {ev['title']}")
+    for ev in announce.get("shareholder_changes", [])[:5]:
+        announce_lines.append(f"[持股变动] {ev['name']}({ev['code']}): {ev['title']}")
+    announcements_str = "\n".join(announce_lines) if announce_lines else "暂无重要公告"
+
+    from tradingagents.prompts.zh import PROMPTS as ZH_PROMPTS
+    template = ZH_PROMPTS["briefing_news_briefing"]
+    prompt = template.format(
+        global_news=global_news_str,
+        top_news=top_news_str,
+        announcements=announcements_str,
+    )
+
+    content = await _call_briefing_llm(prompt)
+    try:
+        import json
+        parsed = json.loads(content)
+        return {"raw_content": content, **parsed}
+    except (json.JSONDecodeError, TypeError):
+        return {"raw_content": content, "大事速递": [], "综述": "AI解析失败，请查看原始内容"}
+
+
 # ─── Main Orchestration ──────────────────────────────────────────────────────
 
 async def generate_briefing(db: Session, user_id: str, date_str: str, force: bool = False) -> dict:
@@ -1944,6 +2234,21 @@ async def generate_briefing(db: Session, user_id: str, date_str: str, force: boo
             market_data, top_news, watchlist_analysis, portfolio_analysis, user_id, db,
         )
 
+        # Phase 4: LLM generate 3 new briefing panels in parallel
+        opp_task = _generate_opportunity_report(market_data, top_news)
+        sent_task = _generate_sentiment_report(market_data)
+        news_brief_task = _generate_news_briefing(market_data, top_news)
+
+        opportunity_report, sentiment_report, news_briefing = await asyncio.gather(
+            opp_task, sent_task, news_brief_task, return_exceptions=True,
+        )
+        if isinstance(opportunity_report, Exception):
+            opportunity_report = {"error": str(opportunity_report), "热点预测": [], "综述": "生成失败"}
+        if isinstance(sentiment_report, Exception):
+            sentiment_report = {"error": str(sentiment_report), "核心结论": "生成失败"}
+        if isinstance(news_briefing, Exception):
+            news_briefing = {"error": str(news_briefing), "大事速递": [], "综述": "生成失败"}
+
         # Store
         result = upsert_briefing(db, user_id, date_str, {
             "status": "completed",
@@ -1952,6 +2257,9 @@ async def generate_briefing(db: Session, user_id: str, date_str: str, force: boo
             "watchlist_analysis": watchlist_analysis,
             "portfolio_analysis": portfolio_analysis,
             "trading_advice": trading_advice,
+            "opportunity_report": opportunity_report,
+            "sentiment_report": sentiment_report,
+            "news_briefing": news_briefing,
             "generated_at": datetime.now(timezone.utc),
             "error": None,
         })
