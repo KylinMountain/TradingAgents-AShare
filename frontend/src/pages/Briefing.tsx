@@ -34,7 +34,7 @@ export default function Briefing() {
                     if (!prev || prev.length === 0) return data
                     const prevLast = prev[prev.length - 1]
                     const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.updated_at !== newLast?.updated_at) {
+                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.yang_pct !== newLast?.yang_pct) {
                         return data
                     }
                     return prev
