@@ -85,6 +85,20 @@ def main():
     else:
         print("  [WARN] 服务重启命令异常")
 
+    # 3e. 重启调度器（scheduler进程需要重启才能加载新Python代码）
+    print("  重启调度器...")
+    stdin, stdout, stderr = client.exec_command(
+        f"pkill -f 'python.*scheduler.main' 2>/dev/null; "
+        f"sleep 2; "
+        f"cd {REMOTE_DIR} && nohup /usr/local/bin/python3.10 -m scheduler.main > /dev/null 2>&1 & "
+        f"sleep 2 && pgrep -f 'scheduler.main' > /dev/null && echo OK || echo FAIL"
+    )
+    output = stdout.read().decode().strip()
+    if "OK" in output:
+        print("  [OK] 调度器重启成功")
+    else:
+        print(f"  [WARN] 调度器重启异常: {output}")
+
     client.close()
 
     # 4. 健康检查 + 冒烟测试

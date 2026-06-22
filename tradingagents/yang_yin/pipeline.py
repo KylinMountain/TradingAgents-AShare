@@ -307,9 +307,18 @@ class YangYinPipeline:
 
         panel = pd.read_parquet(panel_path)
 
+        # 先删除当日旧数据，防止任何路径导致的重复行
+        before = len(panel)
+        panel = panel[panel["trade_date"] != trade_date]
+        if len(panel) < before:
+            logger.info(f"已删除 {before - len(panel)} 行旧数据 ({trade_date})")
+
         daily_df = self.pro.daily(trade_date=trade_date)
         if daily_df is None or daily_df.empty:
             logger.info(f"{trade_date} 无交易数据")
+            # 即使无新数据，也保存去重后的面板
+            if len(panel) < before:
+                panel.to_parquet(panel_path, index=False)
             return panel
 
         # 取面板中已有股票的前一日收盘价
@@ -346,8 +355,6 @@ class YangYinPipeline:
 
         if new_rows:
             new_df = pd.DataFrame(new_rows)
-            # 删除当日旧数据（防止重复调用导致数据叠加）
-            panel = panel[panel["trade_date"] != trade_date]
             panel = pd.concat([panel, new_df], ignore_index=True)
             # 维持150天长度
             cutoff = panel["trade_date"].unique()
@@ -417,9 +424,10 @@ class YangYinPipeline:
         return panel
 
     def update_feature_panel(self, trade_date=None):
-        """更新特征面板 — 当前简单重建（向量化秒级完成）"""
-        if trade_date:
-            self.update_panel(trade_date)
+        """更新特征面板 — 当前简单重建（向量化秒级完成）
+
+        trade_date仅用于日志，更新面板由调用方在调用本方法前完成。
+        """
         return self.build_feature_panel()
 
     def load_feature_panel(self) -> pd.DataFrame | None:
