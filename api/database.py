@@ -155,10 +155,18 @@ def _ensure_user_schema() -> None:
                     email VARCHAR(255),
                     query_text TEXT,
                     symbol VARCHAR(20),
+                    endpoint VARCHAR(128),
+                    ip_address VARCHAR(64),
                     created_at DATETIME
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_query_logs_user_id ON user_query_logs(user_id)"))
+            # Migrate existing tables: add endpoint + ip_address columns
+            for col, col_type in [("endpoint", "VARCHAR(128)"), ("ip_address", "VARCHAR(64)")]:
+                try:
+                    conn.execute(text(f"ALTER TABLE user_query_logs ADD COLUMN {col} {col_type}"))
+                except Exception:
+                    pass  # column already exists
     except Exception as e:
         logger.error("Failed to ensure user_query_logs schema: %s", e)
 
@@ -552,6 +560,8 @@ class UserQueryLogDB(Base):
     email = Column(String(255), nullable=True)
     query_text = Column(Text, nullable=True)
     symbol = Column(String(20), nullable=True)
+    endpoint = Column(String(128), nullable=True)
+    ip_address = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

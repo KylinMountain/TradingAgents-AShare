@@ -342,6 +342,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── 股票查询日志路径 ─────────────────────────────────────────────────────────
+_STOCK_QUERY_PREFIXES = (
+    "/v1/market/", "/v1/yang-yin/", "/v1/gold-finger/",
+    "/v1/red-green-bg/", "/v1/dapan-dianjin/", "/v1/strategy/",
+    "/v1/watchlist", "/v1/portfolio/",
+)
+
+
+async def _write_query_log(
+    user_id: str, email: str, endpoint: str,
+    query_text: str, symbol: str, ip: str,
+) -> None:
+    try:
+        with get_db_ctx() as db:
+            db.add(UserQueryLogDB(
+                id=uuid4().hex,
+                user_id=user_id,
+                email=email or None,
+                endpoint=endpoint,
+                query_text=query_text[:1024] if query_text else None,
+                symbol=symbol[:20] if symbol else None,
+                ip_address=ip or None,
+            ))
+            db.commit()
+    except Exception:
+        pass
+
+
+@app.middleware("http")
+async def _log_market_queries(request: Request, call_next):
+    response = await call_next(request)
+    if request.method != "GET":
+        return response
+    if response.status_code < 200 or response.status_code >= 300:
+        return response
+    if not request.url.path.startswith(_STOCK_QUERY_PREFIXES):
+        return response
+
+    user_id, email = "anonymous", ""
+    try:
+        import jwt as _jwt
+        from api.services.auth_service import decode_access_token
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            payload = decode_access_token(auth[7:])
+            user_id = str(payload.get("sub") or "anonymous")
+            email = payload.get("email", "") or ""
+    except Exception:
+        pass
+
+    asyncio.create_task(_write_query_log(
+        user_id=user_id, email=email, endpoint=request.url.path,
+        query_text=str(request.url.query), symbol=request.query_params.get("symbol") or "",
+        ip=_get_real_ip(request) or "",
+    ))
+    return response
+
 _executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
 
 # ── Singleton job store (in-memory or Redis depending on REDIS_URL) ─────────
@@ -5843,6 +5900,8 @@ class QueryLogResponse(BaseModel):
     email: Optional[str] = None
     query_text: Optional[str] = None
     symbol: Optional[str] = None
+    endpoint: Optional[str] = None
+    ip_address: Optional[str] = None
     created_at: Optional[datetime] = None
 
 
@@ -5864,7 +5923,9 @@ def admin_get_query_logs(
     return QueryLogListResponse(
         logs=[QueryLogResponse(
             id=l.id, user_id=l.user_id, email=l.email,
-            query_text=l.query_text, symbol=l.symbol, created_at=l.created_at,
+            query_text=l.query_text, symbol=l.symbol,
+            endpoint=l.endpoint, ip_address=l.ip_address,
+            created_at=l.created_at,
         ) for l in logs],
         total=total,
     )
