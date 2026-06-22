@@ -59,9 +59,11 @@ def main():
     )
     print("  " + stdout.read().decode().strip())
 
-    # 3b. 拉取最新代码
+    # 3b. 拉取最新代码（stash本地数据 → 更新源码 → 恢复数据）
     stdin, stdout, stderr = client.exec_command(
-        f"cd {REMOTE_DIR} && git fetch origin && git reset --hard origin/main 2>&1"
+        f"cd {REMOTE_DIR} && git stash push -m deploy-save 2>/dev/null; "
+        f"git fetch origin && git reset --hard origin/main 2>&1; "
+        f"git stash pop 2>/dev/null || true 2>&1"
     )
     print(stdout.read().decode())
 

@@ -1,5 +1,5 @@
-# Data cache (large, regenerated at runtime)
-data/yang_yin_cache/daily_k/
+# Data cache (large, regenerated at runtime — never commit)
+data/yang_yin_cache/
 
 # Docs (local design/plan documents)
 docs/
