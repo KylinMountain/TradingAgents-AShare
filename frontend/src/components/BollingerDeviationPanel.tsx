@@ -134,6 +134,15 @@ export default function BollingerDeviationPanel({ symbol, onChartReady, onSyncNo
         const mccdSeries = chart.addSeries(HistogramSeries, {
             priceLineVisible: false,
             lastValueVisible: true,
+            priceFormat: {
+                type: 'custom',
+                formatter: (price: number) => {
+                    const v = price / 1e4
+                    if (Math.abs(v) >= 10000) return (v / 10000).toFixed(1) + '亿'
+                    if (Math.abs(v) >= 1) return v.toFixed(0) + '万'
+                    return v.toFixed(2) + '万'
+                },
+            },
         })
 
         const ubSeries = chart.addSeries(LineSeries, {

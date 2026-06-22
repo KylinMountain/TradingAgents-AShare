@@ -58,11 +58,12 @@ def calculate_bollinger_deviation(df: pd.DataFrame) -> pd.DataFrame:
     std_lp = close.rolling(20).std()
     lp = ma20 - 2 * std_lp
 
-    # Band widths (relative to MA20, used as horizontal reference lines)
-    ub = 1.618 * (up - ma20)   # = 3.236 * std_up
-    lb = 1.618 * (lp - ma20)   # = -3.236 * std_lp
-    uub = 2.33 * (up - ma20)   # = 4.66 * std_up
-    llb = 2.33 * (lp - ma20)   # = -4.66 * std_lp
+    # Band widths scaled by avg volume to match MCCD units (price * volume)
+    avg_vol = volume.rolling(20).mean()
+    ub = 1.618 * (up - ma20) * avg_vol
+    lb = 1.618 * (lp - ma20) * avg_vol
+    uub = 2.33 * (up - ma20) * avg_vol
+    llb = 2.33 * (lp - ma20) * avg_vol
 
     result['ub'] = ub
     result['lb'] = lb
