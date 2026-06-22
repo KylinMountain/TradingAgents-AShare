@@ -3000,6 +3000,39 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str, period: str 
                                 return _aggregate_candles(candles, period)
                     except Exception:
                         pass
+                    # Sina 实时快照兜底：eastmoney 盘中数据不可用时（如午盘休市）
+                    last_candle_date = candles[-1]["date"] if candles else None
+                    if not last_candle_date or last_candle_date < today_str:
+                        try:
+                            import urllib.request, re
+                            sina_sym = vendor_symbol
+                            url = f"http://hq.sinajs.cn/list={sina_sym}"
+                            req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"})
+                            with urllib.request.urlopen(req, timeout=8) as resp:
+                                body = resp.read().decode("gbk")
+                            m = re.search(r'hq_str_\w+="(.+)"', body)
+                            if m:
+                                parts = m.group(1).split(",")
+                                if len(parts) >= 6 and float(parts[3]) > 0:
+                                    prev_c = candles[-1]["close"] if candles else None
+                                    sn_close = float(parts[3])
+                                    sn_change = sn_close - prev_c if prev_c is not None else None
+                                    sn_change_pct = (sn_change / prev_c * 100) if prev_c not in (None, 0) and sn_change is not None else None
+                                    sn_vol = float(parts[8]) / 100 if len(parts) >= 9 and parts[8] else None
+                                    candles.append({
+                                        "date": today_str,
+                                        "open": float(parts[1]),
+                                        "high": float(parts[4]),
+                                        "low": float(parts[5]),
+                                        "close": sn_close,
+                                        "volume": sn_vol,
+                                        "amount": None,
+                                        "change": sn_change,
+                                        "change_percent": sn_change_pct,
+                                        "turnover_rate": None,
+                                    })
+                        except Exception:
+                            pass
 
             result = _aggregate_candles(candles, period)
             _index_kline_cache[cache_key] = (now, result)
