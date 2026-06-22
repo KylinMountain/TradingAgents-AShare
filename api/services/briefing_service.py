@@ -23,6 +23,43 @@ logger = logging.getLogger(__name__)
 _SEMAPHORE = asyncio.Semaphore(3)
 
 
+def _em_urlopen(url: str, timeout: int = 10, extra_headers: dict | None = None) -> dict | None:
+    """Fetch JSON from EastMoney API with CDP fallback for local dev.
+
+    On the server (China IP), urllib works directly. On local dev machines,
+    EastMoney's CDN blocks non-browser TLS fingerprints (RemoteDisconnected).
+    When urllib fails, we fall back to routing the request through a local
+    Chrome browser via CDP.
+    """
+    import urllib.request
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if extra_headers:
+        headers.update(extra_headers)
+
+    req = urllib.request.Request(url, headers=headers)
+    # 1) Try urllib first (works on server)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        first_err = f"{type(e).__name__}: {e}"
+
+    # 2) Fall back to CDP (local Chrome)
+    try:
+        from tradingagents.utils.cdp_fetch import is_cdp_available, cdp_fetch_json
+        if is_cdp_available():
+            logger.info(f"CDP fallback for {url[:120]}...")
+            result = cdp_fetch_json(url)
+            if result is not None:
+                return result
+    except Exception as e:
+        logger.warning(f"CDP fallback failed: {e}")
+
+    logger.error(f"EastMoney fetch failed: {first_err}")
+    return None
+
+
 # ─── DB CRUD ─────────────────────────────────────────────────────────────────
 
 def get_briefing(db: Session, user_id: str, date_str: str) -> Optional[dict]:
@@ -177,19 +214,9 @@ async def _fetch_overseas_market() -> dict:
         }
         qs = "&".join(f"{k}={v}" for k, v in params.items())
         url = f"https://push2.eastmoney.com/api/qt/clist/get?{qs}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-        except Exception:
-            # fallback to requests
-            r = requests.get(
-                "https://push2.eastmoney.com/api/qt/clist/get",
-                params=params, timeout=10,
-            )
-            data = r.json()
+        data = _em_urlopen(url, timeout=10)
         items = []
-        if data.get("data") and data["data"].get("diff"):
+        if data and data.get("data") and data["data"].get("diff"):
             for v in data["data"]["diff"].values():
                 price = (v.get("f2") or 0) / 100
                 chg_pct = (v.get("f3") or 0) / 100
@@ -209,10 +236,8 @@ async def _fetch_overseas_market() -> dict:
                 f"secid={secid}&klt=101&lmt=3&"
                 f"fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57"
             )
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-            if data.get("data") and data["data"].get("klines"):
+            data = _em_urlopen(url, timeout=10)
+            if data and data.get("data") and data["data"].get("klines"):
                 latest = data["data"]["klines"][-1]
                 parts = latest.split(",")
                 if len(parts) >= 3:

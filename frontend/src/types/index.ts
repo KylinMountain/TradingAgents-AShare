@@ -1049,8 +1049,57 @@ export interface BriefingDetailResponse {
     watchlist_analysis?: BriefingWatchlistItem[] | null
     portfolio_analysis?: BriefingPortfolioItem[] | null
     trading_advice?: BriefingTradingAdvice | null
+    opportunity_report?: BriefingOpportunityReport | null
+    sentiment_report?: BriefingSentimentReport | null
+    news_briefing?: BriefingNewsBriefing | null
     generated_at?: string | null
     created_at?: string | null
+}
+
+export interface BriefingOpportunityReport {
+    raw_content?: string
+    热点预测?: OpportunityItem[]
+    综述?: string
+    error?: string
+}
+
+export interface OpportunityItem {
+    概念名称: string
+    逻辑: string
+    关注标的: OpportunityStock[]
+    强度评级?: string
+}
+
+export interface OpportunityStock {
+    代码: string
+    名称: string
+    理由: string
+}
+
+export interface BriefingSentimentReport {
+    raw_content?: string
+    美股复盘?: string
+    中概股表现?: string
+    港股表现?: string
+    A50与汇率?: string
+    市场情绪?: string
+    A股开盘预判?: string
+    核心结论?: string
+    error?: string
+}
+
+export interface BriefingNewsBriefing {
+    raw_content?: string
+    大事速递?: NewsBriefingItem[]
+    综述?: string
+    error?: string
+}
+
+export interface NewsBriefingItem {
+    核心内容: string
+    影响分析: string
+    逻辑强度: string
+    理由?: string
 }
 
 export interface BriefingListResponse {

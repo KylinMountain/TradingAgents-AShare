@@ -570,6 +570,9 @@ class DailyBriefingDB(Base):
     watchlist_analysis = Column(JSON, nullable=True)
     portfolio_analysis = Column(JSON, nullable=True)
     trading_advice = Column(JSON, nullable=True)
+    opportunity_report = Column(JSON, nullable=True)
+    sentiment_report = Column(JSON, nullable=True)
+    news_briefing = Column(JSON, nullable=True)
     generated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -590,6 +593,9 @@ class DailyBriefingDB(Base):
             "watchlist_analysis": self.watchlist_analysis,
             "portfolio_analysis": self.portfolio_analysis,
             "trading_advice": self.trading_advice,
+            "opportunity_report": self.opportunity_report,
+            "sentiment_report": self.sentiment_report,
+            "news_briefing": self.news_briefing,
             "generated_at": self.generated_at.isoformat() if self.generated_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

@@ -20,6 +20,7 @@ from uuid import uuid4
 import logging
 import time
 
+
 # Configure standard logging to include timestamps
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
@@ -1124,6 +1125,9 @@ class BriefingDetailResponse(BaseModel):
     watchlist_analysis: Optional[list] = None
     portfolio_analysis: Optional[list] = None
     trading_advice: Optional[dict] = None
+    opportunity_report: Optional[dict] = None
+    sentiment_report: Optional[dict] = None
+    news_briefing: Optional[dict] = None
     generated_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
