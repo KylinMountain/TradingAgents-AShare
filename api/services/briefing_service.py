@@ -201,23 +201,72 @@ async def _fetch_overseas_market() -> dict:
                 })
         return items
 
+    def _em_kline_fallback(secid: str, name: str) -> dict | None:
+        """回退: 从日K线取最近收盘价, 用于休市日获取前一日数据."""
+        try:
+            url = (
+                f"https://push2his.eastmoney.com/api/qt/stock/kline/get?"
+                f"secid={secid}&klt=101&lmt=3&"
+                f"fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            if data.get("data") and data["data"].get("klines"):
+                latest = data["data"]["klines"][-1]
+                parts = latest.split(",")
+                if len(parts) >= 3:
+                    close = float(parts[2])
+                    prev_close = None
+                    if len(data["data"]["klines"]) >= 2:
+                        prev_parts = data["data"]["klines"][-2].split(",")
+                        prev_close = float(prev_parts[2])
+                    chg = round((close - prev_close) / prev_close * 100, 2) if prev_close and prev_close != 0 else 0
+                    return {"name": name, "symbol": secid, "close": round(close, 2), "change_pct": chg}
+        except Exception:
+            pass
+        return None
+
     # US indices (EastMoney codes: 100.DJIA, 100.SPX, 100.NDX)
+    # secid for kline fallback: 100.DJIA->100.DJIA, 100.SPX->100.SPX, 100.NDX->100.NDX
+    _us_map = [("100.DJIA", "道琼斯"), ("100.SPX", "标普500"), ("100.NDX", "纳斯达克")]
     try:
-        result["us_indices"] = await asyncio.to_thread(
-            _em_indices, "i:100.DJIA,i:100.SPX,i:100.NDX"
-        )
+        us = _em_indices("i:100.DJIA,i:100.SPX,i:100.NDX")
+        if not us:
+            # 周一美股休市 → 回退取最近K线
+            for code, name in _us_map:
+                fb = _em_kline_fallback(code, name)
+                if fb:
+                    us.append(fb)
+        result["us_indices"] = us
     except Exception as e:
         logger.warning(f"US indices fetch failed: {e}")
-        result["us_indices"] = []
+        # 异常时也尝试回退
+        us = []
+        for code, name in _us_map:
+            fb = _em_kline_fallback(code, name)
+            if fb:
+                us.append(fb)
+        result["us_indices"] = us
 
     # HK indices (100.HSI, 100.HSCEI)
+    _hk_map = [("100.HSI", "恒生指数"), ("100.HSCEI", "国企指数")]
     try:
-        result["hk_index"] = await asyncio.to_thread(
-            _em_indices, "i:100.HSI,i:100.HSCEI"
-        )
+        hk = _em_indices("i:100.HSI,i:100.HSCEI")
+        if not hk:
+            for code, name in _hk_map:
+                fb = _em_kline_fallback(code, name)
+                if fb:
+                    hk.append(fb)
+        result["hk_index"] = hk
     except Exception as e:
         logger.warning(f"HK index fetch failed: {e}")
-        result["hk_index"] = []
+        hk = []
+        for code, name in _hk_map:
+            fb = _em_kline_fallback(code, name)
+            if fb:
+                hk.append(fb)
+        result["hk_index"] = hk
 
     # A50 futures — try EastMoney futures codes
     try:
