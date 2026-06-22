@@ -29,9 +29,39 @@ export default function Briefing() {
             setAvailableDates(dates)
         }).catch(() => {})
         const refresh = () => {
-            api.getYangYinHistory(30).then(setYangYinHistory).catch(() => {})
-            api.getGoldFingerHistory(30).then(setGoldFingerHistory).catch(() => {})
-            api.getRedGreenBgHistory(30).then(setRedGreenBgHistory).catch(() => {})
+            api.getYangYinHistory(30).then(data => {
+                setYangYinHistory(prev => {
+                    if (!prev || prev.length === 0) return data
+                    const prevLast = prev[prev.length - 1]
+                    const newLast = data[data.length - 1]
+                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.updated_at !== newLast?.updated_at) {
+                        return data
+                    }
+                    return prev
+                })
+            }).catch(() => {})
+            api.getGoldFingerHistory(30).then(data => {
+                setGoldFingerHistory(prev => {
+                    if (!prev || prev.length === 0) return data
+                    const prevLast = prev[prev.length - 1]
+                    const newLast = data[data.length - 1]
+                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.signal !== newLast?.signal) {
+                        return data
+                    }
+                    return prev
+                })
+            }).catch(() => {})
+            api.getRedGreenBgHistory(30).then(data => {
+                setRedGreenBgHistory(prev => {
+                    if (!prev || prev.length === 0) return data
+                    const prevLast = prev[prev.length - 1]
+                    const newLast = data[data.length - 1]
+                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.background !== newLast?.background) {
+                        return data
+                    }
+                    return prev
+                })
+            }).catch(() => {})
         }
         refresh()
         const es = new EventSource(`${getBaseUrl()}/v1/dapan-dianjin/events`)
