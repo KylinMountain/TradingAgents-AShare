@@ -59,6 +59,11 @@ async def _run_intraday_scan(trade_date: str):
         pipeline = YangYinPipeline()
         snapshot = await asyncio.to_thread(run_scan_intraday, pipeline, trade_date)
         await asyncio.to_thread(save_snapshot, snapshot, pipeline)
+        # 先存快照再更新金/银手指和红绿背景（依赖 yang_hist 中已有当日数据）
+        from tradingagents.yang_yin.aggregation import _update_gold_finger, _update_red_green_bg
+        panel = pipeline.load_panel()
+        await asyncio.to_thread(_update_gold_finger, panel, pipeline, trade_date)
+        await asyncio.to_thread(_update_red_green_bg, pipeline, trade_date)
         now = datetime.now(CST).strftime("%H:%M")
         logger.info(f"[{now}] 盘中阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}% (已写入)")
         _intraday_fail_count = 0
@@ -105,6 +110,11 @@ async def _run_post_market_scan(trade_date: str):
     try:
         snapshot = await asyncio.to_thread(run_scan_v7, pipeline, trade_date)
         await asyncio.to_thread(save_snapshot, snapshot, pipeline)
+        # 先存快照再更新金/银手指和红绿背景
+        from tradingagents.yang_yin.aggregation import _update_gold_finger, _update_red_green_bg
+        panel = pipeline.load_panel()
+        await asyncio.to_thread(_update_gold_finger, panel, pipeline, trade_date)
+        await asyncio.to_thread(_update_red_green_bg, pipeline, trade_date)
         logger.info(f"盘后存储完成: 阳谱 {snapshot.yang_pct}%  阴谱 {snapshot.yin_pct}%")
         return snapshot
     except Exception as e:

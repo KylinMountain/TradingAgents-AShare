@@ -4470,7 +4470,7 @@ async def dapan_dianjin_events(request: Request):
                     mtime = notify_file.stat().st_mtime
                     if mtime > last_mtime:
                         last_mtime = mtime
-                        yield f"data: {json.dumps({'type': 'scan_completed', 'ts': datetime.now().isoformat()})}\n\n"
+                        yield f"event: scan_completed\ndata: {json.dumps({'type': 'scan_completed', 'ts': datetime.now().isoformat()})}\n\n"
             except Exception:
                 pass
             await asyncio.sleep(5)

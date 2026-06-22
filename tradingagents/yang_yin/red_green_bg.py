@@ -34,16 +34,86 @@ def _get_tushare_pro():
 
 
 def fetch_index_kline(days: int = 120) -> pd.DataFrame:
-    """拉取上证指数 000001.SH 日K线，返回 date(desc) 排序的 DataFrame"""
-    pro = _get_tushare_pro()
-    end = datetime.now().strftime("%Y%m%d")
-    start = (datetime.now() - timedelta(days=days + 60)).strftime("%Y%m%d")
-    raw = pro.index_daily(ts_code=INDEX_CODE, start_date=start, end_date=end)
+    """拉取上证指数 000001.SH 日K线，多源回退 + 当日Sina实时快照
+
+    数据源优先级: Tushare → Tencent(AkShare) → Eastmoney(AkShare)
+    然后尝试追加当日Sina实时行情
+    """
+    import urllib.request
+    import re
+
+    end_str = datetime.now().strftime("%Y%m%d")
+    start_str = (datetime.now() - timedelta(days=days + 60)).strftime("%Y%m%d")
+
+    raw = None
+    last_exc = None
+
+    # 1) Tushare
+    try:
+        pro = _get_tushare_pro()
+        raw = pro.index_daily(ts_code=INDEX_CODE, start_date=start_str, end_date=end_str)
+        if raw is not None and not raw.empty:
+            raw = raw.rename(columns={"trade_date": "date", "vol": "volume"})
+    except Exception as exc:
+        last_exc = exc
+
+    # 2) Tencent (akshare)
     if raw is None or raw.empty:
-        raise RuntimeError("无法获取上证指数K线数据")
-    df = raw.rename(columns={"trade_date": "date", "vol": "volume"})
-    df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
-    df = df.sort_values("date").reset_index(drop=True)
+        try:
+            import akshare as ak
+            raw = ak.stock_zh_a_hist_tx(symbol="sh000001", start_date=start_str, end_date=end_str, adjust="qfq")
+            if raw is not None and not raw.empty:
+                raw = raw.rename(columns={"日期": "date", "开盘": "open", "收盘": "close",
+                                          "最高": "high", "最低": "low", "成交量": "volume"})
+        except Exception as exc:
+            last_exc = exc
+
+    # 3) Eastmoney (akshare)
+    if raw is None or raw.empty:
+        try:
+            import akshare as ak
+            raw = ak.stock_zh_index_daily_em(symbol="sh000001", start_date=start_str, end_date=end_str)
+            if raw is not None and not raw.empty:
+                raw = raw.rename(columns={"date": "date", "open": "open", "close": "close",
+                                          "high": "high", "low": "low", "volume": "volume"})
+        except Exception as exc:
+            last_exc = exc
+
+    if raw is None or raw.empty:
+        raise RuntimeError(f"无法获取上证指数K线数据 (all sources failed): {last_exc}")
+
+    raw["date"] = pd.to_datetime(raw["date"])
+    df = raw.sort_values("date").reset_index(drop=True)
+
+    # 4) 追加当日Sina实时快照
+    now = datetime.now()
+    today = pd.Timestamp(now.date())
+    if today not in df["date"].dt.normalize().values:
+        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        if now >= market_open:
+            try:
+                req = urllib.request.Request(
+                    "http://hq.sinajs.cn/list=sh000001",
+                    headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    body = resp.read().decode("gbk")
+                m = re.search(r'hq_str_sh000001="(.+)"', body)
+                if m:
+                    parts = m.group(1).split(",")
+                    if len(parts) >= 32 and float(parts[3]) > 0:
+                        row = pd.DataFrame([{
+                            "date": today,
+                            "open": float(parts[1]),
+                            "high": float(parts[4]),
+                            "low": float(parts[5]),
+                            "close": float(parts[3]),
+                            "volume": float(parts[8]) / 100,
+                        }])
+                        df = pd.concat([df, row], ignore_index=True).sort_values("date").reset_index(drop=True)
+            except Exception:
+                pass
+
     return df
 
 

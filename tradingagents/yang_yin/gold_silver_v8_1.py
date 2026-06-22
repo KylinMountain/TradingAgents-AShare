@@ -191,11 +191,12 @@ def generate_history(
 
     yang_hist = yang_hist.sort_values("trade_date").reset_index(drop=True)
     mkt_feat = compute_market_features_all(panel)
+    # 允许 mkt_feat 为空（盘中 panel 未更新时），compute_features 会 fallback 到 0
     if mkt_feat.empty:
-        logger.warning("大盘情绪特征为空，无法生成历史信号")
-        return pd.DataFrame()
+        logger.info("大盘情绪特征为空（盘中面板未更新？），市场特征全部置零")
 
-    dates = [d for d in yang_hist["trade_date"].tolist() if d in mkt_feat.index]
+    # 使用 yang_hist 中的所有日期，不限定 mkt_feat 范围
+    dates = yang_hist["trade_date"].tolist()
     if not dates:
         return pd.DataFrame()
 

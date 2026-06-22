@@ -81,9 +81,7 @@ def run_scan_v7(
     # 持久化 prev_yangpu 供下一日（盘中或盘后）
     save_prev_yangpu(yang_pct, trade_date, pipeline)
 
-    # 金/银手指信号 + 红绿背景
-    _update_gold_finger(panel, pipeline, trade_date)
-    _update_red_green_bg(pipeline, trade_date)
+    # 金/银手指和红绿背景的更新移到 scheduler 中 save_snapshot 之后执行
     _notify_dapan_update(pipeline)
 
     logger.info(
@@ -258,8 +256,9 @@ def run_scan_intraday(
         data_time=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
-    _update_gold_finger(panel, pipeline, trade_date)
-    _update_red_green_bg(pipeline, trade_date)
+    # 金/银手指和红绿背景的更新移到 scheduler 中 save_snapshot 之后执行
+    # 因为它们的计算依赖 yang_hist 中已有当日数据
+    _notify_dapan_update(pipeline)
 
     logger.info(
         f"盘中扫描 {trade_date}: 阳谱 {snapshot.yang_pct}% | "
