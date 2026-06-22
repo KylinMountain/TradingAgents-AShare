@@ -50,6 +50,28 @@ SCALER_STD = {
 }
 
 
+def _compute_market_from_realtime(realtime_df: pd.DataFrame) -> dict | None:
+    """从实时报价DataFrame计算当日市场特征。"""
+    if realtime_df.empty:
+        return None
+    day = realtime_df
+    up = day[day["pct_chg"] > 0]
+    down = day[day["pct_chg"] < 0]
+    up_mean = float(up["pct_chg"].mean()) if not up.empty else 0.0
+    up_vol = up["vol"].sum() if not up.empty else 0.0
+    down_vol = down["vol"].sum() if not down.empty else 1.0
+    vol_ratio_raw = up_vol / max(down_vol, 1.0)
+    limit_up_count = int((day["pct_chg"] >= 9.9).sum())
+    mean_chg_raw = float(day["pct_chg"].mean())
+    return {
+        "trade_date": pd.Timestamp.now().strftime("%Y%m%d"),
+        "up_mean": up_mean,
+        "vol_ratio_raw": vol_ratio_raw,
+        "limit_up_count": limit_up_count,
+        "mean_chg_raw": mean_chg_raw,
+    }
+
+
 def compute_market_features(panel: pd.DataFrame, trade_date: str) -> dict | None:
     """从面板计算单个日期的4个大盘情绪特征原始值。"""
     day = panel[panel["trade_date"] == trade_date]
@@ -184,14 +206,26 @@ def predict_gold_finger(features: dict) -> tuple[int, float]:
 def generate_history(
     panel: pd.DataFrame,
     yang_hist: pd.DataFrame,
+    realtime_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """链式回填：按时间顺序计算每日金/银信号。"""
+    """链式回填：按时间顺序计算每日金/银信号。
+    盘中传入 realtime_df 补充今日市场特征（panel 尚未更新时）。"""
     if yang_hist.empty:
         return pd.DataFrame()
 
     yang_hist = yang_hist.sort_values("trade_date").reset_index(drop=True)
     mkt_feat = compute_market_features_all(panel)
-    # 允许 mkt_feat 为空（盘中 panel 未更新时），compute_features 会 fallback 到 0
+
+    # 盘中：从 realtime 计算今日市场特征，注入 mkt_feat
+    if realtime_df is not None and not realtime_df.empty:
+        today_feat = _compute_market_from_realtime(realtime_df)
+        if today_feat is not None:
+            mkt_feat.loc[today_feat["trade_date"]] = [
+                today_feat["up_mean"], today_feat["vol_ratio_raw"],
+                today_feat["limit_up_count"], today_feat["mean_chg_raw"],
+            ]
+            logger.info(f"盘中市场特征注入: {today_feat['trade_date']} up_mean={today_feat['up_mean']:.2f} limit_up={today_feat['limit_up_count']}")
+
     if mkt_feat.empty:
         logger.info("大盘情绪特征为空（盘中面板未更新？），市场特征全部置零")
 
