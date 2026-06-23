@@ -104,10 +104,10 @@ export default function Analysis() {
     useEffect(() => {
         let retried = false
         const refresh = () => {
-            let anyEmpty = false
+            let needRebuild = false
             const fetches = [
                 api.getYangYinHistory(30).then(data => {
-                    if (!data || data.length === 0) anyEmpty = true
+                    if (!data || data.length < 2) needRebuild = true
                     setYangYinHistory(prev => {
                         if (!prev || prev.length === 0) return data
                         const prevLast = prev[prev.length - 1]
@@ -119,7 +119,7 @@ export default function Analysis() {
                     })
                 }).catch(() => {}),
                 api.getGoldFingerHistory(30).then(data => {
-                    if (!data || data.length === 0) anyEmpty = true
+                    if (!data || data.length < 2) needRebuild = true
                     setGoldFingerHistory(prev => {
                         if (!prev || prev.length === 0) return data
                         const prevLast = prev[prev.length - 1]
@@ -131,7 +131,7 @@ export default function Analysis() {
                     })
                 }).catch(() => {}),
                 api.getRedGreenBgHistory(30).then(data => {
-                    if (!data || data.length === 0) anyEmpty = true
+                    if (!data || data.length < 2) needRebuild = true
                     setRedGreenBgHistory(prev => {
                         if (!prev || prev.length === 0) return data
                         const prevLast = prev[prev.length - 1]
@@ -144,7 +144,7 @@ export default function Analysis() {
                 }).catch(() => {}),
             ]
             Promise.all(fetches).then(() => {
-                if (anyEmpty && !retried) {
+                if (needRebuild && !retried) {
                     retried = true
                     api.ensureYangYinData().then(() => {
                         setTimeout(refresh, 3000)

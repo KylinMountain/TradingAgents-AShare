@@ -79,7 +79,9 @@ def _rebuild_yangpu_history(pipeline):
     logger.info("  重建阳谱历史...")
     feat = pipeline.load_feature_panel()
     if feat is None:
-        logger.warning("  特征面板不存在，先构建")
+        logger.warning("  特征面板不存在，先构建面板+特征")
+        if pipeline.load_panel() is None:
+            pipeline.build_panel()
         feat = pipeline.build_feature_panel()
 
     all_dates = sorted(feat["trade_date"].unique())
@@ -116,8 +118,8 @@ def _rebuild_gold_finger(pipeline):
     logger.info("  重建金银手指...")
     panel = pipeline.load_panel()
     if panel is None:
-        logger.warning("  面板不存在，跳过金银手指")
-        return
+        logger.warning("  面板不存在，先构建")
+        panel = pipeline.build_panel()
 
     yang_hist = load_history(pipeline)
     gold_df = generate_history(panel, yang_hist)
