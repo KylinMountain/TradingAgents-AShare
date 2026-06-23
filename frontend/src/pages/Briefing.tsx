@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Newspaper, RefreshCw, AlertCircle, Globe, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark, Cpu, ShieldAlert, TrendingDown, Minus } from 'lucide-react'
+import { Newspaper, RefreshCw, AlertCircle, Bell, Eye, Briefcase, Lightbulb, TrendingUp, DollarSign, BarChart3, Activity, Zap, Landmark } from 'lucide-react'
 import DapanDianJin from '@/components/DapanDianJin'
 import OpportunityBoard from '@/components/OpportunityBoard'
 import SentimentBoard from '@/components/SentimentBoard'
 import NewsBoard from '@/components/NewsBoard'
 import { api, getBaseUrl } from '@/services/api'
-import type { BriefingDetailResponse, BriefingMarketData, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
+import type { BriefingDetailResponse, BriefingSentiment, BriefingSectorFundFlow, BriefingAnnouncements, BriefingDragonTiger, BriefingIndustryRanking, BriefingHotStock, BriefingMacroData, BriefingNewsItem, BriefingWatchlistItem, BriefingPortfolioItem, BriefingTradingAdvice, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint } from '@/types'
 
 function cnTodayStr(): string {
     const d = new Date()
@@ -195,12 +195,7 @@ export default function Briefing() {
                         <SentimentBoard data={briefing.sentiment_report} />
                         <NewsBoard data={briefing.news_briefing} />
                     </div>
-                    <USTechMappingSection
-                        data={briefing.market_data?.us_tech_mapping}
-                        adviceContent={briefing.trading_advice?.content}
-                    />
                     <TradingPlanSection advice={briefing.trading_advice} />
-                    <MarketOverview data={briefing.market_data} />
 
                     {/* LLM input data — collapsed for reference */}
                     <details className="group">
@@ -265,237 +260,6 @@ function PctBadge({ pct }: { pct?: number | null }) {
     const color = pct >= 0 ? 'text-red-500' : 'text-green-500'
     const prefix = pct >= 0 ? '+' : ''
     return <span className={color}>{prefix}{pct.toFixed(2)}%</span>
-}
-
-function MarketOverview({ data }: { data?: BriefingMarketData | null }) {
-    if (!data) return <SectionCard title="今日大势" icon={Globe}><p className="text-slate-500">暂无数据</p></SectionCard>
-
-    return (
-        <SectionCard title="今日大势" icon={Globe}>
-            <div className="grid gap-3 sm:grid-cols-2">
-                {/* US + HK + A50 — core external signals */}
-                <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-700/50 dark:bg-slate-800/30">
-                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-400">美股</h3>
-                    <div className="space-y-1.5">
-                        {(data.us_indices || []).map(idx => (
-                            <div key={idx.symbol} className="flex items-center justify-between text-sm">
-                                <span className="text-slate-600 dark:text-slate-400">{idx.name}</span>
-                                <span className="font-medium tabular-nums">{idx.close?.toFixed(2)}</span>
-                                <PctBadge pct={idx.change_pct} />
-                            </div>
-                        ))}
-                    </div>
-                    {data.hk_index && data.hk_index.length > 0 && (
-                        <>
-                            <h3 className="mb-2 mt-3 text-xs font-medium uppercase tracking-wider text-slate-400">港股</h3>
-                            <div className="space-y-1.5">
-                                {data.hk_index.map(idx => (
-                                    <div key={idx.name} className="flex items-center justify-between text-sm">
-                                        <span className="text-slate-600 dark:text-slate-400">{idx.name}</span>
-                                        <span className="font-medium tabular-nums">{idx.close?.toFixed(2)}</span>
-                                        <PctBadge pct={idx.change_pct} />
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-                    {data.a50_futures && (
-                        <>
-                            <h3 className="mb-2 mt-3 text-xs font-medium uppercase tracking-wider text-slate-400">A50期货</h3>
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-600 dark:text-slate-400">{data.a50_futures.name}</span>
-                                <span className="font-medium tabular-nums">{data.a50_futures.close?.toFixed(2)}</span>
-                                <PctBadge pct={data.a50_futures.change_pct} />
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                {/* ADRs + Commodities + FX + Fund Flow — supporting */}
-                <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-700/50 dark:bg-slate-800/30">
-                    {data.chinese_adrs && data.chinese_adrs.length > 0 && (
-                        <>
-                            <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-400">中概股龙头</h3>
-                            <div className="space-y-1.5">
-                                {data.chinese_adrs.slice(0, 6).map(a => (
-                                    <div key={a.symbol} className="flex items-center justify-between text-sm">
-                                        <span className="text-slate-600 dark:text-slate-400">{a.name}</span>
-                                        <span className="font-medium tabular-nums">{a.close?.toFixed(2)}</span>
-                                        <PctBadge pct={a.change_pct} />
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-                    {data.commodities && data.commodities.length > 0 && (
-                        <>
-                            <h3 className="mb-2 mt-3 text-xs font-medium uppercase tracking-wider text-slate-400">大宗商品</h3>
-                            <div className="space-y-1.5">
-                                {data.commodities.map(c => (
-                                    <div key={c.name} className="flex items-center justify-between text-sm">
-                                        <span className="text-slate-600 dark:text-slate-400">{c.name}</span>
-                                        <span className="font-medium tabular-nums">{c.close?.toFixed(2)}</span>
-                                        <PctBadge pct={c.change_pct} />
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-                    {data.fx && data.fx.length > 0 && (
-                        <>
-                            <h3 className="mb-2 mt-3 text-xs font-medium uppercase tracking-wider text-slate-400">汇率</h3>
-                            <div className="space-y-1.5">
-                                {data.fx.map(f => (
-                                    <div key={f.name} className="flex items-center justify-between text-sm">
-                                        <span className="text-slate-600 dark:text-slate-400">{f.name}</span>
-                                        <span className="font-medium tabular-nums">{f.close?.toFixed(4)}</span>
-                                        <PctBadge pct={f.change_pct} />
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-                    {data.fund_flow && (
-                        <>
-                            <h3 className="mb-2 mt-3 text-xs font-medium uppercase tracking-wider text-slate-400">资金面</h3>
-                            <div className="space-y-1.5 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">主力净流入</span>
-                                    <span className={data.fund_flow.main_net >= 0 ? 'text-red-500 font-medium' : 'text-green-500 font-medium'}>
-                                        {(data.fund_flow.main_net / 1e8).toFixed(2)}亿
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">超大单净流入</span>
-                                    <span>{(data.fund_flow.super_large_net / 1e8).toFixed(2)}亿</span>
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </div>
-            </div>
-        </SectionCard>
-    )
-}
-
-function USTechMappingSection({ data, adviceContent }: {
-    data?: import('@/types').USTechMapping | null
-    adviceContent?: string
-}) {
-    if (!data || !data.sectors || data.sectors.length === 0) return null
-
-    const sentimentIcon = (s: string) => {
-        if (s === 'bullish') return <TrendingUp className="h-4 w-4 text-red-500" />
-        if (s === 'bearish') return <TrendingDown className="h-4 w-4 text-green-500" />
-        return <Minus className="h-4 w-4 text-slate-400" />
-    }
-
-    const sentimentColor = (s: string) => {
-        if (s === 'bullish') return 'border-red-200 bg-red-50/50 dark:border-red-900/30 dark:bg-red-950/20'
-        if (s === 'bearish') return 'border-green-200 bg-green-50/50 dark:border-green-900/30 dark:bg-green-950/20'
-        return 'border-slate-200 bg-slate-50/50 dark:border-slate-700/30 dark:bg-slate-800/20'
-    }
-
-    const sentimentLabel = (s: string) => {
-        if (s === 'bullish') return '正面'
-        if (s === 'bearish') return '利空'
-        return '中性'
-    }
-
-    // Extract AI interpretation section from trading_advice content
-    let aiInterpretation = ''
-    if (adviceContent) {
-        const match = adviceContent.match(/## 🔬 美股科技映射[\s\S]*?(?=## 📊|$)/)
-        if (match) {
-            aiInterpretation = match[0].replace('## 🔬 美股科技映射', '').trim()
-        }
-    }
-
-    // Overall sentiment bar
-    const overallLabel = (s: string) => {
-        if (s === 'bullish') return '整体偏多'
-        if (s === 'bearish') return '整体偏空'
-        if (s === 'mixed') return '涨跌互现'
-        return '信号中性'
-    }
-    const overallColor = (s: string) => {
-        if (s === 'bullish') return 'text-red-600 bg-red-50 dark:bg-red-950/20'
-        if (s === 'bearish') return 'text-green-600 bg-green-50 dark:bg-green-950/20'
-        return 'text-slate-500 bg-slate-50 dark:bg-slate-800/20'
-    }
-
-    return (
-        <SectionCard title="美股科技映射" icon={Cpu}>
-            {/* AI interpretation */}
-            {aiInterpretation && (
-                <div className="mb-4 rounded-lg border-l-4 border-blue-400 bg-blue-50/50 px-4 py-3 text-sm leading-relaxed text-slate-700 dark:border-blue-500 dark:bg-blue-950/20 dark:text-slate-300">
-                    {aiInterpretation.split('\n').filter(l => l.trim()).map((line, i) => {
-                        const trimmed = line.replace(/^\*+|\*+$/g, '').trim()
-                        if (!trimmed) return null
-                        if (line.startsWith('**')) {
-                            return <p key={i} className="mt-2 font-medium text-slate-800 dark:text-slate-200">{trimmed}</p>
-                        }
-                        return <p key={i} className="mt-1">{trimmed}</p>
-                    })}
-                </div>
-            )}
-
-            {/* Sector cards grid */}
-            <div className="grid gap-3 sm:grid-cols-3">
-                {data.sectors.map(sec => (
-                    <div key={sec.name} className={`rounded-lg border p-3 ${sentimentColor(sec.sentiment)}`}>
-                        <div className="mb-2 flex items-center justify-between">
-                            <span className="text-sm font-semibold">{sec.name}</span>
-                            <span className="flex items-center gap-1 text-xs">
-                                {sentimentIcon(sec.sentiment)}
-                                {sentimentLabel(sec.sentiment)}
-                            </span>
-                        </div>
-                        <div className="space-y-1 mb-2">
-                            {sec.stocks.map(s => (
-                                <div key={s.symbol} className="flex items-center justify-between text-xs">
-                                    <span className="flex items-center gap-1">
-                                        <span className="text-slate-600 dark:text-slate-400">{s.name}</span>
-                                        {s.is_stock ? (
-                                            <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">龙头</span>
-                                        ) : (
-                                            <span className="rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-400 dark:bg-slate-800">ETF</span>
-                                        )}
-                                    </span>
-                                    <span className="tabular-nums font-medium">{(s.close ?? 0).toFixed(2)}</span>
-                                    <PctBadge pct={s.change_pct} />
-                                </div>
-                            ))}
-                        </div>
-                        <p className="text-xs text-slate-400">→ {sec.a_mapping}</p>
-                    </div>
-                ))}
-            </div>
-
-            {/* Risk indicators bar */}
-            {data.risk_indicators && Object.keys(data.risk_indicators).length > 0 && (
-                <div className="mt-3 flex items-center gap-4 rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-2 text-xs dark:border-slate-700/50 dark:bg-slate-800/30">
-                    <ShieldAlert className="h-4 w-4 text-slate-400" />
-                    <span className="text-slate-500">风险偏好</span>
-                    {Object.entries(data.risk_indicators).map(([k, v]) => (
-                        <span key={k} className="flex items-center gap-1">
-                            <span className="text-slate-600 dark:text-slate-400">{v.name}</span>
-                            <span className="tabular-nums font-medium">{(v.close ?? 0).toFixed(2)}</span>
-                            <PctBadge pct={v.change_pct} />
-                        </span>
-                    ))}
-                </div>
-            )}
-
-            {/* Overall sentiment tag */}
-            <div className="mt-3 flex items-center gap-2 text-xs">
-                <span className={`rounded-full px-2 py-0.5 font-medium ${overallColor(data.overall_sentiment)}`}>
-                    {overallLabel(data.overall_sentiment)}
-                </span>
-                {data.error && <span className="text-slate-400">部分数据获取失败</span>}
-            </div>
-        </SectionCard>
-    )
 }
 
 function TopNewsSection({ news }: { news?: BriefingNewsItem[] | null }) {
