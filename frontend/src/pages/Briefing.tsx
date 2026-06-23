@@ -31,40 +31,55 @@ export default function Briefing() {
             )].sort().reverse()
             setAvailableDates(dates)
         }).catch(() => {})
+        let retried = false
         const refresh = () => {
-            api.getYangYinHistory(30).then(data => {
-                setYangYinHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.yang_pct !== newLast?.yang_pct || prevLast?.updated_at !== newLast?.updated_at) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
-            api.getGoldFingerHistory(30).then(data => {
-                setGoldFingerHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.signal !== newLast?.signal || prevLast?.prob !== newLast?.prob) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
-            api.getRedGreenBgHistory(30).then(data => {
-                setRedGreenBgHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.background !== newLast?.background || prevLast?.gs_signal !== newLast?.gs_signal) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
+            let anyEmpty = false
+            const fetches = [
+                api.getYangYinHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setYangYinHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.yang_pct !== newLast?.yang_pct || prevLast?.updated_at !== newLast?.updated_at) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+                api.getGoldFingerHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setGoldFingerHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.signal !== newLast?.signal || prevLast?.prob !== newLast?.prob) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+                api.getRedGreenBgHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setRedGreenBgHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.background !== newLast?.background || prevLast?.gs_signal !== newLast?.gs_signal) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+            ]
+            Promise.all(fetches).then(() => {
+                if (anyEmpty && !retried) {
+                    retried = true
+                    api.ensureYangYinData().then(() => {
+                        setTimeout(refresh, 3000)
+                    }).catch(() => {})
+                }
+            })
         }
         refresh()
         const es = new EventSource(`${getBaseUrl()}/v1/dapan-dianjin/events`)
@@ -176,7 +191,7 @@ export default function Briefing() {
             {!loading && briefing && briefing.status === 'completed' && (
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        <OpportunityBoard data={briefing.opportunity_report} />
+                        <OpportunityBoard data={briefing.opportunity_report} date={selectedDate} />
                         <SentimentBoard data={briefing.sentiment_report} />
                         <NewsBoard data={briefing.news_briefing} />
                     </div>

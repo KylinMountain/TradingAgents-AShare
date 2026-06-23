@@ -102,41 +102,55 @@ export default function Analysis() {
     }, [symbolSearch])
 
     useEffect(() => {
+        let retried = false
         const refresh = () => {
-            // 拉取后只在新数据时更新state，避免无效渲染
-            api.getYangYinHistory(30).then(data => {
-                setYangYinHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.yang_pct !== newLast?.yang_pct) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
-            api.getGoldFingerHistory(30).then(data => {
-                setGoldFingerHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.signal !== newLast?.signal) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
-            api.getRedGreenBgHistory(30).then(data => {
-                setRedGreenBgHistory(prev => {
-                    if (!prev || prev.length === 0) return data
-                    const prevLast = prev[prev.length - 1]
-                    const newLast = data[data.length - 1]
-                    if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.background !== newLast?.background) {
-                        return data
-                    }
-                    return prev
-                })
-            }).catch(() => {})
+            let anyEmpty = false
+            const fetches = [
+                api.getYangYinHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setYangYinHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.yang_pct !== newLast?.yang_pct) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+                api.getGoldFingerHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setGoldFingerHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.signal !== newLast?.signal) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+                api.getRedGreenBgHistory(30).then(data => {
+                    if (!data || data.length === 0) anyEmpty = true
+                    setRedGreenBgHistory(prev => {
+                        if (!prev || prev.length === 0) return data
+                        const prevLast = prev[prev.length - 1]
+                        const newLast = data[data.length - 1]
+                        if (prevLast?.trade_date !== newLast?.trade_date || prevLast?.background !== newLast?.background) {
+                            return data
+                        }
+                        return prev
+                    })
+                }).catch(() => {}),
+            ]
+            Promise.all(fetches).then(() => {
+                if (anyEmpty && !retried) {
+                    retried = true
+                    api.ensureYangYinData().then(() => {
+                        setTimeout(refresh, 3000)
+                    }).catch(() => {})
+                }
+            })
         }
         refresh()
         const es = new EventSource(`${getBaseUrl()}/v1/dapan-dianjin/events`)

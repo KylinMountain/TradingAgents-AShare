@@ -6909,6 +6909,19 @@ _uploads_dir = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent / "
 if _uploads_dir.is_dir():
     app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
+# --- 兜底重建接口 (必须在SPA catch-all之前注册) ---
+def _ensure_yang_yin_data():
+    """前端检测到阳谱/金银手指/红绿背景数据为空时，触发强制重建。"""
+    from tradingagents.yang_yin.auto_rebuild import check_and_rebuild
+    try:
+        rebuilt = check_and_rebuild(rebuild_force=True)
+        return {"ok": True, "rebuilt": rebuilt}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+app.add_api_route("/v1/yang-yin/ensure-data", _ensure_yang_yin_data, methods=["GET"])
+
 # Mount frontend if dist exists
 dist_path = os.path.join(os.getcwd(), "frontend/dist")
 if os.path.exists(dist_path):

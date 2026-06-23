@@ -37,6 +37,7 @@ export default function DapanDianJin({ history, goldFingerHistory, redGreenBgHis
             <h3 className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 sm:mb-3 flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-400" />
                 大盘点金
+                <span className="ml-auto text-[10px] sm:text-xs font-normal text-slate-400">{latest.trade_date}</span>
             </h3>
             <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
                 <div>

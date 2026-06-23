@@ -509,6 +509,10 @@ class ApiService {
     async getRedGreenBgHistory(days = 30): Promise<RedGreenBgPoint[]> {
         return this.request<RedGreenBgPoint[]>(`/v1/red-green-bg/history?days=${days}`)
     }
+
+    async ensureYangYinData(): Promise<{ok: boolean; rebuilt: boolean}> {
+        return this.request<{ok: boolean; rebuilt: boolean}>(`/v1/yang-yin/ensure-data`)
+    }
 }
 
 export const api = new ApiService()
