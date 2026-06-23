@@ -1,5 +1,9 @@
-# Data cache (large, regenerated at runtime — never commit)
-data/yang_yin_cache/
+# Data cache — large intermediate files, regenerated at runtime
+data/yang_yin_cache/daily_k/
+data/yang_yin_cache/panel_150d_slim.parquet
+data/yang_yin_cache/panel_features.parquet
+data/yang_yin_cache/summary/dapan_update.json
+data/yang_yin_cache/summary/moneyflow/
 
 # Docs (local design/plan documents)
 docs/
