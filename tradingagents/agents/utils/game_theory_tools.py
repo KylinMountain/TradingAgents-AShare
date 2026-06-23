@@ -122,3 +122,75 @@ def get_pledge_ratio(
 ) -> str:
     """获取全市场股权质押比率数据，评估市场整体质押风险水平。date 格式 YYYY-MM-DD。"""
     return route_to_vendor("get_pledge_ratio", date)
+
+
+# ── 新增：资金面/筹码/板块/公告（Phase 2）──
+
+@tool
+def get_shareholder_count(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+) -> str:
+    """获取个股股东户数变化历史，判断筹码集中度趋势。股东户数减少意味着筹码集中。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_shareholder_count", symbol)
+
+
+@tool
+def get_dividend_history(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+) -> str:
+    """获取个股分红送转历史（每股派息/送股/转增），评估股息回报。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_dividend_history", symbol)
+
+
+@tool
+def get_concept_board(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+) -> str:
+    """获取个股所属概念/行业/地域板块归属，识别题材属性。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_concept_board", symbol)
+
+
+@tool
+def get_individual_fund_flow_120d(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+) -> str:
+    """获取个股120日主力/大单/中单/小单资金净流向，判断中长期资金趋势。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_individual_fund_flow_120d", symbol)
+
+
+@tool
+def get_cninfo_announcements(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+    start_date: Annotated[str, "开始日期，格式 YYYY-MM-DD"],
+    end_date: Annotated[str, "结束日期，格式 YYYY-MM-DD"],
+) -> str:
+    """获取个股巨潮公告全文检索（含链接），用于查阅公司公告原文。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_cninfo_announcements", symbol, start_date, end_date)
+
+
+# ── 新增：盘口/F10/逐笔（mootdx，Phase 1）──
+
+@tool
+def get_five_level_orderbook(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+) -> str:
+    """获取个股五档买卖盘口数据（买一~买五/卖一~卖五），判断短期供需。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_five_level_orderbook", symbol)
+
+
+@tool
+def get_f10_detail(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+    category: Annotated[int, "F10分类：0=最新提示 1=公司概况 2=财务分析 3=股东研究 4=主力追踪 5=行业分析 6=公司大事 7=经营分析 8=分红融资"],
+) -> str:
+    """获取个股F10公司资料（9大类），深入基本面研究。category 0-8 对应不同资料分类。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_f10_detail", symbol, category)
+
+
+@tool
+def get_level2_quotes(
+    symbol: Annotated[str, "股票代码，格式如 600519.SH"],
+    date: Annotated[str, "日期，格式 YYYYMMDD 如 20260623"],
+) -> str:
+    """获取个股逐笔成交数据（Level 2），分析盘中资金进出细节。非交易时间返回空。symbol 格式如 600519.SH。"""
+    return route_to_vendor("get_level2_quotes", symbol, date)

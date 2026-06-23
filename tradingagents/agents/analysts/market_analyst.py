@@ -44,12 +44,15 @@ def create_market_analyst(llm, data_collector=None):
                 indicators = windowed.get("indicators", {})
                 data_window = windowed.get("_data_window", "14天")
                 margin_detail = windowed.get("margin_detail", "无数据")
+                orderbook = windowed.get("orderbook", "无数据")
             else:
                 stock_data, indicators, data_window = await _fetch_direct(ticker, current_date, horizon)
                 margin_detail = "无数据"
+                orderbook = "无数据"
         else:
             stock_data, indicators, data_window = await _fetch_direct(ticker, current_date, horizon)
             margin_detail = "无数据"
+            orderbook = "无数据"
 
         indicator_blocks = [
             f"【{ind}】\n{indicators.get(ind, '无数据')}"
@@ -64,6 +67,7 @@ def create_market_analyst(llm, data_collector=None):
                 f"【get_stock_data】\n{stock_data}\n\n"
                 + "\n\n".join(indicator_blocks)
                 + f"\n\n【融资融券明细】\n{margin_detail}"
+                + f"\n\n【五档盘口（实时买卖挂单）】\n{orderbook}"
             )),
         ]
 

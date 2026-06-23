@@ -25,6 +25,7 @@ def create_volume_price_analyst(llm, data_collector=None):
                 windowed = data_collector.get_window(pool, horizon, current_date)
                 vpa_data = windowed.get("vpa_indicators", "无数据")
                 stock_data = windowed.get("stock_data", "无数据")
+                level2_quotes = windowed.get("level2_quotes", "无数据")
                 data_window = windowed.get("_data_window", "14天")
             else:
                 vpa_data, stock_data, data_window = "无数据", "无数据", "14天"
@@ -36,7 +37,8 @@ def create_volume_price_analyst(llm, data_collector=None):
             HumanMessage(content=(
                 f"以下是 {ticker} 在 {current_date} 的量价分析预计算数据（数据窗口：{data_window}）。\n\n"
                 f"{vpa_data}\n\n"
-                f"【原始 K 线数据参考】\n{stock_data}"
+                f"【原始 K 线数据参考】\n{stock_data}\n\n"
+                f"【逐笔成交明细（Level 2）】\n{level2_quotes}"
             )),
         ]
 

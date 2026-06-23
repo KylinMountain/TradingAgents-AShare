@@ -35,6 +35,14 @@ from tradingagents.agents.utils.agent_utils import (
     get_shareholder_changes,
     get_restricted_release,
     get_pledge_ratio,
+    get_shareholder_count,
+    get_dividend_history,
+    get_concept_board,
+    get_individual_fund_flow_120d,
+    get_five_level_orderbook,
+    get_f10_detail,
+    get_level2_quotes,
+    get_cninfo_announcements,
 )
 
 INDICATORS = [
@@ -852,6 +860,23 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         "shareholder_changes": (get_shareholder_changes, {"symbol": ticker}),
         "restricted_release": (get_restricted_release, {"symbol": ticker}),
         "pledge_ratio": (get_pledge_ratio, {"date": trade_date}),
+    })
+
+    # Phase 2: 资金面/筹码/板块
+    tasks.update({
+        "shareholder_count": (get_shareholder_count, {"symbol": ticker}),
+        "dividend_history": (get_dividend_history, {"symbol": ticker}),
+        "concept_board": (get_concept_board, {"symbol": ticker}),
+        "fund_flow_120d": (get_individual_fund_flow_120d, {"symbol": ticker}),
+    })
+
+    # Phase 3: mootdx 盘口/F10/逐笔 + 巨潮公告
+    level2_date = end_dt.strftime("%Y%m%d")
+    tasks.update({
+        "orderbook": (get_five_level_orderbook, {"symbol": ticker}),
+        "f10_detail": (get_f10_detail, {"symbol": ticker, "category": 0}),
+        "level2_quotes": (get_level2_quotes, {"symbol": ticker, "date": level2_date}),
+        "cninfo_announcements": (get_cninfo_announcements, {"symbol": ticker, "start_date": week_ago, "end_date": trade_date}),
     })
 
     results: Dict[str, Any] = {}

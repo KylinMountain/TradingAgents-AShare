@@ -35,6 +35,9 @@ def create_fundamentals_analyst(llm, data_collector=None):
             outputs["shareholder_changes"] = pool.get("shareholder_changes", "无数据")
             outputs["restricted_release"] = pool.get("restricted_release", "无数据")
             outputs["pledge_ratio"] = pool.get("pledge_ratio", "无数据")
+            outputs["shareholder_count"] = pool.get("shareholder_count", "无数据")
+            outputs["dividend_history"] = pool.get("dividend_history", "无数据")
+            outputs["f10_detail"] = pool.get("f10_detail", "无数据")
         else:
             from tradingagents.agents.utils.agent_utils import (
                 get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement,
@@ -66,7 +69,10 @@ def create_fundamentals_analyst(llm, data_collector=None):
                 f"【机构研报】\n{outputs['research_reports']}\n\n"
                 f"【股东增减持】\n{outputs['shareholder_changes']}\n\n"
                 f"【限售解禁】\n{outputs['restricted_release']}\n\n"
-                f"【股权质押】\n{outputs['pledge_ratio']}\n"
+                f"【股权质押】\n{outputs['pledge_ratio']}\n\n"
+                f"【股东户数变化（筹码集中度）】\n{outputs['shareholder_count']}\n\n"
+                f"【分红送转历史】\n{outputs['dividend_history']}\n\n"
+                f"【F10公司资料】\n{outputs['f10_detail']}\n"
             )),
         ]
 

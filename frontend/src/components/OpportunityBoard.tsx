@@ -3,9 +3,10 @@ import type { BriefingOpportunityReport } from '@/types'
 
 interface Props {
     data?: BriefingOpportunityReport | null
+    date?: string
 }
 
-export default function OpportunityBoard({ data }: Props) {
+export default function OpportunityBoard({ data, date }: Props) {
     if (!data || data.error) return null
     const items = data.热点预测
     if (!items || items.length === 0) return null
@@ -15,6 +16,7 @@ export default function OpportunityBoard({ data }: Props) {
             <h3 className="text-xs sm:text-sm font-semibold text-amber-700 dark:text-amber-400 mb-2 sm:mb-3 flex items-center gap-2">
                 <Lightbulb className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-500" />
                 盘前机会早报
+                {date && <span className="ml-auto text-[10px] sm:text-xs font-normal text-amber-400">{date}</span>}
             </h3>
 
             <div className="space-y-3">

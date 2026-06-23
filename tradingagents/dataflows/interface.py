@@ -35,6 +35,24 @@ TOOLS_CATEGORIES = {
         "description": "Real-time market quotes",
         "tools": ["get_realtime_quotes"],
     },
+    "advanced_market_data": {
+        "description": "Advanced market microstructure (orderbook, level2, F10)",
+        "tools": [
+            "get_five_level_orderbook",
+            "get_f10_detail",
+            "get_level2_quotes",
+        ],
+    },
+    "company_in_depth": {
+        "description": "Deep company research data (shareholder count, dividend, concept, fund flow, announcements)",
+        "tools": [
+            "get_shareholder_count",
+            "get_dividend_history",
+            "get_concept_board",
+            "get_individual_fund_flow_120d",
+            "get_cninfo_announcements",
+        ],
+    },
     "cn_market_data": {
         "description": "China A-share market sentiment and fund flow data",
         "tools": [
@@ -53,6 +71,11 @@ TOOLS_CATEGORIES = {
             "get_shareholder_changes",
             "get_restricted_release",
             "get_pledge_ratio",
+            "get_shareholder_count",
+            "get_dividend_history",
+            "get_concept_board",
+            "get_individual_fund_flow_120d",
+            "get_cninfo_announcements",
         ],
     },
 }

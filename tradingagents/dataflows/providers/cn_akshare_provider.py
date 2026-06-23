@@ -1205,3 +1205,240 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return f"全市场股权质押比率（{date}，前20高质押比例）：\n{result.head(20).to_string(index=False)}"
         except Exception:
             return f"{date} 股权质押数据暂不可用（非交易日或数据未更新）。"
+
+    # ── Phase 2: 资金面/筹码/板块/公告（来自 a-stock-data SKILL） ──
+
+    def get_shareholder_count(self, symbol: str) -> str:
+        """获取股东户数变化（筹码集中度）。东财 datacenter RPT_HOLDERNUMLATEST。"""
+        import json
+        try:
+            from .em_http_utils import eastmoney_datacenter
+        except ImportError:
+            return f"{symbol} 股东户数数据获取失败：em_http_utils 不可用。"
+        code = self._normalize_symbol(symbol)
+        try:
+            rows = eastmoney_datacenter(
+                report_name="RPT_HOLDERNUMLATEST",
+                columns="ALL",
+                filter_str=f'(SECURITY_CODE="{code}")',
+                page_size=5,
+                sort_columns="END_DATE",
+                sort_types="-1",
+            )
+            if not rows:
+                return f"{symbol} 股东户数数据暂不可用。"
+            df = pd.DataFrame(rows)
+            return f"{symbol} 股东户数变化（最近5期）：\n{df.head(5).to_string(index=False)}"
+        except Exception as exc:
+            return f"{symbol} 股东户数数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_dividend_history(self, symbol: str) -> str:
+        """获取分红送转历史（每股派息/送股/转增）。东财 datacenter RPT_SHAREBONUS_DET。"""
+        code = self._normalize_symbol(symbol)
+        try:
+            from .em_http_utils import eastmoney_datacenter
+            rows = eastmoney_datacenter(
+                report_name="RPT_SHAREBONUS_DET",
+                columns="ALL",
+                filter_str=f'(SECURITY_CODE="{code}")',
+                page_size=20,
+                sort_columns="EQUITY_RECORD_DATE",
+                sort_types="-1",
+            )
+            if not rows:
+                return f"{symbol} 分红送转数据暂不可用。"
+            df = pd.DataFrame(rows)
+            return f"{symbol} 分红送转历史（最近20笔）：\n{df.to_string(index=False)}"
+        except Exception as exc:
+            return f"{symbol} 分红送转数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_concept_board(self, symbol: str) -> str:
+        """获取个股所属概念/行业/地域板块归属。东财 slist（spt=3），回退同花顺。"""
+        code = self._normalize_symbol(symbol)
+        market = "1" if code.startswith(("6", "9")) else "0"
+        secid = f"{market}.{code}"
+        try:
+            from .em_http_utils import em_get
+            url = "https://push2.eastmoney.com/api/qt/slist/get"
+            params = {
+                "spt": "3", "fltt": "2", "invt": "2",
+                "fields": "f12,f14,f13,f3,f2,f15",
+                "secids": secid,
+            }
+            r = em_get(url, params=params, timeout=10,
+                       headers={"Referer": "https://quote.eastmoney.com/"})
+            data = r.json()
+            items = (data.get("data") or {}).get("diff")
+            if items:
+                result = []
+                for it in items:
+                    result.append({
+                        "代码": it.get("f12", ""),
+                        "板块名称": it.get("f14", ""),
+                        "板块类型": it.get("f13", ""),
+                        "涨跌幅%": it.get("f3", ""),
+                        "最新价": it.get("f2", ""),
+                    })
+                df = pd.DataFrame(result)
+                return f"{symbol} 所属板块归属：\n{df.to_string(index=False)}"
+        except Exception:
+            pass
+        return self._concept_board_ths_fallback(symbol)
+
+    def _concept_board_ths_fallback(self, symbol: str) -> str:
+        """Fallback: use THS/xueqiu basic info for industry/concept data."""
+        try:
+            with AKSHARE_CALL_LOCK:
+                ak = self._ak()
+                df_info = ak.stock_individual_basic_info_xq(symbol=self._xq_symbol(symbol))
+                if df_info is not None and not df_info.empty:
+                    items = dict(zip(df_info["item"].astype(str), df_info["value"].astype(str)))
+                    result = []
+                    for key in ["行业", "板块", "概念", "上市板块"]:
+                        if key in items:
+                            result.append({"分类": key, "内容": items[key]})
+                    if result:
+                        df = pd.DataFrame(result)
+                        return f"{symbol} 所属板块归属（同花顺）：\n{df.to_string(index=False)}"
+        except Exception as exc:
+            logger.debug("THS concept board fallback failed for %s: %s", symbol, exc)
+        return f"{symbol} 概念板块数据暂不可用。"
+
+    def get_individual_fund_flow_120d(self, symbol: str) -> str:
+        """获取个股120日主力资金流向。东财 push2his daykline。"""
+        code = self._normalize_symbol(symbol)
+        market = "1" if code.startswith(("6", "9")) else "0"
+        secid = f"{market}.{code}"
+        try:
+            from .em_http_utils import em_get
+            url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+            params = {
+                "lmt": "120", "klt": "101", "secid": secid,
+                "fields1": "f1,f2,f3,f7",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+            }
+            r = em_get(url, params=params, timeout=15,
+                       headers={"Referer": "https://quote.eastmoney.com/"})
+            data = r.json()
+            if not data.get("data") or not data["data"].get("klines"):
+                # Fallback: try akshare's built-in method
+                return self._fund_flow_ak_fallback(symbol)
+            klines = data["data"]["klines"]
+            if not klines:
+                return f"{symbol} 120日资金流向数据暂不可用。"
+            rows = []
+            for line in klines[-20:]:
+                parts = line.split(",")
+                if len(parts) >= 6:
+                    rows.append({
+                        "日期": parts[0],
+                        "主力净流入(万)": self._safe_float(parts[1]),
+                        "小单净流入(万)": self._safe_float(parts[2]),
+                        "中单净流入(万)": self._safe_float(parts[3]),
+                        "大单净流入(万)": self._safe_float(parts[4]),
+                        "超大单净流入(万)": self._safe_float(parts[5]),
+                    })
+            if not rows:
+                return f"{symbol} 120日资金流向数据暂不可用。"
+            df = pd.DataFrame(rows)
+            return f"{symbol} 资金流向（近20日）：\n{df.to_string(index=False)}"
+        except Exception as exc:
+            return self._fund_flow_ak_fallback(symbol)
+
+    def _fund_flow_ak_fallback(self, symbol: str) -> str:
+        """Fallback: use akshare stock_individual_fund_flow for fund flow data."""
+        try:
+            ak = self._ak()
+            code = self._normalize_symbol(symbol)
+            market = "sh" if code[:1] in ("5", "6", "9") else "sz"
+            with AKSHARE_CALL_LOCK:
+                df = ak.stock_individual_fund_flow(stock=code, market=market)
+            if df is None or df.empty:
+                return f"{symbol} 资金流向数据暂不可用。"
+            recent = df.tail(20)
+            return f"{symbol} 资金流向（近20日，akshare备选）：\n{recent.to_string(index=False)}"
+        except Exception as exc:
+            return f"{symbol} 资金流向数据获取失败：{type(exc).__name__}: {exc}"
+
+    def get_cninfo_announcements(self, symbol: str, start_date: str, end_date: str) -> str:
+        """获取个股巨潮公告全文检索。cninfo.com.cn（POST 接口）。"""
+        import requests as _requests
+        code = self._normalize_symbol(symbol)
+        org_id = self._cninfo_orgid(code)
+        # Determine exchange column: sse for SH, szse for SZ
+        column = "sse" if code.startswith(("6", "9")) else "szse"
+        try:
+            url = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
+            form_data = {
+                "pageNum": "1", "pageSize": "10",
+                "column": column, "tabName": "fulltext",
+                "plate": "", "stock": f"{code},{org_id}",
+                "searchkey": "", "secid": "",
+                "category": "", "trade": "",
+                "seDate": f"{start_date}~{end_date}",
+                "sortName": "date", "sortType": "desc",
+            }
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search",
+            }
+            r = _requests.post(url, data=form_data, headers=headers, timeout=15)
+            data = r.json()
+            announcements = data.get("announcements") or []
+            if not announcements:
+                return f"{symbol} 在 {start_date}~{end_date} 无公告记录。"
+            rows = []
+            for ann in announcements[:10]:
+                title = ann.get("announcementTitle", "无标题")
+                ann_time = ann.get("announcementTime", "")
+                if isinstance(ann_time, (int, float)):
+                    from datetime import datetime as _dt
+                    date_str = _dt.fromtimestamp(ann_time / 1000).strftime("%Y-%m-%d") if ann_time > 1e10 else str(ann_time)
+                else:
+                    date_str = str(ann_time)[:10]
+                ann_id = ann.get("announcementId", "")
+                sec_code = ann.get("secCode", "")
+                url_link = f"https://static.cninfo.com.cn/{ann_id}"
+                rows.append(f"- [{date_str}] {title} ({sec_code}) {url_link}")
+            return f"{symbol} 巨潮公告（{start_date}~{end_date}，最近10条）：\n" + "\n".join(rows)
+        except Exception as exc:
+            return f"{symbol} 巨潮公告获取失败：{type(exc).__name__}: {exc}"
+
+    # 巨潮 orgId 缓存（模块级，懒加载）
+    _cninfo_org_map: dict[str, str] = {}
+
+    def _cninfo_orgid(self, code: str) -> str:
+        """Get cninfo orgId for a stock code. Uses dynamic lookup, falls back to heuristic."""
+        if code in self._cninfo_org_map:
+            return self._cninfo_org_map[code]
+        try:
+            org_map = self._cninfo_load_org_map()
+            self._cninfo_org_map.update(org_map)
+        except Exception:
+            pass
+        if code in self._cninfo_org_map:
+            return self._cninfo_org_map[code]
+        # Fallback heuristic: gssz0{code} for SZ, gssh0{code} for SH
+        market_prefix = "gssz0" if code.startswith(("0", "2", "3")) else "gssh0"
+        return f"{market_prefix}{code}"
+
+    @staticmethod
+    def _cninfo_load_org_map() -> dict[str, str]:
+        """Load cninfo orgId mapping from official szse_stock.json."""
+        import json as _json
+        import requests as _requests
+        url = "https://www.cninfo.com.cn/new/data/szse_stock.json"
+        r = _requests.get(url, timeout=15,
+                          headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.cninfo.com.cn/"})
+        r.encoding = "utf-8"
+        data = r.json()
+        org_map = {}
+        stock_list = data.get("stockList", data) if isinstance(data, dict) else data
+        for item in stock_list:
+            if not isinstance(item, dict):
+                continue
+            c = item.get("code", "")
+            oid = item.get("orgId", "")
+            if c and oid:
+                org_map[c] = oid
+        return org_map

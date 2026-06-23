@@ -23,43 +23,6 @@ logger = logging.getLogger(__name__)
 _SEMAPHORE = asyncio.Semaphore(3)
 
 
-def _em_urlopen(url: str, timeout: int = 10, extra_headers: dict | None = None) -> dict | None:
-    """Fetch JSON from EastMoney API with CDP fallback for local dev.
-
-    On the server (China IP), urllib works directly. On local dev machines,
-    EastMoney's CDN blocks non-browser TLS fingerprints (RemoteDisconnected).
-    When urllib fails, we fall back to routing the request through a local
-    Chrome browser via CDP.
-    """
-    import urllib.request
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-    if extra_headers:
-        headers.update(extra_headers)
-
-    req = urllib.request.Request(url, headers=headers)
-    # 1) Try urllib first (works on server)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        first_err = f"{type(e).__name__}: {e}"
-
-    # 2) Fall back to CDP (local Chrome)
-    try:
-        from tradingagents.utils.cdp_fetch import is_cdp_available, cdp_fetch_json
-        if is_cdp_available():
-            logger.info(f"CDP fallback for {url[:120]}...")
-            result = cdp_fetch_json(url)
-            if result is not None:
-                return result
-    except Exception as e:
-        logger.warning(f"CDP fallback failed: {e}")
-
-    logger.error(f"EastMoney fetch failed: {first_err}")
-    return None
-
-
 # ─── DB CRUD ─────────────────────────────────────────────────────────────────
 
 def get_briefing(db: Session, user_id: str, date_str: str) -> Optional[dict]:
@@ -200,116 +163,128 @@ def _fetch_stock_news(symbol: str, since_date: str) -> str:
         return ""
 
 
-async def _fetch_overseas_market() -> dict:
-    """Fetch overseas market data via EastMoney + Sina (no yfinance dependency)."""
-    result = {}
+def _fetch_ths_eps_forecast(symbol: str) -> dict | None:
+    """Fetch THS (同花顺) consensus EPS forecast for a stock.
 
-    def _em_indices(fs: str):
-        """Query EastMoney push API for index data. Uses urllib to bypass proxy."""
-        import urllib.request
-        params = {
-            "np": 2, "fltt": 1, "invt": 2, "fs": fs,
-            "fields": "f12,f14,f2,f3,f4",
-            "fid": "f3", "pn": 1, "pz": 20, "po": 1, "dect": 1,
+    Returns dict with keys: eps_forecasts (list of {year, institutions, min, mean, max}),
+    or None if unavailable.
+    """
+    import requests as _requests
+    import pandas as _pd
+    from io import StringIO as _StringIO
+
+    code = symbol.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    try:
+        url = f"https://basic.10jqka.com.cn/new/{code}/worth.html"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Referer": "https://basic.10jqka.com.cn/",
         }
-        qs = "&".join(f"{k}={v}" for k, v in params.items())
-        url = f"https://push2.eastmoney.com/api/qt/clist/get?{qs}"
-        data = _em_urlopen(url, timeout=10)
-        items = []
-        if data and data.get("data") and data["data"].get("diff"):
-            for v in data["data"]["diff"].values():
-                price = (v.get("f2") or 0) / 100
-                chg_pct = (v.get("f3") or 0) / 100
-                items.append({
-                    "name": v.get("f14", ""),
-                    "symbol": v.get("f12", ""),
-                    "close": round(price, 2),
-                    "change_pct": round(chg_pct, 2),
-                })
-        return items
-
-    def _em_kline_fallback(secid: str, name: str) -> dict | None:
-        """回退: 从日K线取最近收盘价, 用于休市日获取前一日数据."""
-        try:
-            url = (
-                f"https://push2his.eastmoney.com/api/qt/stock/kline/get?"
-                f"secid={secid}&klt=101&lmt=3&"
-                f"fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57"
-            )
-            data = _em_urlopen(url, timeout=10)
-            if data and data.get("data") and data["data"].get("klines"):
-                latest = data["data"]["klines"][-1]
-                parts = latest.split(",")
-                if len(parts) >= 3:
-                    close = float(parts[2])
-                    prev_close = None
-                    if len(data["data"]["klines"]) >= 2:
-                        prev_parts = data["data"]["klines"][-2].split(",")
-                        prev_close = float(prev_parts[2])
-                    chg = round((close - prev_close) / prev_close * 100, 2) if prev_close and prev_close != 0 else 0
-                    return {"name": name, "symbol": secid, "close": round(close, 2), "change_pct": chg}
-        except Exception:
-            pass
+        r = _requests.get(url, headers=headers, timeout=15)
+        r.encoding = "gbk"
+        dfs = _pd.read_html(_StringIO(r.text))
+        for df in dfs:
+            cols = [str(c) for c in df.columns]
+            if any("每股收益" in c or "均值" in c for c in cols):
+                forecasts = []
+                for _, row in df.iterrows():
+                    year_val = str(row.iloc[0]).removesuffix(".0") if len(row) > 0 else ""
+                    forecasts.append({
+                        "year": year_val,
+                        "institutions": int(row.iloc[1]) if len(row) > 1 and str(row.iloc[1]) != "nan" else 0,
+                        "min": float(row.iloc[2]) if len(row) > 2 and str(row.iloc[2]) != "nan" else None,
+                        "mean": float(row.iloc[3]) if len(row) > 3 and str(row.iloc[3]) != "nan" else None,
+                        "max": float(row.iloc[4]) if len(row) > 4 and str(row.iloc[4]) != "nan" else None,
+                    })
+                if forecasts:
+                    return {"eps_forecasts": forecasts}
+                break
+        return None
+    except Exception:
         return None
 
-    # US indices (EastMoney codes: 100.DJIA, 100.SPX, 100.NDX)
-    # secid for kline fallback: 100.DJIA->100.DJIA, 100.SPX->100.SPX, 100.NDX->100.NDX
-    _us_map = [("100.DJIA", "道琼斯"), ("100.SPX", "标普500"), ("100.NDX", "纳斯达克")]
+
+async def _fetch_overseas_market() -> dict:
+    """Fetch overseas market data via Tencent + Sina (no EastMoney/CDP dependency)."""
+    import urllib.request
+    result = {}
+
+    # ── Tencent qt.gtimg.cn ────────────────────────────────────────────────
+    _TENCENT_US = [("usDJI", "道琼斯"), ("usIXIC", "纳斯达克"), ("usINX", "标普500")]
+    _TENCENT_HK = [("hkHSI", "恒生指数"), ("hkHSCEI", "国企指数")]
+
+    def _tencent_batch(codes: list[tuple[str, str]]) -> list[dict]:
+        """Batch query Tencent realtime API for index data."""
+        symbols = ",".join(c[0] for c in codes)
+        url = f"https://qt.gtimg.cn/q={symbols}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("gbk", errors="replace")
+        name_map = dict(codes)
+        items = []
+        for line in raw.strip().split(";"):
+            if "=" not in line or '="' not in line:
+                continue
+            code = line.split("=", 1)[0].lstrip("v_")
+            data = line.split('="', 1)[1].rstrip('";\n')
+            parts = data.split("~")
+            if len(parts) < 33:
+                continue
+            try:
+                price = float(parts[3]) if parts[3] else 0
+                chg_pct = float(parts[32]) if parts[32] else 0
+            except (ValueError, TypeError):
+                continue
+            if price <= 0:
+                continue
+            items.append({
+                "name": name_map.get(code, parts[1]),
+                "symbol": code,
+                "close": round(price, 2),
+                "change_pct": round(chg_pct, 2),
+            })
+        return items
+
+    # ── US indices ─────────────────────────────────────────────────────────
     try:
-        us = _em_indices("i:100.DJIA,i:100.SPX,i:100.NDX")
-        if not us:
-            # 周一美股休市 → 回退取最近K线
-            for code, name in _us_map:
-                fb = _em_kline_fallback(code, name)
-                if fb:
-                    us.append(fb)
-        result["us_indices"] = us
+        result["us_indices"] = await asyncio.to_thread(_tencent_batch, _TENCENT_US)
     except Exception as e:
         logger.warning(f"US indices fetch failed: {e}")
-        # 异常时也尝试回退
-        us = []
-        for code, name in _us_map:
-            fb = _em_kline_fallback(code, name)
-            if fb:
-                us.append(fb)
-        result["us_indices"] = us
+        result["us_indices"] = []
 
-    # HK indices (100.HSI, 100.HSCEI)
-    _hk_map = [("100.HSI", "恒生指数"), ("100.HSCEI", "国企指数")]
+    # ── HK indices ─────────────────────────────────────────────────────────
     try:
-        hk = _em_indices("i:100.HSI,i:100.HSCEI")
-        if not hk:
-            for code, name in _hk_map:
-                fb = _em_kline_fallback(code, name)
-                if fb:
-                    hk.append(fb)
-        result["hk_index"] = hk
+        result["hk_index"] = await asyncio.to_thread(_tencent_batch, _TENCENT_HK)
     except Exception as e:
-        logger.warning(f"HK index fetch failed: {e}")
-        hk = []
-        for code, name in _hk_map:
-            fb = _em_kline_fallback(code, name)
-            if fb:
-                hk.append(fb)
-        result["hk_index"] = hk
+        logger.warning(f"HK indices fetch failed: {e}")
+        result["hk_index"] = []
 
-    # A50 futures — try EastMoney futures codes
+    # ── A50 futures (AkShare → EastMoney push2) ────────────────────────────
     try:
         def _fetch_a50():
-            # Try multiple EastMoney futures market codes for SGX A50
-            for a50_code in ("i:8.XINA50", "i:8.CN00Y", "i:113.XINA50"):
-                a50_items = _em_indices(a50_code)
-                if a50_items:
-                    item = a50_items[0]
-                    item["name"] = "A50期货"
-                    return item
+            import akshare as ak
+            import math
+            df = ak.futures_global_spot_em()
+            # CN00Y = A50主连 (continuous contract)
+            a50 = df[df["代码"] == "CN00Y"]
+            if not a50.empty:
+                row = a50.iloc[0]
+                price = row.get("最新价", 0)
+                chg = row.get("涨跌幅", 0)
+                if (not isinstance(price, float) or not math.isnan(price)) and float(price) > 0:
+                    return {
+                        "name": "A50期货",
+                        "symbol": "XINA50",
+                        "close": round(float(price), 2),
+                        "change_pct": round(float(chg) if not (isinstance(chg, float) and math.isnan(chg)) else 0, 2),
+                    }
             return None
         result["a50_futures"] = await asyncio.to_thread(_fetch_a50)
     except Exception as e:
         logger.warning(f"A50 futures fetch failed: {e}")
         result["a50_futures"] = None
 
-    # Commodities (Sina futures)
+    # ── Commodities (Sina) ─────────────────────────────────────────────────
     try:
         def _fetch_commodities():
             items = []
@@ -1052,6 +1027,7 @@ async def _analyze_watchlist(db: Session, user_id: str, prev_trade_date: str) ->
             "bull_line": None,
             "orbit_line": None,
             "orbit_direction": 0,
+            "eps_forecast": None,
         }
         try:
             end = datetime.now().strftime("%Y%m%d")
@@ -1100,6 +1076,12 @@ async def _analyze_watchlist(db: Session, user_id: str, prev_trade_date: str) ->
             # News
             try:
                 result["news_summary"] = await asyncio.to_thread(_fetch_stock_news, symbol, prev_trade_date)
+            except Exception:
+                pass
+
+            # THS EPS forecast
+            try:
+                result["eps_forecast"] = await asyncio.to_thread(_fetch_ths_eps_forecast, symbol)
             except Exception:
                 pass
 
@@ -1781,11 +1763,26 @@ async def _generate_trading_advice(
         if ol: levels.append(f"轨道{ol:.2f}({'多' if od > 0 else '空'})")
         signals_str = ", ".join(s["name"] for s in w.get("signals", [])) or "无"
         news_str = w.get('news_summary', '')[:60].replace("\n", " ")
+        # EPS一致预期
+        eps_data = w.get("eps_forecast")
+        eps_str = ""
+        if eps_data and eps_data.get("eps_forecasts"):
+            forecasts = eps_data["eps_forecasts"]
+            eps_parts = []
+            for f in forecasts[:2]:
+                year = f.get("year", "")
+                mean_eps = f.get("mean", "")
+                inst = f.get("institutions", "")
+                if year and mean_eps:
+                    eps_parts.append(f"{year}E EPS={mean_eps}({inst}家)")
+            if eps_parts:
+                eps_str = f" | 预期:{'; '.join(eps_parts)}"
         wl_lines.append(
             f"  {w['symbol']} {w['name']}: 现价{price} 涨跌{chg}% "
             f"| {'; '.join(levels) if levels else '无关键位'} "
             f"| 信号:{signals_str}"
             f"{' | 消息:' + news_str if news_str else ''}"
+            f"{eps_str}"
         )
     watchlist_summary = "\n".join(wl_lines) if wl_lines else "暂无自选股"
 
@@ -2072,12 +2069,27 @@ async def _generate_opportunity_report(market_data: dict, top_news: list) -> dic
         gn_lines.append(f"- {n['title']}")
     global_news_summary = "\n".join(gn_lines) if gn_lines else "暂无"
 
-    # Concept library summary
+    # Concept library summary (static reference)
     lib_lines = []
     for concept, leaders in _CONCEPT_LEADER_LIBRARY.items():
         stock_strs = ", ".join(f"{l['name']}({l['code']})" for l in leaders)
         lib_lines.append(f"- {concept}: {stock_strs}")
     concept_lib_summary = "\n".join(lib_lines)
+
+    # Real-time hot stocks summary
+    hot_lines = []
+    for h in market_data.get("hot_stocks", [])[:20]:
+        hot_lines.append(f"  {h['name']}({h['code']}) {h['change_pct']:+.2f}% 题材: {h.get('reason', '')}")
+    hot_stocks_summary = "\n".join(hot_lines) if hot_lines else "暂无"
+
+    # Real-time sector fund flow
+    sff = market_data.get("sector_fund_flow") or {}
+    sff_lines = []
+    for r in sff.get("top_inflow", [])[:10]:
+        sff_lines.append(f"  →流入: {r['name']} 净流入{r['net_inflow_yi']}亿")
+    for r in sff.get("top_outflow", [])[:5]:
+        sff_lines.append(f"  ←流出: {r['name']} 净流出{r['net_inflow_yi']}亿")
+    sff_summary = "\n".join(sff_lines) if sff_lines else "暂无"
 
     from tradingagents.prompts.zh import PROMPTS as ZH_PROMPTS
     template = ZH_PROMPTS["briefing_opportunity"]
@@ -2086,6 +2098,8 @@ async def _generate_opportunity_report(market_data: dict, top_news: list) -> dic
         policy_news=policy_news_summary,
         concept_library=concept_lib_summary,
         global_news=global_news_summary,
+        hot_stocks=hot_stocks_summary,
+        sector_fund_flow=sff_summary,
     )
 
     content = await _call_briefing_llm(prompt)

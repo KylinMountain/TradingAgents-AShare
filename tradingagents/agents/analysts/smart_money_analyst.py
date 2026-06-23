@@ -41,11 +41,13 @@ def create_smart_money_analyst(llm, data_collector=None):
             block_trades = pool.get("block_trades", "无数据")
             lhb_inst = pool.get("lhb_institution_stats", "无数据")
             lhb_seats = pool.get("lhb_active_seats", "无数据")
+            fund_flow_120d = pool.get("fund_flow_120d", "无数据")
         else:
             from tradingagents.agents.utils.agent_utils import (
                 get_individual_fund_flow, get_lhb_detail, get_indicators,
                 get_hsgt_individual, get_hsgt_flow, get_block_trades,
                 get_lhb_institution_stats, get_lhb_active_seats,
+                get_individual_fund_flow_120d,
             )
 
             # Parallelize fallback fetches
@@ -61,8 +63,9 @@ def create_smart_money_analyst(llm, data_collector=None):
                 _safe(get_block_trades, {"symbol": ticker, "start_date": week_ago, "end_date": current_date}),
                 _safe(get_lhb_institution_stats, {"symbol": ticker, "start_date": week_ago, "end_date": current_date}),
                 _safe(get_lhb_active_seats, {"start_date": week_ago, "end_date": current_date}),
+                _safe(get_individual_fund_flow_120d, {"symbol": ticker}),
             )
-            fund_flow, lhb, volume, hsgt_individual, hsgt_flow, block_trades, lhb_inst, lhb_seats = results
+            fund_flow, lhb, volume, hsgt_individual, hsgt_flow, block_trades, lhb_inst, lhb_seats, fund_flow_120d = results
 
         messages = [
             SystemMessage(content=(
@@ -79,7 +82,8 @@ def create_smart_money_analyst(llm, data_collector=None):
                 f"【北向资金整体净流入】\n{hsgt_flow}\n\n"
                 f"【大宗交易明细】\n{block_trades}\n\n"
                 f"【龙虎榜机构买卖统计】\n{lhb_inst}\n\n"
-                f"【龙虎榜活跃营业部】\n{lhb_seats}"
+                f"【龙虎榜活跃营业部】\n{lhb_seats}\n\n"
+                f"【120日主力资金净流向（中长期趋势）】\n{fund_flow_120d}"
             )),
         ]
 

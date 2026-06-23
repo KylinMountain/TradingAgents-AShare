@@ -34,6 +34,14 @@ from tradingagents.agents.utils.game_theory_tools import (
     get_shareholder_changes,
     get_restricted_release,
     get_pledge_ratio,
+    get_shareholder_count,
+    get_dividend_history,
+    get_concept_board,
+    get_individual_fund_flow_120d,
+    get_cninfo_announcements,
+    get_five_level_orderbook,
+    get_f10_detail,
+    get_level2_quotes,
 )
 
 def create_msg_delete():

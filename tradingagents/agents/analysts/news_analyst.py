@@ -32,6 +32,7 @@ def create_news_analyst(llm, data_collector=None):
             data_window = pool.get("_data_window", "14天" if horizon == "short" else "90天")
             stock_news = pool.get("news", "无数据")
             global_news = pool.get("global_news", "无数据")
+            cninfo_announcements = pool.get("cninfo_announcements", "无数据")
         else:
             from datetime import datetime, timedelta
             from tradingagents.agents.utils.agent_utils import get_news, get_global_news
@@ -49,6 +50,7 @@ def create_news_analyst(llm, data_collector=None):
                 })
             )
             stock_news, global_news = results
+            cninfo_announcements = "无数据"
             data_window = f"{days}天"
 
         messages = [
@@ -60,7 +62,8 @@ def create_news_analyst(llm, data_collector=None):
                 horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的新闻资料（{data_window}）。\n\n"
                 f"【get_news】\n{stock_news}\n\n"
-                f"【get_global_news】\n{global_news}\n"
+                f"【get_global_news】\n{global_news}\n\n"
+                f"【巨潮公告】\n{cninfo_announcements}\n"
             )),
         ]
 
