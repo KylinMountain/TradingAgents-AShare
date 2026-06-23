@@ -266,6 +266,15 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
 
+    # 自动检测源码变更 → 重建衍生数据（阳谱/金银手指/红绿背景）
+    try:
+        from tradingagents.yang_yin.auto_rebuild import check_and_rebuild
+        rebuilt = await asyncio.to_thread(check_and_rebuild)
+        if rebuilt:
+            _log("Data auto-rebuild completed.")
+    except Exception as exc:
+        _log(f"Data auto-rebuild skipped: {exc}")
+
     # Pre-market briefing auto-generator (9:00 AM Beijing time on trading days)
     @staticmethod
     async def _briefing_scheduler():
@@ -299,6 +308,7 @@ async def lifespan(app: FastAPI):
                 await _asyncio.sleep(60)
 
     _create_tracked_task(_briefing_scheduler(), label="Briefing scheduler")
+
 
     yield
     _log("Shutting down: Cleaning up resources...")
