@@ -79,7 +79,7 @@ def run_scan_v7(
     )
 
     # 持久化 prev_yangpu 供下一日（盘中或盘后）
-    save_prev_yangpu(yang_pct, trade_date, pipeline)
+    save_prev_yangpu(yang_pct, trade_date, pipeline, source="market_close")
 
     # 金/银手指和红绿背景的更新移到 scheduler 中 save_snapshot 之后执行
     _notify_dapan_update(pipeline)
@@ -137,23 +137,57 @@ def _prev_yangpu_path(pipeline: YangYinPipeline = None):
 
 
 def load_prev_yangpu(pipeline: YangYinPipeline = None) -> float:
-    """读取前一日预测的阳谱值，文件不存在则返回50"""
+    """读取前一日阳谱值作为惯性因子。
+
+    - source=market_close: 盘后正式值，直接用
+    - source=intraday: 盘中值（前一日无盘后），回退到 history 中最近15:00记录
+    """
     import json
     path = _prev_yangpu_path(pipeline)
     if not path.exists():
         return 50.0
     data = json.loads(path.read_text(encoding="utf-8"))
-    return float(data.get("yang_pct", 50.0))
+    yang_pct = float(data.get("yang_pct", 50.0))
+    source = data.get("source", "")
+
+    if source == "market_close":
+        return yang_pct
+
+    # source=intraday 或未知 → 回退到 history 中最近一个15:00记录
+    history_path = pipeline.summary_dir / "yang_yin_history.parquet" if pipeline else _prev_yangpu_path(pipeline).parent / "yang_yin_history.parquet"
+    if history_path.exists():
+        try:
+            hist = pd.read_parquet(history_path)
+            close_records = hist[hist["updated_at"].str.endswith("15:00", na=False)]
+            if not close_records.empty:
+                latest = close_records.sort_values("trade_date").iloc[-1]
+                logger.info(
+                    f"prev_yangpu source=intraday({yang_pct:.1f}%), "
+                    f"回退到history {latest['trade_date']} 15:00 → {latest['yang_pct']:.1f}%"
+                )
+                return float(latest["yang_pct"])
+        except Exception:
+            logger.warning("回退history失败，使用prev_yangpu原值", exc_info=True)
+
+    return yang_pct
 
 
 def save_prev_yangpu(yang_pct: float, trade_date: str = None,
-                     pipeline: YangYinPipeline = None):
-    """保存当日阳谱预测值供下一日盘中使用"""
+                     pipeline: YangYinPipeline = None,
+                     source: str = "market_close"):
+    """保存当日阳谱预测值供下一日盘中使用。
+
+    source: "market_close" (盘后正式值) 或 "intraday" (盘中快照值)
+    """
     import json
     path = _prev_yangpu_path(pipeline)
-    data = {"yang_pct": round(yang_pct, 2), "trade_date": trade_date or ""}
+    data = {
+        "yang_pct": round(yang_pct, 2),
+        "trade_date": trade_date or "",
+        "source": source,
+    }
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    logger.info(f"prev_yangpu 已保存: {yang_pct:.1f}%")
+    logger.info(f"prev_yangpu 已保存: {yang_pct:.1f}% (source={source})")
 
 
 # ── 金/银手指 ──────────────────────────────────────
@@ -245,8 +279,9 @@ def run_scan_intraday(
     yang_pct = predict_yangpu(factors)
     total = len(realtime)
 
-    # 盘中不持久化 prev_yangpu，避免极端值（如崩盘阳谱=0）覆盖盘后正式值
-    # run_scan_v7 盘后运行时才 save_prev_yangpu
+    # 盘中持久化 prev_yangpu 供后续盘中扫描使用，标记 source=intraday
+    # load_prev_yangpu 遇到 intraday 会回退到 history 中最近15:00记录
+    save_prev_yangpu(yang_pct, trade_date, pipeline, source="intraday")
 
     snapshot = YangYinSnapshot(
         trade_date=trade_date,

@@ -146,8 +146,13 @@ def _compute_factors_raw(
     trade_date: str,
     prev_yangpu: float | None = None,
     moneyflow: dict[str, float] | None = None,
+    vol_time_scale: float = 1.0,
 ) -> dict[str, float] | None:
-    """从原始面板计算因子（含 groupby rolling，较慢）"""
+    """从原始面板计算因子（含 groupby rolling，较慢）。
+
+    vol_time_scale: 盘中时序缩放系数（已过分钟/240），
+                    将 prev_vol 等比缩到当前时刻，避免半天量vs全天量偏差。
+    """
     all_dates = sorted(panel["trade_date"].unique())
     if trade_date not in all_dates:
         return None
@@ -206,10 +211,11 @@ def _compute_factors_raw(
     divergence.loc[(close_5d_ret > 0) & (vol_5d_ret < 0)] = -1
     divergence.loc[(close_5d_ret < 0) & (vol_5d_ret < 0)] = 1
 
-    # OBV方向
+    # OBV方向（盘中用vol_time_scale缩放prev_vol，对齐半天量vs全天量口径）
+    prev_vol_ref = day["prev_vol"] * vol_time_scale
     obv_dir = pd.Series(0, index=day.index, dtype=float)
-    obv_dir.loc[(day["pct_chg"] > 0) & (day["vol"] > day["prev_vol"])] = 1
-    obv_dir.loc[(day["pct_chg"] < 0) & (day["vol"] > day["prev_vol"])] = -1
+    obv_dir.loc[(day["pct_chg"] > 0) & (day["vol"] > prev_vol_ref)] = 1
+    obv_dir.loc[(day["pct_chg"] < 0) & (day["vol"] > prev_vol_ref)] = -1
 
     # 量比
     vol_ratio = day["vol"] / day["vol_ma20"].replace(0, np.nan)
@@ -297,6 +303,9 @@ def compute_factors_intraday(
 ) -> dict[str, float] | None:
     """盘中实时因子计算：本地面板历史 + realtime_quote当日数据。
 
+    divergence/rsi 从特征面板最新EOD取预计算值，不混入今日实时数据。
+    其余因子走实时+历史混合计算。
+
     参数:
         panel: 原始面板 (ts_code, trade_date, close, vol, pct_chg)
         realtime_df: fetch_realtime_snapshot() 返回的实时报价
@@ -321,5 +330,58 @@ def compute_factors_intraday(
     cols = ["ts_code", "trade_date", "close", "vol", "pct_chg"]
     combined = pd.concat([window[cols], today[cols]], ignore_index=True)
 
-    # 3. 复用原始因子计算
-    return _compute_factors_raw(combined, trade_date, prev_yangpu, moneyflow)
+    # 3. 盘中时间缩放系数（已过分钟/240），修正OBV半天量vs全天量偏差
+    from datetime import datetime
+    now = datetime.now()
+    if now.hour >= 13:
+        elapsed = 120 + min((now.hour - 13) * 60 + now.minute, 120)
+    elif now.hour >= 11:
+        elapsed = min((now.hour - 9) * 60 + max(now.minute - 30, 0), 120)
+    else:
+        elapsed = max(0, (now.hour - 9) * 60 + now.minute - 30)
+    vol_time_scale = elapsed / 240 if elapsed > 0 else 1.0
+
+    # 4. 复用原始因子计算（趋势/动量/OBV/强度/量比等混合因子）
+    factors = _compute_factors_raw(combined, trade_date, prev_yangpu, moneyflow, vol_time_scale)
+    if factors is None:
+        return None
+
+    # 5. divergence/rsi 从特征面板最新EOD取预计算值，避免实时量vs历史全天量单位不匹配
+    from .pipeline import YangYinPipeline
+
+    feat = YangYinPipeline().load_feature_panel()
+    if feat is not None:
+        feat_dates = sorted(feat["trade_date"].unique())
+        last_eod = feat_dates[-1]
+        day_feat = feat[feat["trade_date"] == last_eod]
+
+        close_5d_ret = (day_feat["close"] - day_feat["close_5d"]) / day_feat["close_5d"].replace(0, np.nan)
+        vol_5d_ret = (day_feat["vol"] - day_feat["vol_5d"]) / day_feat["vol_5d"].replace(0, np.nan)
+        divergence = pd.Series(0.0, index=day_feat.index)
+        divergence.loc[(close_5d_ret > 0) & (vol_5d_ret < 0)] = -1
+        divergence.loc[(close_5d_ret < 0) & (vol_5d_ret < 0)] = 1
+
+        factors["divergence_mean"] = float(divergence.mean())
+        factors["divergence_yang"] = float((divergence > 0).mean())
+        factors["rsi_mean"] = float(day_feat["rsi14"].mean())
+        factors["rsi_yang"] = float((day_feat["rsi14"] > 50).mean())
+
+    # 6. 量比全天预测：交易满60分钟后启用线性外推，越靠近收盘越收敛
+    if elapsed >= 60:
+        vol_extrapolate = 240 / elapsed
+        ve_raw = factors["vol_extreme_mean"]
+        ve_scaled = ve_raw * vol_extrapolate
+        factors["vol_extreme_mean"] = ve_scaled
+        factors["volprice_new_mean"] = factors["momentum_mean"] * ve_scaled
+
+        # 放量占比(vol_ratio>1.5)也需外推后重新计算
+        all_dates_ve = sorted(combined["trade_date"].unique())
+        hist_ma20 = combined[combined["trade_date"].isin(all_dates_ve[:-1])].groupby("ts_code")["vol"].mean()
+        live_vol = today.set_index("ts_code")["vol"]
+        common = hist_ma20.index.intersection(live_vol.index)
+        vol_ratio_ext = (live_vol[common] / hist_ma20[common]) * vol_extrapolate
+        factors["volprice_new_yang"] = factors["trend_yang"] * float((vol_ratio_ext > 1.5).mean())
+
+    return factors
+
+    return factors
