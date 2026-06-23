@@ -39,24 +39,22 @@ export default function DapanDianJin({ history, goldFingerHistory, redGreenBgHis
                 大盘点金
                 <span className="ml-auto text-[10px] sm:text-xs font-normal text-slate-400">{latest.trade_date}</span>
             </h3>
-            <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4">
-                <div>
-                    <div className="text-[10px] sm:text-xs text-slate-400">最新阳谱{latest.updated_at ? ` ${latest.updated_at}` : ''}</div>
-                    <div className="text-xl sm:text-2xl font-bold text-red-400 tabular-nums">{latest.yang_pct.toFixed(1)}%</div>
-                </div>
-                <div className="flex items-center gap-1">
-                    {diff > 0 ? <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-red-400" /> : diff < 0 ? <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-green-400" /> : <Minus className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-slate-400" />}
-                    <span className={`text-xs sm:text-sm tabular-nums ${diff > 0 ? 'text-red-400' : diff < 0 ? 'text-green-400' : 'text-slate-400'}`}>
+            <div className="mb-3 sm:mb-4">
+                <div className="text-[10px] sm:text-xs text-slate-400 mb-0.5">最新阳谱{latest.updated_at ? ` ${latest.updated_at}` : ''}</div>
+                <div className="text-2xl sm:text-3xl font-bold text-red-400 tabular-nums mb-2">{latest.yang_pct.toFixed(1)}%</div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center gap-0.5 rounded-md px-2 py-0.5 text-xs font-medium ${diff > 0 ? 'bg-red-50 text-red-500 dark:bg-red-950/25 dark:text-red-400' : diff < 0 ? 'bg-green-50 text-green-500 dark:bg-green-950/25 dark:text-green-400' : 'bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                        {diff > 0 ? <TrendingUp className="h-3 w-3" /> : diff < 0 ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
                         较前日 {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
                     </span>
                     {latestGold && (
-                        <span className={`ml-2 text-xs sm:text-sm font-medium ${latestGold.signal === 1 ? 'text-amber-400' : 'text-slate-400'}`}>
-                            {latestGold.signal === 1 ? <span className="text-amber-400">🖐️ 金</span> : <span className="text-slate-400"><span className="grayscale">👇</span> 银</span>}
+                        <span className={`inline-flex items-center gap-0.5 rounded-md px-2 py-0.5 text-xs font-medium ${latestGold.signal === 1 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/25 dark:text-amber-400' : 'bg-slate-50 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                            {latestGold.signal === 1 ? '🖐️ 金手指' : '👇 银手指'}
                         </span>
                     )}
                     {latestBg && (
-                        <span className={`ml-1 text-xs sm:text-sm font-medium ${latestBg === '红' ? 'text-red-500' : 'text-green-500'}`}>
-                            {latestBg === '红' ? '▲' : '▼'}
+                        <span className={`inline-flex items-center gap-0.5 rounded-md px-2 py-0.5 text-xs font-medium ${latestBg === '红' ? 'bg-red-50 text-red-500 dark:bg-red-950/25 dark:text-red-400' : 'bg-green-50 text-green-500 dark:bg-green-950/25 dark:text-green-400'}`}>
+                            {latestBg === '红' ? '▲' : '▼'} 趋势{latestBg}
                         </span>
                     )}
                 </div>
