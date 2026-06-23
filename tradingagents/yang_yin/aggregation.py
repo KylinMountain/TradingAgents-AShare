@@ -51,6 +51,8 @@ def run_scan_v7(
         pipeline = YangYinPipeline()
     if trade_date is None:
         trade_date = datetime.now().strftime("%Y%m%d")
+    if prev_yangpu is None:
+        prev_yangpu = load_prev_yangpu(pipeline)
 
     pipeline.update_daily(trade_date)
 
