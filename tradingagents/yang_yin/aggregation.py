@@ -141,8 +141,8 @@ def _prev_yangpu_path(pipeline: YangYinPipeline = None):
 def load_prev_yangpu(pipeline: YangYinPipeline = None) -> float:
     """读取前一日阳谱值作为惯性因子。
 
-    - source=market_close: 盘后正式值，直接用
-    - source=intraday: 盘中值（前一日无盘后），回退到 history 中最近15:00记录
+    - source=market_close: 盘后正式值，直接用（除非 trade_date==今天，防止循环引用）
+    - source=intraday: 盘中值，回退到 history 中最近15:00记录（排除当天）
     """
     import json
     path = _prev_yangpu_path(pipeline)
@@ -151,24 +151,29 @@ def load_prev_yangpu(pipeline: YangYinPipeline = None) -> float:
     data = json.loads(path.read_text(encoding="utf-8"))
     yang_pct = float(data.get("yang_pct", 50.0))
     source = data.get("source", "")
+    saved_date = data.get("trade_date", "")
+    today_str = datetime.now().strftime("%Y%m%d")
+
+    # 防止循环引用：如果 prev_yangpu 记录的是今天，说明同一天被重复计算，
+    # 此时应回退到前一日 history 记录
+    if saved_date and saved_date >= today_str:
+        source = "circular_guard"
 
     if source == "market_close":
         return yang_pct
 
-    # source=intraday 或未知 → 回退到 history 中最近一个15:00记录
+    # source=intraday / circular_guard / 未知 → 回退到 history 中最近一个15:00记录
     history_path = pipeline.summary_dir / "yang_yin_history.parquet" if pipeline else _prev_yangpu_path(pipeline).parent / "yang_yin_history.parquet"
     if history_path.exists():
         try:
             hist = pd.read_parquet(history_path)
             close_records = hist[hist["updated_at"].str.endswith("15:00", na=False)]
-            # 排除当天：盘中15:00快照也会写入"15:00"的updated_at，但那是当天盘中值
-            today_str = datetime.now().strftime("%Y%m%d")
+            # 排除当天：盘中15:00快照也会写入"15:00"的updated_at
             close_records = close_records[close_records["trade_date"] < today_str]
             if not close_records.empty:
                 latest = close_records.sort_values("trade_date").iloc[-1]
                 logger.info(
-                    f"prev_yangpu source=intraday({yang_pct:.1f}%), "
-                    f"回退到history {latest['trade_date']} 15:00 → {latest['yang_pct']:.1f}%"
+                    f"prev_yangpu {source}, 回退到history {latest['trade_date']} 15:00 → {latest['yang_pct']:.1f}%"
                 )
                 return float(latest["yang_pct"])
         except Exception:
