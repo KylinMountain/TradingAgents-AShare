@@ -161,6 +161,9 @@ def load_prev_yangpu(pipeline: YangYinPipeline = None) -> float:
         try:
             hist = pd.read_parquet(history_path)
             close_records = hist[hist["updated_at"].str.endswith("15:00", na=False)]
+            # 排除当天：盘中15:00快照也会写入"15:00"的updated_at，但那是当天盘中值
+            today_str = datetime.now().strftime("%Y%m%d")
+            close_records = close_records[close_records["trade_date"] < today_str]
             if not close_records.empty:
                 latest = close_records.sort_values("trade_date").iloc[-1]
                 logger.info(
