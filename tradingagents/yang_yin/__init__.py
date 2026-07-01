@@ -32,6 +32,7 @@ from .gold_silver_v8_1 import (
     load_gold_finger_history,
     save_gold_finger_history,
 )
+from .staleness import ensure_data_fresh
 from .red_green_bg import (
     compute_gs,
     compute_background,
@@ -71,4 +72,5 @@ __all__ = [
     "load_bg_state",
     "save_bg_state",
     "update_bg_state",
+    "ensure_data_fresh",
 ]

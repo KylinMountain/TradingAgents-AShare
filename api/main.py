@@ -4529,8 +4529,13 @@ def _instant_complete_from_report(job_id: str, report_id: str, user_id: str) -> 
 
 @app.get("/v1/yang-yin/history")
 def get_yang_yin_history(days: int = 30) -> List[Dict]:
-    """返回v0.7模型阳谱/阴谱历史数据。"""
+    """返回v0.7模型阳谱/阴谱历史数据。检测过期则自动增量更新。"""
     from tradingagents.yang_yin import load_history
+    from tradingagents.yang_yin.staleness import ensure_data_fresh
+    try:
+        ensure_data_fresh()
+    except Exception:
+        pass
     hist = load_history()
     if hist.empty:
         return []
@@ -4543,8 +4548,13 @@ def get_yang_yin_history(days: int = 30) -> List[Dict]:
 
 @app.get("/v1/gold-finger/history")
 def get_gold_finger_history(days: int = 30) -> List[Dict]:
-    """返回金/银手指历史信号。signal: 1=金, 0=银"""
+    """返回金/银手指历史信号。signal: 1=金, 0=银。检测过期则自动增量更新。"""
     from tradingagents.yang_yin.gold_silver_v8_1 import load_gold_finger_history
+    from tradingagents.yang_yin.staleness import ensure_data_fresh
+    try:
+        ensure_data_fresh()
+    except Exception:
+        pass
     hist = load_gold_finger_history()
     if hist.empty:
         return []
@@ -4554,9 +4564,14 @@ def get_gold_finger_history(days: int = 30) -> List[Dict]:
 
 @app.get("/v1/red-green-bg/history")
 def get_red_green_bg_history(days: int = 30) -> List[Dict]:
-    """返回红绿背景历史。background: 红/绿"""
+    """返回红绿背景历史。background: 红/绿。检测过期则自动增量更新。"""
     from tradingagents.yang_yin import YangYinPipeline, get_bg_history
+    from tradingagents.yang_yin.staleness import ensure_data_fresh
     pipeline = YangYinPipeline()
+    try:
+        ensure_data_fresh(pipeline)
+    except Exception:
+        pass
     return get_bg_history(pipeline, days=days)
 
 
@@ -6911,11 +6926,11 @@ if _uploads_dir.is_dir():
 
 # --- 兜底重建接口 (必须在SPA catch-all之前注册) ---
 def _ensure_yang_yin_data():
-    """前端检测到阳谱/金银手指/红绿背景数据为空时，触发强制重建。"""
-    from tradingagents.yang_yin.auto_rebuild import check_and_rebuild
+    """前端检测到阳谱/金银手指/红绿背景数据为空时，触发增量更新。"""
+    from tradingagents.yang_yin.staleness import ensure_data_fresh
     try:
-        rebuilt = check_and_rebuild(rebuild_force=True)
-        return {"ok": True, "rebuilt": rebuilt}
+        result = ensure_data_fresh()
+        return {"ok": True, **result}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
