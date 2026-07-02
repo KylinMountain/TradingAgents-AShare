@@ -33,6 +33,8 @@ function getBuildMeta() {
 
 const buildMeta = getBuildMeta()
 
+const backendPort = process.env.VITE_BACKEND_PORT || '8088'
+
 export default defineConfig({
   define: {
     __APP_BUILD_COMMIT__: JSON.stringify(buildMeta.commit),
@@ -49,24 +51,24 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
       '/v1': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/healthz': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/openapi.json': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
       '/docs': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
     },

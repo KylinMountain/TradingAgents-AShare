@@ -96,11 +96,11 @@ function HorizonPanel({ label, stats, icon }: { label: string; stats: AccuracySt
                         <span className="text-3xl font-bold text-slate-800">{stats.accuracy}%</span>
                         <span className="text-sm text-slate-400">({stats.correct}/{stats.count})</span>
                     </div>
-                    <ProgressBar value={stats.accuracy} color={stats.accuracy >= 60 ? 'bg-emerald-500' : stats.accuracy >= 40 ? 'bg-amber-500' : 'bg-red-500'} />
+                    <ProgressBar value={stats.accuracy} color={stats.accuracy >= 60 ? 'bg-red-500' : stats.accuracy >= 40 ? 'bg-amber-500' : 'bg-emerald-500'} />
                 </div>
                 <div>
                     <div className="text-sm text-slate-500 mb-1">平均收益</div>
-                    <div className={`text-3xl font-bold ${stats.avg_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <div className={`text-3xl font-bold ${stats.avg_return >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                         {stats.avg_return > 0 ? '+' : ''}{stats.avg_return}%
                     </div>
                 </div>
@@ -108,19 +108,19 @@ function HorizonPanel({ label, stats, icon }: { label: string; stats: AccuracySt
             <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
                 <div className="text-center">
                     <div className="text-xs text-slate-400">最大回撤</div>
-                    <div className={`text-sm font-semibold ${(stats.avg_max_drawdown ?? 0) >= -3 ? 'text-emerald-600' : (stats.avg_max_drawdown ?? 0) >= -8 ? 'text-amber-600' : 'text-red-500'}`}>
+                    <div className={`text-sm font-semibold ${(stats.avg_max_drawdown ?? 0) >= -3 ? 'text-red-600' : (stats.avg_max_drawdown ?? 0) >= -8 ? 'text-amber-600' : 'text-emerald-600'}`}>
                         {stats.avg_max_drawdown != null ? `${stats.avg_max_drawdown}%` : '-'}
                     </div>
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-slate-400">盈亏比</div>
-                    <div className={`text-sm font-semibold ${(stats.win_loss_ratio ?? 0) >= 1.5 ? 'text-emerald-600' : (stats.win_loss_ratio ?? 0) >= 1 ? 'text-amber-600' : 'text-red-500'}`}>
+                    <div className={`text-sm font-semibold ${(stats.win_loss_ratio ?? 0) >= 1.5 ? 'text-red-600' : (stats.win_loss_ratio ?? 0) >= 1 ? 'text-amber-600' : 'text-emerald-600'}`}>
                         {stats.win_loss_ratio != null ? stats.win_loss_ratio.toFixed(2) : '-'}
                     </div>
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-slate-400">期望值</div>
-                    <div className={`text-sm font-semibold ${(stats.expected_value ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <div className={`text-sm font-semibold ${(stats.expected_value ?? 0) >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                         {stats.expected_value != null ? `${stats.expected_value > 0 ? '+' : ''}${stats.expected_value}%` : '-'}
                     </div>
                 </div>
@@ -130,13 +130,13 @@ function HorizonPanel({ label, stats, icon }: { label: string; stats: AccuracySt
                 <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-50">
                     <div className="text-center">
                         <div className="text-xs text-slate-400">同期大盘</div>
-                        <div className={`text-sm font-semibold ${stats.avg_benchmark_return >= 0 ? 'text-slate-600' : 'text-red-500'}`}>
+                        <div className={`text-sm font-semibold ${stats.avg_benchmark_return >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                             {stats.avg_benchmark_return > 0 ? '+' : ''}{stats.avg_benchmark_return}%
                         </div>
                     </div>
                     <div className="text-center">
                         <div className="text-xs text-slate-400">超额收益</div>
-                        <div className={`text-sm font-semibold ${(stats.avg_excess_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        <div className={`text-sm font-semibold ${(stats.avg_excess_return ?? 0) >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                             {stats.avg_excess_return != null ? `${stats.avg_excess_return > 0 ? '+' : ''}${stats.avg_excess_return}%` : '-'}
                         </div>
                         {stats.beat_benchmark_pct != null && (
@@ -148,11 +148,11 @@ function HorizonPanel({ label, stats, icon }: { label: string; stats: AccuracySt
             <div className="grid grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-50">
                 <div className="text-center">
                     <div className="text-xs text-slate-400">最大</div>
-                    <div className="text-sm font-semibold text-emerald-600">+{stats.max_return}%</div>
+                    <div className="text-sm font-semibold text-red-600">+{stats.max_return}%</div>
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-slate-400">最小</div>
-                    <div className="text-sm font-semibold text-red-500">{stats.min_return}%</div>
+                    <div className="text-sm font-semibold text-emerald-600">{stats.min_return}%</div>
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-slate-400">买入准确</div>
@@ -300,21 +300,21 @@ export default function Accuracy() {
                             <div className="grid grid-cols-3 gap-6">
                                 <div className="text-center">
                                     <div className="text-sm text-slate-500 mb-1">高置信度 (≥70)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.high.accuracy || 0) >= 60 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    <div className={`text-2xl font-bold ${(summary.by_confidence.high.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
                                         {summary.by_confidence.high.accuracy}%
                                     </div>
                                     <div className="text-xs text-slate-400">{summary.by_confidence.high.count}条</div>
                                 </div>
                                 <div className="text-center">
                                     <div className="text-sm text-slate-500 mb-1">中置信度 (40-69)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.medium.accuracy || 0) >= 60 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    <div className={`text-2xl font-bold ${(summary.by_confidence.medium.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
                                         {summary.by_confidence.medium.accuracy}%
                                     </div>
                                     <div className="text-xs text-slate-400">{summary.by_confidence.medium.count}条</div>
                                 </div>
                                 <div className="text-center">
                                     <div className="text-sm text-slate-500 mb-1">低置信度 (&lt;40)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.low.accuracy || 0) >= 60 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    <div className={`text-2xl font-bold ${(summary.by_confidence.low.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
                                         {summary.by_confidence.low.accuracy}%
                                     </div>
                                     <div className="text-xs text-slate-400">{summary.by_confidence.low.count}条</div>
@@ -352,7 +352,7 @@ export default function Accuracy() {
                                             <td className="px-3 py-3 text-slate-500 text-xs">{item.entry_date || '-'}</td>
                                             <td className="px-3 py-3 text-center">
                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                    item.decision === 'BUY' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                                                    item.decision === 'BUY' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
                                                 }`}>
                                                     {item.decision === 'BUY' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                                                     {item.decision}
@@ -360,7 +360,7 @@ export default function Accuracy() {
                                             </td>
                                             <td className="px-2 py-3 text-center">
                                                 <span className={`text-xs font-medium ${
-                                                    item.confidence >= 70 ? 'text-emerald-600' : item.confidence >= 40 ? 'text-amber-600' : 'text-red-500'
+                                                    item.confidence >= 70 ? 'text-red-600' : item.confidence >= 40 ? 'text-amber-600' : 'text-emerald-600'
                                                 }`}>{item.confidence}</span>
                                             </td>
                                             <td className="px-2 py-3 text-right text-slate-700 text-xs">{item.signal_price?.toFixed(2)}</td>
@@ -374,15 +374,15 @@ export default function Accuracy() {
                                                 return (
                                                     <td key={h} className="px-3 py-3 text-center">
                                                         <div className="flex items-center justify-center gap-1">
-                                                            {correct ? <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" /> : <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />}
-                                                            <span className={`text-xs font-medium ${ret >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                            {correct ? <CheckCircle className="w-3 h-3 text-red-500 flex-shrink-0" /> : <XCircle className="w-3 h-3 text-emerald-400 flex-shrink-0" />}
+                                                            <span className={`text-xs font-medium ${ret >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                                                                 {ret > 0 ? '+' : ''}{ret}%
                                                             </span>
                                                         </div>
                                                         {(dd != null || bm != null) && (
                                                             <div className="flex items-center justify-center gap-1 mt-0.5">
-                                                                {dd != null && <span className={`text-[10px] ${dd >= -3 ? 'text-slate-400' : 'text-red-400'}`}>回撤{dd}%</span>}
-                                                                {bm != null && <span className={`text-[10px] ml-0.5 ${bm >= 0 ? 'text-slate-400' : 'text-red-400'}`}>盘{bm > 0 ? '+' : ''}{bm}%</span>}
+                                                                {dd != null && <span className={`text-[10px] ${dd >= -3 ? 'text-slate-400' : 'text-emerald-400'}`}>回撤{dd}%</span>}
+                                                                {bm != null && <span className={`text-[10px] ml-0.5 ${bm >= 0 ? 'text-slate-400' : 'text-emerald-400'}`}>盘{bm > 0 ? '+' : ''}{bm}%</span>}
                                                             </div>
                                                         )}
                                                     </td>
