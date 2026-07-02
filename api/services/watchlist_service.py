@@ -20,40 +20,68 @@ def _to_ths_code(symbol: str) -> str:
     return symbol.strip().split('.')[0]
 
 
-def fetch_stock_concepts(symbol: str) -> List[dict]:
-    """Fetch concept boards for a stock from THS (同花顺).
+def _to_em_secid(symbol: str) -> str:
+    """Convert symbol to Eastmoney secid format (e.g., '1.600519' or '0.000815')."""
+    s = symbol.strip().split('.')[0]
+    if s.startswith(("6", "9")):
+        return f"1.{s}"
+    return f"0.{s}"
 
-    Returns list of {"name": str, "type": str} sorted by priority, max 5 items.
+
+def fetch_stock_concepts(symbol: str) -> List[dict]:
+    """Fetch concept boards for a stock from THS + Eastmoney.
+
+    Industry from Eastmoney, concepts from THS. Returns list of {"name": str, "type": str}.
     """
     import os
     import re
     old_no_proxy = os.environ.get('NO_PROXY', '')
     old_no_proxy_lower = os.environ.get('no_proxy', '')
     try:
-        # Bypass proxy for Chinese financial APIs
         os.environ['NO_PROXY'] = '*'
         os.environ['no_proxy'] = '*'
 
         import requests
-        ths_code = _to_ths_code(symbol)
-        url = f'https://basic.10jqka.com.cn/{ths_code}/concept.html'
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://basic.10jqka.com.cn/'
-        }
-        resp = requests.get(url, headers=headers, timeout=10)
-        text = resp.content.decode('gbk', errors='ignore')
+        concepts = []
 
-        # Extract concept names from gnName class
-        matches = re.findall(r'class="gnName"[^>]*>\s*([^<]+?)\s*</td>', text)
-        concepts = [{"name": m.strip(), "type": "概念"} for m in matches if m.strip()]
+        # 1. Get industry from Eastmoney
+        try:
+            secid = _to_em_secid(symbol)
+            url = f'https://push2.eastmoney.com/api/qt/slist/get?spt=1&np=3&fltt=2&invt=2&fields=f100&secid={secid}'
+            headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'}
+            resp = requests.get(url, headers=headers, timeout=5)
+            data = resp.json()
+            for item in data.get('data', {}).get('diff', []):
+                industry = item.get('f100', '')
+                if industry and industry != '-':
+                    concepts.append({"name": industry, "type": "行业"})
+                    break
+        except Exception:
+            pass
+
+        # 2. Get concepts from THS
+        try:
+            ths_code = _to_ths_code(symbol)
+            url = f'https://basic.10jqka.com.cn/{ths_code}/concept.html'
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://basic.10jqka.com.cn/'
+            }
+            resp = requests.get(url, headers=headers, timeout=10)
+            text = resp.content.decode('gbk', errors='ignore')
+            matches = re.findall(r'class="gnName"[^>]*>\s*([^<]+?)\s*</td>', text)
+            for m in matches:
+                name = m.strip()
+                if name:
+                    concepts.append({"name": name, "type": "概念"})
+        except Exception:
+            pass
 
         return concepts[:MAX_CONCEPTS]
     except Exception as e:
         logger.debug("Failed to fetch concepts for %s: %s", symbol, e)
         return []
     finally:
-        # Restore original proxy settings
         os.environ['NO_PROXY'] = old_no_proxy
         os.environ['no_proxy'] = old_no_proxy_lower
 
