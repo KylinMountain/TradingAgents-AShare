@@ -15,56 +15,71 @@ MAX_WATCHLIST_ITEMS = 50
 MAX_CONCEPTS = 5  # 最多显示5个概念
 
 
-def _to_xq_symbol(symbol: str) -> str:
-    """Convert 6-digit code to Xueqiu format (e.g., 'SH600519')."""
-    s = symbol.strip()
+def _to_em_secid(symbol: str) -> str:
+    """Convert symbol to Eastmoney secid format (e.g., '1.600519' or '0.000815')."""
+    s = symbol.strip().split('.')[0]  # Remove .SH/.SZ suffix if present
     if s.startswith(("6", "9")):
-        return f"SH{s}"
-    return f"SZ{s}"
+        return f"1.{s}"
+    return f"0.{s}"
 
 
 def fetch_stock_concepts(symbol: str) -> List[dict]:
-    """Fetch concept/industry boards for a stock from THS/Xueqiu.
+    """Fetch concept/industry boards for a stock from Eastmoney.
 
     Returns list of {"name": str, "type": str} sorted by priority:
-    行业 > 概念 > 地域, max 5 items.
+    行业 > 概念, max 5 items.
     """
+    import os
+    old_no_proxy = os.environ.get('NO_PROXY', '')
+    old_no_proxy_lower = os.environ.get('no_proxy', '')
     try:
-        import akshare as ak
-        xq_symbol = _to_xq_symbol(symbol)
-        df = ak.stock_individual_basic_info_xq(symbol=xq_symbol)
-        if df is None or df.empty:
+        # Bypass proxy for Chinese financial APIs
+        os.environ['NO_PROXY'] = '*'
+        os.environ['no_proxy'] = '*'
+
+        import requests
+        secid = _to_em_secid(symbol)
+        url = f'https://push2.eastmoney.com/api/qt/slist/get?spt=1&np=3&fltt=2&invt=2&fields=f12,f14,f100,f103&secid={secid}'
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'}
+        resp = requests.get(url, headers=headers, timeout=10)
+        data = resp.json()
+
+        if data.get('rc') != 0 or not data.get('data', {}).get('diff'):
             return []
 
-        items = dict(zip(df["item"].astype(str), df["value"].astype(str)))
+        # Find the stock entry (not the board entry)
+        stock = None
+        for item in data['data']['diff']:
+            if item.get('f12', '').startswith(('0', '3', '6')):
+                stock = item
+                break
+
+        if not stock:
+            return []
+
         concepts = []
 
-        # 行业 (最高优先级)
-        if "行业" in items and items["行业"]:
-            for name in items["行业"].split("+")[:2]:  # 最多2个行业
-                name = name.strip()
-                if name:
-                    concepts.append({"name": name, "type": "行业"})
+        # 行业 (f100)
+        industry = stock.get('f100', '')
+        if industry and industry != '-':
+            concepts.append({"name": industry, "type": "行业"})
 
-        # 概念
-        if "概念" in items and items["概念"]:
-            for name in items["概念"].split("+")[:2]:  # 最多2个概念
+        # 概念 (f103, comma separated)
+        concept_str = stock.get('f103', '')
+        if concept_str and concept_str != '-':
+            for name in concept_str.split(',')[:4]:  # Max 4 concepts
                 name = name.strip()
                 if name:
                     concepts.append({"name": name, "type": "概念"})
-
-        # 地域 (最低优先级)
-        if "地域" in items and items["地域"]:
-            concepts.append({"name": items["地域"], "type": "地域"})
-
-        # 上市板块 (补充)
-        if "上市板块" in items and items["上市板块"] and len(concepts) < MAX_CONCEPTS:
-            concepts.append({"name": items["上市板块"], "type": "板块"})
 
         return concepts[:MAX_CONCEPTS]
     except Exception as e:
         logger.debug("Failed to fetch concepts for %s: %s", symbol, e)
         return []
+    finally:
+        # Restore original proxy settings
+        os.environ['NO_PROXY'] = old_no_proxy
+        os.environ['no_proxy'] = old_no_proxy_lower
 
 
 def get_concepts_from_db(db: Session, item_id: str) -> List[dict]:
