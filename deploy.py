@@ -3,7 +3,7 @@
 
 用法: python deploy.py
 
-流程: 变更检测 → 按需构建 → 上传 → 按需重启 → 按需健康检查
+流程: 变更检测 → 按需构建 → 上传 → 按需重启 → 健康检查
 """
 
 import io
@@ -41,9 +41,9 @@ def save_state(state):
 
 
 def git_changed_dirs(last_commit):
-    """对比 last_commit..HEAD，判断哪些目录有变更（只看未推送的本地提交）"""
+    """对比 last_commit..HEAD，判断哪些目录有变更"""
     if not last_commit:
-        return {"frontend": False, "backend": True}  # 首次部署全量后端
+        return {"frontend": True, "backend": True}
 
     result = subprocess.run(
         f"git diff --name-only {last_commit} HEAD",
@@ -63,13 +63,21 @@ def git_changed_dirs(last_commit):
 
 
 def build_frontend():
+    """清理并重新构建前端"""
     frontend_dir = os.path.join(PROJECT_DIR, "frontend")
+    dist_dir = os.path.join(frontend_dir, "dist")
+
+    # 清理旧构建
+    if os.path.exists(dist_dir):
+        subprocess.run(f"rm -rf {dist_dir}", shell=True, cwd=frontend_dir)
+
     result = subprocess.run(
-        "npm run build --silent",
+        "npm run build",
         cwd=frontend_dir, capture_output=True, shell=True,
     )
     if result.returncode != 0:
         print("[FAIL] 前端构建失败")
+        print(result.stderr.decode()[-500:])
         sys.exit(1)
 
 
@@ -97,31 +105,91 @@ def upload_frontend(sftp_client, ssh_client):
         print("  [OK] 前端上传完成")
 
 
-def server_git_pull(ssh_client):
-    """服务器拉取最新代码"""
+def server_reset_code(ssh_client):
+    """服务器重置代码到 origin/main（避免合并冲突）"""
     stdin, stdout, stderr = ssh_client.exec_command(
         f"cd {REMOTE_DIR} && "
-        f"git stash push -m deploy-save 2>/dev/null; "
-        f"git fetch origin && git reset --hard origin/main 2>&1; "
-        f"git stash pop 2>/dev/null || true"
+        f"git fetch origin && "
+        f"git reset --hard origin/main 2>&1"
     )
-    print("  git: " + stdout.read().decode().strip().replace("\n", "\n  git: "))
+    out = stdout.read().decode().strip()
+    print("  git: " + out.replace("\n", "\n  git: "))
 
 
-def restart_service(ssh_client):
-    """重启后端服务"""
-    print("  重启服务...")
-    stdin, stdout, stderr = ssh_client.exec_command(
-        "systemctl restart tradingagents 2>&1 && echo OK || echo FAIL"
+def kill_backend(ssh_client):
+    """停止后端服务"""
+    print("  停止后端...")
+    ssh_client.exec_command("pkill -9 -f 'uvicorn api.main' 2>/dev/null")
+    time.sleep(2)
+
+
+def start_backend(ssh_client):
+    """启动后端服务"""
+    print("  启动后端...")
+    ssh_client.exec_command(
+        f"cd {REMOTE_DIR} && "
+        f"nohup /usr/local/bin/python3.10 -m uvicorn api.main:app "
+        f"--host 0.0.0.0 --port 8088 --log-level warning "
+        f"> logs/backend.log 2>&1 &"
     )
-    out = stdout.read().decode()
-    if "OK" in out:
-        print("  [OK] 服务已重启")
 
 
-def wait_for_health(timeout=90):
-    """健康检查，直连 /healthz"""
-    url = f"http://{SERVER}/healthz"
+def setup_nginx(ssh_client):
+    """配置 nginx 反向代理"""
+    nginx_conf = '''server {
+    listen 80;
+    server_name _;
+
+    root /opt/tradingagents/frontend/dist;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /v1/ {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /healthz {
+        proxy_pass http://127.0.0.1:8088;
+    }
+
+    location /docs {
+        proxy_pass http://127.0.0.1:8088;
+    }
+
+    location /openapi.json {
+        proxy_pass http://127.0.0.1:8088;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+'''
+    sftp = ssh_client.open_sftp()
+    with sftp.open("/etc/nginx/conf.d/tradingagents.conf", "w") as f:
+        f.write(nginx_conf)
+    sftp.close()
+
+    # 测试并重载 nginx
+    stdin, stdout, stderr = ssh_client.exec_command("nginx -t 2>&1")
+    test_out = stdout.read().decode()
+    if "successful" in test_out:
+        ssh_client.exec_command("nginx -s reload 2>/dev/null || systemctl restart nginx")
+        print("  [OK] nginx 配置已更新")
+    else:
+        print(f"  [WARN] nginx 配置测试失败: {test_out}")
+
+
+def wait_for_health(timeout=120):
+    """健康检查，等待后端就绪"""
+    url = f"http://{SERVER}:8088/healthz"
     deadline = time.time() + timeout
     printed = False
     while time.time() < deadline:
@@ -134,30 +202,61 @@ def wait_for_health(timeout=90):
         except Exception:
             pass
         remaining = int(deadline - time.time())
-        print(f"\r  等待服务启动... ({remaining}s)", end="")
+        print(f"\r  等待后端启动... ({remaining}s)", end="")
         printed = True
-        time.sleep(2)
+        time.sleep(3)
     if printed:
         print()
     return False
 
 
 def smoke_test():
-    """验证 K 线接口可用"""
+    """验证关键接口可用"""
     from datetime import datetime, timedelta
     today = datetime.now().strftime("%Y-%m-%d")
     month_ago = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
-    url = f"http://{SERVER}/v1/market/kline?symbol=000001.SH&start_date={month_ago}&end_date={today}&period=weekly"
+
+    # 测试 K 线接口
+    url = f"http://{SERVER}:8088/v1/market/kline?symbol=000001.SH&start_date={month_ago}&end_date={today}&period=weekly"
     try:
         resp = urllib.request.urlopen(url, timeout=15)
         data = json.loads(resp.read().decode())
         count = len(data.get("candles", []))
         ok = 3 <= count <= 12
         status = "[OK]" if ok else "[FAIL]"
-        print(f"  {status} 周K: {count} 条 (预期 3-12)")
+        print(f"  {status} K线接口: {count} 条")
         return ok
     except Exception as e:
         print(f"  [FAIL] 冒烟测试: {e}")
+        return False
+
+
+def verify_nginx():
+    """验证 nginx 代理正常"""
+    try:
+        # 前端
+        resp = urllib.request.urlopen(f"http://{SERVER}/", timeout=10)
+        if resp.status != 200:
+            print("  [FAIL] nginx 前端代理")
+            return False
+
+        # API
+        req = urllib.request.Request(
+            f"http://{SERVER}/v1/auth/request-code",
+            data=json.dumps({"email": "test@test.com"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        # 403 说明 API 正常（只是邮箱未授权）
+        print("  [OK] nginx 代理正常")
+        return True
+    except Exception as e:
+        # 403 也说明 API 可达
+        if "403" in str(e):
+            print("  [OK] nginx 代理正常")
+            return True
+        print(f"  [FAIL] nginx 验证: {e}")
         return False
 
 
@@ -196,30 +295,37 @@ def main():
         # ---- 4a. 上传前端 ----
         if need_frontend:
             upload_frontend(sftp, client)
+            setup_nginx(client)
 
-        # ---- 4b. 服务器更新代码（仅后端变更） ----
+        # ---- 4b. 后端部署 ----
         if need_backend:
-            print(">>> 服务器更新...")
-            server_git_pull(client)
-            restart_service(client)
+            print(">>> 服务器更新代码...")
+            kill_backend(client)
+            server_reset_code(client)
+            start_backend(client)
 
     finally:
         sftp.close()
         client.close()
 
-    # ---- 5. 健康检查（仅后端变更） ----
+    # ---- 5. 健康检查 ----
     if need_backend:
-        print(">>> 健康检查...")
+        print(">>> 等待后端启动...")
         if not wait_for_health():
-            print("[FAIL] 服务启动超时")
+            print("[FAIL] 后端启动超时")
             sys.exit(1)
-        print("[OK] 服务已就绪")
+        print("[OK] 后端已就绪")
+
         if not smoke_test():
             print("[FAIL] 冒烟测试未通过")
             sys.exit(1)
         print("[OK] 冒烟测试通过")
-    else:
-        print(">>> 纯前端部署，跳过健康检查")
+
+    # ---- 6. 验证 nginx ----
+    if need_frontend:
+        print(">>> 验证 nginx 代理...")
+        if not verify_nginx():
+            print("[WARN] nginx 验证失败，请手动检查")
 
     # 记录部署状态
     current = subprocess.run(
