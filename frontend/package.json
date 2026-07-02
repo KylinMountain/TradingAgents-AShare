@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node kill-port.cjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint .",
