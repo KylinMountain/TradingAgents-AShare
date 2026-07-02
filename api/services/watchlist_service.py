@@ -15,21 +15,18 @@ MAX_WATCHLIST_ITEMS = 50
 MAX_CONCEPTS = 5  # 最多显示5个概念
 
 
-def _to_em_secid(symbol: str) -> str:
-    """Convert symbol to Eastmoney secid format (e.g., '1.600519' or '0.000815')."""
-    s = symbol.strip().split('.')[0]  # Remove .SH/.SZ suffix if present
-    if s.startswith(("6", "9")):
-        return f"1.{s}"
-    return f"0.{s}"
+def _to_ths_code(symbol: str) -> str:
+    """Convert symbol to THS code format (e.g., '000815')."""
+    return symbol.strip().split('.')[0]
 
 
 def fetch_stock_concepts(symbol: str) -> List[dict]:
-    """Fetch concept/industry boards for a stock from Eastmoney.
+    """Fetch concept boards for a stock from THS (同花顺).
 
-    Returns list of {"name": str, "type": str} sorted by priority:
-    行业 > 概念, max 5 items.
+    Returns list of {"name": str, "type": str} sorted by priority, max 5 items.
     """
     import os
+    import re
     old_no_proxy = os.environ.get('NO_PROXY', '')
     old_no_proxy_lower = os.environ.get('no_proxy', '')
     try:
@@ -38,39 +35,18 @@ def fetch_stock_concepts(symbol: str) -> List[dict]:
         os.environ['no_proxy'] = '*'
 
         import requests
-        secid = _to_em_secid(symbol)
-        url = f'https://push2.eastmoney.com/api/qt/slist/get?spt=1&np=3&fltt=2&invt=2&fields=f12,f14,f100,f103&secid={secid}'
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'}
+        ths_code = _to_ths_code(symbol)
+        url = f'https://basic.10jqka.com.cn/{ths_code}/concept.html'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://basic.10jqka.com.cn/'
+        }
         resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
+        text = resp.content.decode('gbk', errors='ignore')
 
-        if data.get('rc') != 0 or not data.get('data', {}).get('diff'):
-            return []
-
-        # Find the stock entry (not the board entry)
-        stock = None
-        for item in data['data']['diff']:
-            if item.get('f12', '').startswith(('0', '3', '6')):
-                stock = item
-                break
-
-        if not stock:
-            return []
-
-        concepts = []
-
-        # 行业 (f100)
-        industry = stock.get('f100', '')
-        if industry and industry != '-':
-            concepts.append({"name": industry, "type": "行业"})
-
-        # 概念 (f103, comma separated)
-        concept_str = stock.get('f103', '')
-        if concept_str and concept_str != '-':
-            for name in concept_str.split(',')[:4]:  # Max 4 concepts
-                name = name.strip()
-                if name:
-                    concepts.append({"name": name, "type": "概念"})
+        # Extract concept names from gnName class
+        matches = re.findall(r'class="gnName"[^>]*>\s*([^<]+?)\s*</td>', text)
+        concepts = [{"name": m.strip(), "type": "概念"} for m in matches if m.strip()]
 
         return concepts[:MAX_CONCEPTS]
     except Exception as e:
