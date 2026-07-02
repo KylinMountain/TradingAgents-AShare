@@ -22,10 +22,6 @@ INDEX_CODE = "000001.SH"
 BG_STATE_FILE = "bg_state.json"
 
 
-def _ema(series: pd.Series, span: int) -> pd.Series:
-    return series.ewm(span=span, adjust=False).mean()
-
-
 def _get_tushare_pro():
     import tushare as ts
     token = os.environ.get("TUSHARE_TOKEN", "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada")
@@ -118,7 +114,7 @@ def fetch_index_kline(days: int = 120) -> pd.DataFrame:
 
 
 def compute_gs(df: pd.DataFrame) -> pd.DataFrame:
-    """计算GS策略信号 (v2.1: 9次迭代修正)
+    """计算GS策略信号 — 复用 niuxiong_line 统一实现
 
     Parameters
     ----------
@@ -130,53 +126,11 @@ def compute_gs(df: pd.DataFrame) -> pd.DataFrame:
     pd.DataFrame
         添加 a_line, bb_line, gs_signal 列 (G=红/S=绿)
     """
-    result = df.copy()
-    c = result["close"]
-    o = result["open"]
-    h = result["high"]
-    l = result["low"]
+    from tradingagents.indicators.niuxiong_line import calculate_gs_strategy
 
-    # BB: 4均线均值
-    ma3 = c.rolling(3).mean()
-    ma7 = c.rolling(7).mean()
-    ma13 = c.rolling(13).mean()
-    ma27 = c.rolling(27).mean()
-    bb0 = (ma3 + ma7 + ma13 + ma27) / 4
-    bb1 = _ema(c, 5)
-    result["bb"] = bb0.where(bb0.notna(), bb1)
-
-    # A0: 加权价
-    result["a_line"] = (h + l + 2 * o + 6 * c) / 10
-
-    # TK: 阴K无下影线 (O>C 且 C≈L)
-    result["tk"] = (o > c) & (c <= l * 1.001)
-    # TP: 阳K无上影线 (C>O 且 C≈H)
-    result["tp"] = (c > o) & (c >= h * 0.999)
-
-    # A线 9次迭代修正
-    a = result["a_line"].copy()
-    bb = result["bb"]
-    tk = result["tk"]
-    tp = result["tp"]
-
-    for _ in range(9):
-        # A上穿BB: A[t]>=BB[t] and A[t-1]<BB[t-1]
-        cross_up = (a >= bb) & (a.shift(1) < bb.shift(1))
-        # A下穿BB: A[t]<BB[t] and A[t-1]>=BB[t-1]
-        cross_down = (a < bb) & (a.shift(1) >= bb.shift(1))
-
-        a = pd.Series(
-            np.where(cross_up & tk, bb * 0.98,
-                     np.where(cross_down & tp, bb * 1.02, a)),
-            index=df.index
-        )
-
-    result["a_line"] = a
-    result["bb_line"] = bb
-
-    # GS信号: A>=BB → G(红), A<BB → S(绿)
-    result["gs_signal"] = np.where(a >= bb, "G", "S")
-
+    result = calculate_gs_strategy(df)
+    result = result.rename(columns={"gs_a": "a_line", "gs_bb": "bb_line"})
+    result["gs_signal"] = np.where(result["gs_k"], "G", "S")
     return result
 
 
