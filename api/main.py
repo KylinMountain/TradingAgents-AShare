@@ -1348,6 +1348,7 @@ class StrategyDecisionResponse(BaseModel):
     phase_reasoning: str = ""
     effort_result: str = ""
     checklist_score: str = ""
+    ice_line: float | None = None
     paths: dict = {}
     final_action: str = ""
     confidence: str = ""
@@ -4648,6 +4649,12 @@ def get_39rules_decision(
         raise HTTPException(status_code=500, detail=f"LLM决策失败: {result.get('error')}")
 
     result["name"] = name
+    # ice_line: 优先用LLM输出，LLM未输出时取事实引擎计算值
+    if result.get("ice_line") is None and "ice_line" in facts.columns:
+        import numpy as _np
+        val = facts["ice_line"].iloc[-1]
+        if not _np.isnan(val):
+            result["ice_line"] = float(val)
     return StrategyDecisionResponse(**result)
 
 

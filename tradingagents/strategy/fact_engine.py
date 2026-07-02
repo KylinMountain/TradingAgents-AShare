@@ -272,6 +272,87 @@ def compute_facts(df: pd.DataFrame, market_state: str | None = None) -> pd.DataF
     )
 
     # ============================================================
+    # Ice Line（冰线）— Trading Range 上沿阻力位
+    # 定义：近30天内价格多次（≥3次）受阻的高点区间上界
+    # 价格需"破冰"（有效突破Ice Line）才能确认Mark-up
+    # ============================================================
+    ice_line_arr = np.full(len(result), np.nan)
+    lookback_ice = 30
+    for i in range(len(result)):
+        start = max(0, i - lookback_ice)
+        window_h = h.iloc[start:i+1]
+        if len(window_h) < 10:
+            continue
+        # 找窗口内局部高点（比左右两侧都高的点）
+        highs = []
+        for j in range(1, len(window_h) - 1):
+            if window_h.iloc[j] > window_h.iloc[j-1] and window_h.iloc[j] > window_h.iloc[j+1]:
+                highs.append(window_h.iloc[j])
+        if len(highs) < 2:
+            continue
+        # 取所有局部高点的中位数作为冰线
+        ice_line_arr[i] = float(np.median(highs))
+    result["ice_line"] = ice_line_arr
+
+    # ============================================================
+    # UTAD（Upthrust After Distribution / 派发阶段假突破）
+    # 与BC区别：BC看20日高位+高量，UTAD看突破阻力位后立即回落
+    # 条件：盘中突破ice_line或resistance_high + 长上影 + 收盘回落至突破位下方
+    # ============================================================
+    utad_arr = np.zeros(len(result), dtype=bool)
+    for i in range(len(result)):
+        ref_high = ice_line_arr[i] if not np.isnan(ice_line_arr[i]) else (
+            resistance_high_arr[i] if not np.isnan(resistance_high_arr[i]) else np.nan
+        )
+        if np.isnan(ref_high):
+            continue
+        # 盘中曾突破参考阻力位
+        broke_above = h.iloc[i] > ref_high
+        # 收盘回落至参考位下方
+        closed_below = c.iloc[i] < ref_high
+        # 长上影（上影线占振幅>30%）
+        amp = h.iloc[i] - l.iloc[i]
+        if amp < 0.001:
+            continue
+        long_upper = (h.iloc[i] - c.iloc[i]) / amp > 0.30
+        utad_arr[i] = broke_above and closed_below and long_upper
+    result["is_UTAD"] = utad_arr
+
+    # ============================================================
+    # Trading Range（震荡区间）识别
+    # 近20天振幅 < 10% 视为存在明确横盘区间
+    # ============================================================
+    tr_arr = np.zeros(len(result), dtype=bool)
+    tr_high_arr = np.full(len(result), np.nan)
+    tr_low_arr = np.full(len(result), np.nan)
+    for i in range(len(result)):
+        start = max(0, i - 19)
+        window_h = h.iloc[start:i+1]
+        window_l = l.iloc[start:i+1]
+        if len(window_h) < 10:
+            continue
+        rng_high = window_h.max()
+        rng_low = window_l.min()
+        if rng_low > 0 and (rng_high - rng_low) / rng_low < 0.10:
+            tr_arr[i] = True
+            tr_high_arr[i] = rng_high
+            tr_low_arr[i] = rng_low
+    result["in_trading_range"] = tr_arr
+    result["trading_range_high"] = tr_high_arr
+    result["trading_range_low"] = tr_low_arr
+
+    # ============================================================
+    # 价格在 Trading Range 中的相对位置（0=下沿，1=上沿）
+    # ============================================================
+    pos_arr = np.full(len(result), np.nan)
+    for i in range(len(result)):
+        if tr_arr[i] and not np.isnan(tr_high_arr[i]) and not np.isnan(tr_low_arr[i]):
+            rng = tr_high_arr[i] - tr_low_arr[i]
+            if rng > 0:
+                pos_arr[i] = (c.iloc[i] - tr_low_arr[i]) / rng
+    result["price_position_in_range"] = pos_arr
+
+    # ============================================================
     # MACD（用于8项清单第⑥项：绿柱趋势判断）
     # ============================================================
     ema12 = c.ewm(span=12, adjust=False).mean()
@@ -836,5 +917,21 @@ def format_fact_text(facts_df: pd.DataFrame, lookback: int = 10) -> str:
             f"{row['body_ratio']:.0%}  | {sup_str} | {res_h} | {res_l} | "
             f"{trend_icon:<3} | {yy:<6} | {fake:<3} | {g3s} | {row['high_vol_count_20d']:>3}"
         )
+
+    lines.append("")
+
+    # 补充信息：威科夫关键位
+    latest = facts_df.iloc[-1]
+    ice = f"{latest['ice_line']:.2f}" if not pd.isna(latest.get("ice_line", np.nan)) else "无"
+    tr_status = "是" if latest.get("in_trading_range", False) else "否"
+    tr_pos = f"{latest['price_position_in_range']:.0%}" if not pd.isna(latest.get("price_position_in_range", np.nan)) else "—"
+    tr_h = f"{latest['trading_range_high']:.2f}" if not pd.isna(latest.get("trading_range_high", np.nan)) else "—"
+    tr_l = f"{latest['trading_range_low']:.2f}" if not pd.isna(latest.get("trading_range_low", np.nan)) else "—"
+    utad = "是" if latest.get("is_UTAD", False) else "否"
+
+    lines.append("【威科夫关键位】")
+    lines.append(f"  冰线(Ice Line): {ice}")
+    lines.append(f"  震荡区间: {tr_status}  区间上沿: {tr_h}  区间下沿: {tr_l}  当前位置: {tr_pos}")
+    lines.append(f"  UTAD(派发假突破): {utad}")
 
     return "\n".join(lines)

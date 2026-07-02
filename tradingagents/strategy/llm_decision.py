@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import numpy as np
 import pandas as pd
 
 from .fact_engine import format_fact_text
@@ -29,6 +30,7 @@ def build_system_prompt() -> str:
 2. **确认当前处于哪个阶段**（吸筹/上涨趋势/派发/下跌趋势）
 3. **找最近的二次测试(ST)**，判断是否通过（缩量回踩不破SC/BC极点）
 4. **识别当前核心矛盾**——多空争夺的关键价位是什么？
+5. **识别Trading Range（震荡区间）**——是否存在明确的横盘整理区间？价格在区间中的位置（上沿/中部/下沿）？冰线(Ice Line)在哪里？
 
 ### 六阶段定义
 
@@ -43,15 +45,27 @@ def build_system_prompt() -> str:
 
 ### phase与checklist一致性（方法论2.5节）
 
-phase必须与checklist评分逻辑一致，输出前自检：
+phase必须与checklist评分逻辑一致，输出前自检。checklist评分告诉你"趋势是否接近尾声"，phase告诉你"具体是哪个阶段"：
+
+**下跌趋势场景（SC已出现或未出现）：**
 
 | checklist评分 | 合理phase | 矛盾phase（禁止） |
 |-------------|----------|-----------------|
-| 6-8项末期特征 | 底部筑底、吸筹 | 顶部筑顶、派发、上涨趋势 |
-| 3-5项末期特征 | 下跌趋势、底部筑底 | 顶部筑顶、派发 |
+| 6-8项末期特征 | 底部筑底、吸筹 | 下跌趋势、上涨趋势 |
+| 3-5项末期特征 | 下跌趋势、底部筑底 | 吸筹、上涨趋势 |
 | 0-2项末期特征 | 下跌趋势 | 底部筑底、吸筹 |
 
-**phase_reasoning必须写明**：SC/BC信号位置 → ST是否已出现/通过 → checklist评分 → 综合定阶段。
+**上涨趋势场景（BC已出现或未出现）：**
+
+| checklist评分 | 合理phase | 矛盾phase（禁止） |
+|-------------|----------|-----------------|
+| 6-8项末期特征 | 顶部筑顶、派发 | 下跌趋势、吸筹 |
+| 3-5项末期特征 | 上涨趋势、顶部筑顶 | 派发、下跌趋势 |
+| 0-2项末期特征 | 上涨趋势 | 顶部筑顶、派发 |
+
+**自检方法**：先看BC/SC信号判断是上涨趋势还是下跌趋势场景，再查对应表格验证checklist评分是否与phase一致。
+
+**phase_reasoning必须写明**：BC/SC信号位置 → ST是否已出现/通过 → checklist评分（上涨/下跌场景）→ 综合定阶段。
 
 **阶段标签是慢变量，checklist评分和量价信号是快变量。当两者冲突时，以checklist评分为准。**
 
@@ -71,7 +85,11 @@ phase必须与checklist评分逻辑一致，输出前自检：
 
 ## 第三层：8项清单末期判定（核心！逐项打钩）
 
-此清单是决策的核心依据，判断当前趋势是处于中继还是末期：
+此清单是决策的核心依据，判断当前趋势是处于中继还是末期。
+
+**关键概念："末期特征"= 当前趋势即将结束的信号**，高分意味着趋势反转概率高。但"反转"的方向取决于当前趋势方向：
+- 下跌趋势中高分 → 反转向上涨（底部信号，应关注进场）
+- 上涨趋势中高分 → 反转向下跌（顶部信号，应关注离场）
 
 **下跌趋势末期清单：**
   ① 是否出现过SC恐慌抛售（走势概要中标记）？无→中继；有→进入末期观察
@@ -93,31 +111,54 @@ phase必须与checklist评分逻辑一致，输出前自检：
   ⑦ 上涨斜率是否放缓？否→中继；是→末期
   ⑧ 顶部横盘时间？<10天→中继；>15天→末期
 
-评分：0-2项末期特征=中继；3-5项=可能进入末期（密切关注，至少观望）；6-8项=高概率末期（关注反转信号）
+**评分标准（通用，不区分方向）：**
+- 0-2项末期特征 = 趋势中继（当前趋势仍在延续，顺势而为）
+- 3-5项末期特征 = 趋势可能进入末期（密切关注，至少观望，不加仓）
+- 6-8项末期特征 = 高概率趋势末期（关注反转信号，准备应对方向转换）
+
+**注意：评分本身只告诉你"趋势是否接近尾声"，不告诉你反转方向。** 结合 phase 和 SC/BC 信号判断具体是顶部还是底部。
 
 ## 第四层：动态推演与路标设置
 
-不预测方向，而是基于前三层结论，构建三条可能路径并给出路标：
+不预测方向，而是基于前三层结论，构建三条可能路径。每条路径必须按以下固定结构输出，不要添加多余的解释或主观概率判断：
 
-- **路径A（偏多）**：如果什么条件触发，可以看多？给出具体价格/量能路标
-- **路径B（中性）**：如果什么条件触发，维持观望？给出横盘路标
-- **路径C（偏空）**：如果什么条件触发，应该回避？给出破位路标
+```
+【当前状态】一句话描述价格当前在哪里（相对于支撑/阻力/冰线/Trading Range的位置）
+【触发条件】明确的价格+量能条件（"收盘价突破/跌破XX元且成交量>XX万手"）
+【确认信号】触发后需要的二次确认（"次日缩量回踩不破XX"或"连续2日站稳"）
+【失效条件】什么情况下该路径不成立（"若次日收盘回落至XX下方则该路径失效"）
+```
 
-最终决策 = 当前最符合哪条路径 + 路标是否已触发。置信度 = 信号维度的一致性程度（多维度共振=高，信号矛盾=低）。
+三条路径：
+- **路径A（偏多/Mark-up）**：触发条件=收盘价突破冰线(Ice Line)并站稳。确认信号=缩量回踩冰线不破。失效条件=突破后回落至冰线下方
+- **路径B（中性/Trading Range内）**：**这是默认状态**——当路径A和路径C的触发条件均未满足时，价格继续在区间内运行。触发条件=在X个交易日内既不突破上方阻力也不跌破下方支撑。确认信号=量能持续萎缩、波动率收窄、K线实体变小。失效条件=价格向上或向下突破区间边界（即转为路径A或C）
+- **路径C（偏空/Mark-down）**：触发条件=收盘价跌破Trading Range下沿或关键支撑位。确认信号=次日缩量反抽无法收回支撑上方。失效条件=跌破后立即放量收复（Spring弹簧效应）
+
+**禁止在路径描述中加入概率判断**（如"极低概率"、"大概率"）——概率由checklist评分和confidence字段表达。
 
 ---
 
 # 阶段过渡期的决策原则
 
-checklist评分决定决策下限，阶段标签只是背景参考：
+checklist评分决定决策下限，阶段标签只是背景参考。**评分方向取决于当前趋势：**
+
+**下跌趋势中（SC出现，趋势向下）：**
 
 | checklist评分 | 最低决策 | 说明 |
 |-------------|---------|------|
 | 0-2项末期特征 | 风险回避/清仓 | 高概率下跌中继，不宜左侧抄底 |
-| 3-5项末期特征 | 观望 | 可能进入末期，需等待ST确认——但不要清仓也不要建仓，保持观察 |
+| 3-5项末期特征 | 观望 | 可能进入末期，需等待ST确认——不要清仓也不要建仓 |
 | 6-8项末期特征 | 机会进场 | 高概率下跌末期，关注反转信号，可轻仓试探 |
 
-**硬性规则：checklist评分3-5分时，final_action不能是清仓或风险回避——必须至少是观望。**
+**上涨趋势中（BC出现，趋势向上）：**
+
+| checklist评分 | 最低决策 | 说明 |
+|-------------|---------|------|
+| 0-2项末期特征 | 持有/顺势 | 高概率上涨中继，趋势健康延续 |
+| 3-5项末期特征 | 观望/减仓 | 可能进入末期，需警惕——不要追高，可考虑部分止盈 |
+| 6-8项项末期特征 | 减仓/离场 | 高概率上涨末期，关注见顶信号，应考虑离场 |
+
+**硬性规则：checklist评分3-5分时，不能走极端**——下跌趋势中不能清仓/风险回避（至少观望），上涨趋势中不能加仓/重仓跟进（至少观望/减仓）。
 
 # 输出格式（纯JSON）
 
@@ -128,11 +169,12 @@ checklist评分决定决策下限，阶段标签只是背景参考：
   "phase": "吸筹/上涨趋势/派发/下跌趋势/底部筑底/顶部筑顶",
   "phase_reasoning": "SC/BC信号位置→ST是否已出现/通过→checklist评分→综合定阶段",
   "effort_result": "努力与结果分析：当前量价是配合还是背离，量能趋势在放大还是衰竭",
-  "checklist_score": "8项清单评分：X/8项末期特征，判定为下跌中继/末期/不适用",
+  "checklist_score": "8项清单评分：X/8项末期特征（上涨/下跌场景），判定为趋势中继/末期",
+  "ice_line": "冰线价位（数字或null）",
   "paths": {{
-    "bullish": "偏多路径：触发条件+路标",
-    "neutral": "中性路径：触发条件+路标",
-    "bearish": "偏空路径：触发条件+路标"
+    "bullish": "【当前状态】...【触发条件】...【确认信号】...【失效条件】...",
+    "neutral": "【当前状态】...【触发条件】...【确认信号】...【失效条件】...",
+    "bearish": "【当前状态】...【触发条件】...【确认信号】...【失效条件】..."
   }},
   "final_action": "加仓/减仓/清仓/观望/机会进场/风险回避",
   "confidence": "高/中/低",
@@ -262,10 +304,12 @@ def _generate_trend_summary(df: pd.DataFrame) -> str:
             tags.append("Spring震仓")
         if row.get("is_SOW", False):
             tags.append("SOW弱势信号")
+        if row.get("is_UTAD", False):
+            tags.append("UTAD派发假突破")
         if tags:
             wyckoff_events.append(f"  {d.date()} {' + '.join(tags)}")
     if wyckoff_events:
-        lines.append(f"\n威科夫关键信号（仅展示SC/BC/ST/Spring/SOW）：")
+        lines.append(f"\n威科夫关键信号（SC/BC/ST/Spring/SOW/UTAD）：")
         lines.extend(wyckoff_events)
         sc_count = sum(df.get("is_SC", [False]))
         st_count = sum(df.get("is_ST", [False]))
@@ -281,6 +325,21 @@ def _generate_trend_summary(df: pd.DataFrame) -> str:
     lines.append(f"  连续阳线：{int(latest['consecutive_yang'])}根 / 连续阴线：{int(latest['consecutive_yin'])}根")
     lines.append(f"  当前支撑位：{latest['support_level']:.2f}" if not pd.isna(latest['support_level']) else "  当前支撑位：无")
     lines.append(f"  当前压力区间：{latest['resistance_low']:.2f} ~ {latest['resistance_high']:.2f}" if not pd.isna(latest['resistance_high']) else "  当前压力区间：无")
+
+    # 威科夫关键位
+    if "ice_line" in df.columns and not pd.isna(latest.get("ice_line", np.nan)):
+        lines.append(f"  冰线(Ice Line)：{latest['ice_line']:.2f}")
+    if "in_trading_range" in df.columns:
+        in_tr = latest.get("in_trading_range", False)
+        if in_tr and not pd.isna(latest.get("trading_range_high", np.nan)):
+            pos = latest.get("price_position_in_range", 0.5)
+            pos_label = "下沿" if pos < 0.33 else ("中部" if pos < 0.67 else "上沿")
+            lines.append(f"  震荡区间：{latest['trading_range_low']:.2f} ~ {latest['trading_range_high']:.2f}（当前在{pos_label} {pos:.0%}）")
+        else:
+            lines.append(f"  震荡区间：无明确横盘区间")
+    if "is_UTAD" in df.columns and latest.get("is_UTAD", False):
+        lines.append(f"  ⚠ 当日出现UTAD(派发假突破)信号")
+
     if "macd_hist_trend" in df.columns:
         lines.append(f"  MACD状态：DIF={latest.get('macd_dif',0):.2f} DEA={latest.get('macd_dea',0):.2f} 柱趋势={latest.get('macd_hist_trend','?')}")
 

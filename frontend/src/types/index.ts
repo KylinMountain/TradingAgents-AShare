@@ -1196,6 +1196,7 @@ export interface StrategyDecisionResponse {
     phase_reasoning: string
     effort_result: string
     checklist_score: string
+    ice_line: number | null
     paths: {
         bullish: string
         neutral: string

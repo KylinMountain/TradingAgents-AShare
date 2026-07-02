@@ -154,6 +154,16 @@ export default function StrategyDecisionCard({ symbol, name = '' }: Props) {
                             {data.checklist_score}
                         </div>
 
+                        {/* Ice Line */}
+                        {data.ice_line != null && (
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="text-slate-400">冰线</span>
+                                <span className="font-mono font-medium text-blue-600 dark:text-blue-400">
+                                    {data.ice_line.toFixed(2)}
+                                </span>
+                            </div>
+                        )}
+
                         {/* Summary */}
                         <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                             {data.summary}
