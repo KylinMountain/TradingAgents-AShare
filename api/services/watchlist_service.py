@@ -12,7 +12,7 @@ from api.database import WatchlistItemDB, ScheduledAnalysisDB
 logger = logging.getLogger(__name__)
 
 MAX_WATCHLIST_ITEMS = 50
-MAX_CONCEPTS = 8  # 存储最多8个概念，前端默认显示5个
+MAX_CONCEPTS = 10  # 存储最多10个概念，前端默认显示5个
 
 
 def _to_ths_code(symbol: str) -> str:
