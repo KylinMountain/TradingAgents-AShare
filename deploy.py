@@ -188,8 +188,8 @@ def setup_nginx(ssh_client):
 
 
 def wait_for_health(timeout=120):
-    """健康检查，等待后端就绪"""
-    url = f"http://{SERVER}:8088/healthz"
+    """健康检查，等待后端就绪（通过 nginx 代理）"""
+    url = f"http://{SERVER}/healthz"
     deadline = time.time() + timeout
     printed = False
     while time.time() < deadline:
@@ -216,8 +216,8 @@ def smoke_test():
     today = datetime.now().strftime("%Y-%m-%d")
     month_ago = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
 
-    # 测试 K 线接口
-    url = f"http://{SERVER}:8088/v1/market/kline?symbol=000001.SH&start_date={month_ago}&end_date={today}&period=weekly"
+    # 测试 K 线接口（通过 nginx 代理）
+    url = f"http://{SERVER}/v1/market/kline?symbol=000001.SH&start_date={month_ago}&end_date={today}&period=weekly"
     try:
         resp = urllib.request.urlopen(url, timeout=15)
         data = json.loads(resp.read().decode())
