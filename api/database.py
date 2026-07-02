@@ -93,6 +93,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_report_schema()
     _ensure_user_schema()
+    _ensure_watchlist_schema()
 
 
 def _ensure_report_schema() -> None:
@@ -169,6 +170,17 @@ def _ensure_user_schema() -> None:
                     pass  # column already exists
     except Exception as e:
         logger.error("Failed to ensure user_query_logs schema: %s", e)
+
+
+def _ensure_watchlist_schema() -> None:
+    """Add columns to watchlist_items table for existing SQLite deployments."""
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(watchlist_items)"))}
+            if "concepts" not in columns:
+                conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN concepts TEXT DEFAULT '[]'"))
+    except Exception as e:
+        logger.debug("Watchlist schema migration skipped: %s", e)
 
     _migrate_tokens_to_hashed()
     _migrate_api_keys_reencrypt()
@@ -427,6 +439,7 @@ class WatchlistItemDB(Base):
     symbol = Column(String(20), nullable=False)
     sort_order = Column(Integer, default=0)
     notes = Column(String(200), default="")
+    concepts = Column(Text, default="[]")  # JSON: [{"name":"白酒","type":"行业"}, ...]
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_watchlist_user_symbol'),)

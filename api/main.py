@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 import numpy as np
 
-from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, UserQueryLogDB, init_db, get_db, get_db_ctx
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, UserQueryLogDB, WatchlistItemDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service, admin_service
 
@@ -6491,6 +6491,32 @@ def update_watchlist_item(
     if not watchlist_service.update_watchlist_notes(db, current_user.id, item_id, body.notes or ""):
         raise HTTPException(404, "未找到该自选股")
     return {"id": item_id, "notes": body.notes or ""}
+
+
+@app.post("/v1/watchlist/{item_id}/refresh-concepts")
+def refresh_watchlist_concepts(
+    item_id: str,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    """Refresh concept boards for a single watchlist item."""
+    item = db.query(WatchlistItemDB).filter(
+        WatchlistItemDB.id == item_id, WatchlistItemDB.user_id == current_user.id
+    ).first()
+    if not item:
+        raise HTTPException(404, "未找到该自选股")
+    concepts = watchlist_service.refresh_stock_concepts(db, item_id)
+    return {"id": item_id, "symbol": item.symbol, "concepts": concepts}
+
+
+@app.post("/v1/watchlist/refresh-concepts")
+def refresh_all_watchlist_concepts(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    """Refresh concept boards for all watchlist items."""
+    updated = watchlist_service.refresh_all_concepts(db, current_user.id)
+    return {"updated": updated}
 
 
 # ── Scheduled Analysis ────────────────────────────────────────────────────────

@@ -554,12 +554,18 @@ export interface LatestAnnouncementResponse {
 }
 
 // Watchlist & Scheduled Analysis
+export interface ConceptBoard {
+    name: string
+    type: string  // "行业" | "概念" | "地域" | "板块"
+}
+
 export interface WatchlistItem {
     id: string
     symbol: string
     name: string
     sort_order: number
     notes: string
+    concepts: ConceptBoard[]
     created_at: string
     has_scheduled: boolean
 }

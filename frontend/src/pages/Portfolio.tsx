@@ -6,6 +6,7 @@ import {
     Database, ImagePlus,
 } from 'lucide-react'
 import { api } from '@/services/api'
+import { ConceptTags } from '@/components/ConceptTags'
 import type { WatchlistItem, ScheduledAnalysis, StockSearchResult, Report } from '@/types'
 
 const HORIZON_LABELS: Record<string, string> = { short: '短线', medium: '中线' }
@@ -89,6 +90,7 @@ export default function Portfolio() {
     const [editingNotesInit, setEditingNotesInit] = useState('')
     const notesInputRef = useRef<HTMLInputElement>(null)
     const savingNotesRef = useRef(false)
+    const [refreshingConceptsId, setRefreshingConceptsId] = useState<string | null>(null)
 
     const navigate = useNavigate()
     const trimmedQuery = searchQuery.trim()
@@ -262,6 +264,20 @@ export default function Portfolio() {
         } catch (error) {
             console.error('Failed to remove watchlist item:', error)
             alert(error instanceof Error ? error.message : '移除自选失败')
+        }
+    }
+
+    const refreshConcepts = async (id: string) => {
+        setRefreshingConceptsId(id)
+        try {
+            const result = await api.refreshWatchlistConcepts(id)
+            setWatchlist(prev => prev.map(item =>
+                item.id === id ? { ...item, concepts: result.concepts } : item
+            ))
+        } catch (error) {
+            console.error('Failed to refresh concepts:', error)
+        } finally {
+            setRefreshingConceptsId(null)
         }
     }
 
@@ -630,6 +646,11 @@ export default function Portfolio() {
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-slate-900 dark:text-slate-100 text-sm">{item.name}</p>
                                                 <p className="text-xs text-slate-400">{item.symbol}</p>
+                                                <ConceptTags
+                                                    concepts={item.concepts || []}
+                                                    onRefresh={() => refreshConcepts(item.id)}
+                                                    loading={refreshingConceptsId === item.id}
+                                                />
                                                 {report && (
                                                     <p className="text-xs text-slate-400 mt-0.5">
                                                         最近：{report.trade_date} · {report.direction || report.decision || '—'}

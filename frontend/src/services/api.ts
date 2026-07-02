@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, BollingerDeviationResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, BollingerDeviationResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ConceptBoard, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -254,6 +254,12 @@ class ApiService {
             method: 'PUT',
             body: JSON.stringify({ notes }),
         })
+    }
+    async refreshWatchlistConcepts(id: string): Promise<{ id: string; symbol: string; concepts: ConceptBoard[] }> {
+        return this.request(`/v1/watchlist/${id}/refresh-concepts`, { method: 'POST' })
+    }
+    async refreshAllWatchlistConcepts(): Promise<{ updated: number }> {
+        return this.request('/v1/watchlist/refresh-concepts', { method: 'POST' })
     }
 
     // Scheduled Analysis
