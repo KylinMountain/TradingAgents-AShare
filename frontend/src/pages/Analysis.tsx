@@ -291,11 +291,11 @@ export default function Analysis() {
 
             <VolumeWashPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('volumeWash', c)} onSyncNow={syncNow} />
 
-            <FundFlowPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('fundFlow', c)} onSyncNow={syncNow} />
+            {/* <FundFlowPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('fundFlow', c)} onSyncNow={syncNow} /> */}
 
             <PositionPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('position', c)} onSyncNow={syncNow} />
 
-            <BollingerDeviationPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('bollingerDeviation', c)} onSyncNow={syncNow} />
+            {/* <BollingerDeviationPanel symbol={activeSymbol} onChartReady={(c) => registerSubChart('bollingerDeviation', c)} onSyncNow={syncNow} /> */}
 
             <AnalysisConsole
                 symbol={activeSymbol}
