@@ -6,12 +6,12 @@
 流程: 变更检测 → 按需构建 → 上传 → 按需重启 → 健康检查
 """
 
-import io
 import json
 import os
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.request
 
@@ -81,28 +81,44 @@ def build_frontend():
         sys.exit(1)
 
 
-def upload_frontend(sftp_client, ssh_client):
+def upload_frontend(ssh_client):
     """打包 dist 目录 → SFTP 上传 tar.gz → 服务器解压"""
     dist_dir = os.path.join(PROJECT_DIR, "frontend", "dist")
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        tar.add(dist_dir, arcname="dist")
-    buf.seek(0)
-    size_mb = len(buf.getvalue()) / (1024 * 1024)
-    print(f"  上传前端 ({size_mb:.1f}MB) ...")
 
-    remote_tar = "/tmp/deploy_frontend.tar.gz"
-    sftp_client.putfo(buf, remote_tar)
+    # 1. 写入临时文件（比 BytesIO+putfo 更可靠）
+    tmp = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
+    try:
+        with tarfile.open(fileobj=tmp, mode="w:gz") as tar:
+            tar.add(dist_dir, arcname="dist")
+        tmp_path = tmp.name
+        tmp.close()
 
-    remote_dest = os.path.join(REMOTE_DIR, "frontend")
-    stdin, stdout, stderr = ssh_client.exec_command(
-        f"rm -rf {remote_dest}/dist && "
-        f"tar -xzf {remote_tar} -C {remote_dest} && "
-        f"rm {remote_tar} && "
-        f"echo OK"
-    )
-    if "OK" in stdout.read().decode():
+        size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+        print(f"  上传前端 ({size_mb:.1f}MB) ...")
+
+        remote_tar = "/tmp/deploy_frontend.tar.gz"
+
+        # 2. 用独立 SFTP 连接上传，传完即关，确保数据刷盘
+        sftp = ssh_client.open_sftp()
+        sftp.put(tmp_path, remote_tar)
+        sftp.close()
+
+        # 3. 解压（此时 SFTP 已关闭，数据已落地）
+        remote_dest = os.path.join(REMOTE_DIR, "frontend")
+        stdin, stdout, stderr = ssh_client.exec_command(
+            f"rm -rf {remote_dest}/dist && "
+            f"tar -xzf {remote_tar} -C {remote_dest} && "
+            f"rm {remote_tar} && "
+            f"echo OK"
+        )
+        out = stdout.read().decode()
+        err = stderr.read().decode()
+        if "OK" not in out:
+            print(f"  [FAIL] 解压失败\n  stdout: {out}\n  stderr: {err}")
+            sys.exit(1)
         print("  [OK] 前端上传完成")
+    finally:
+        os.unlink(tmp_path)
 
 
 def server_reset_code(ssh_client):
