@@ -319,6 +319,17 @@ def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict
     """Run backtest on all completed reports and store results. Returns summary.
     Set force=True to recompute ALL backtests (e.g., after backtest logic update)."""
     with get_db_ctx() as db:
+        # Clean up orphaned backtest records (reports already deleted)
+        orphan_query = db.query(SignalBacktestDB).filter(
+            ~SignalBacktestDB.report_id.in_(db.query(ReportDB.id).subquery())
+        )
+        if user_id:
+            orphan_query = orphan_query.filter(SignalBacktestDB.user_id == user_id)
+        orphan_count = orphan_query.delete(synchronize_session='fetch')
+        if orphan_count > 0:
+            db.commit()
+            logger.info(f"Cleaned up {orphan_count} orphaned backtest records")
+
         query = db.query(ReportDB).filter(
             ReportDB.status == "completed",
             ReportDB.decision.in_(["BUY", "SELL"]),
@@ -400,13 +411,21 @@ def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict
 # ── Summary / aggregation ───────────────────────────────────────────────────
 
 
+def _get_valid_backtest_query(db: Session, user_id: Optional[str] = None):
+    """Return query for backtests whose source report still exists (exclude orphans)."""
+    valid_report_ids = db.query(ReportDB.id).subquery()
+    query = db.query(SignalBacktestDB).filter(
+        SignalBacktestDB.report_id.in_(valid_report_ids)
+    )
+    if user_id:
+        query = query.filter(SignalBacktestDB.user_id == user_id)
+    return query
+
+
 def get_accuracy_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
     """Get aggregated accuracy statistics with win/loss ratio, drawdown, benchmark."""
     with get_db_ctx() as db:
-        query = db.query(SignalBacktestDB)
-        if user_id:
-            query = query.filter(SignalBacktestDB.user_id == user_id)
-        backtests: List[SignalBacktestDB] = query.all()
+        backtests: List[SignalBacktestDB] = _get_valid_backtest_query(db, user_id).all()
 
         if not backtests:
             return {
@@ -538,9 +557,7 @@ def get_accuracy_details(
 ) -> Dict[str, Any]:
     """Get per-signal accuracy details with pagination."""
     with get_db_ctx() as db:
-        query = db.query(SignalBacktestDB)
-        if user_id:
-            query = query.filter(SignalBacktestDB.user_id == user_id)
+        query = _get_valid_backtest_query(db, user_id)
         total = query.count()
         items = query.order_by(SignalBacktestDB.signal_date.desc()).offset(offset).limit(limit).all()
 

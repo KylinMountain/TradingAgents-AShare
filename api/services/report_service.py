@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, load_only
 
-from api.database import ReportDB
+from api.database import ReportDB, SignalBacktestDB
 
 
 REPORT_SUMMARY_COLUMNS = (
@@ -552,6 +552,8 @@ def delete_report(db: Session, report_id: str, user_id: Optional[str] = None) ->
         query = query.filter(ReportDB.user_id == user_id)
     report = query.first()
     if report:
+        # 级联删除关联的回测记录，避免孤儿数据影响准确率统计
+        db.query(SignalBacktestDB).filter(SignalBacktestDB.report_id == report_id).delete()
         db.delete(report)
         db.commit()
         return True
@@ -589,6 +591,8 @@ def batch_delete_reports(db: Session, report_ids: Iterable[str], user_id: Option
         deleted_ids.append(report_id)
 
     if deleted_ids:
+        # 级联删除关联的回测记录
+        db.query(SignalBacktestDB).filter(SignalBacktestDB.report_id.in_(deleted_ids)).delete(synchronize_session='fetch')
         db.commit()
 
     return {
