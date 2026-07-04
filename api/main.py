@@ -444,6 +444,15 @@ def _utcnow_iso() -> str:
 
 
 _JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "1800"))  # seconds (默认 30 分钟，适配多 Agent 长流程分析)
+_ANALYZE_CONCURRENCY = int(os.getenv("ANALYZE_CONCURRENCY", "5"))  # API 手动触发分析的最大并发数
+_analyze_slots: Optional[asyncio.Semaphore] = None
+
+
+def _get_analyze_semaphore() -> asyncio.Semaphore:
+    global _analyze_slots
+    if _analyze_slots is None:
+        _analyze_slots = asyncio.Semaphore(_ANALYZE_CONCURRENCY)
+    return _analyze_slots
 def _create_tracked_task(coro, *, label: str = "Background task") -> asyncio.Task:
     """Create an asyncio task and keep a reference to prevent GC.
     Also logs unhandled exceptions via a done callback."""
@@ -2016,29 +2025,40 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
-    # 用 asyncio.Task + sleep 竞速代替 wait_for，避免 cancel 卡在 to_thread 导致
-    # semaphore 永远不释放的问题。超时后标记失败但不 cancel 内部协程（让线程自然结束）。
-    inner_task = asyncio.create_task(
-        _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
-    )
-    done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
-    if inner_task in done:
-        # 正常完成（可能成功也可能异常）
-        if not inner_task.cancelled() and inner_task.exception():
-            _log(f"[Job {job_id}] failed: {inner_task.exception()}")
-        return
-    # 超时：标记失败，但不 cancel 内部 task（避免 cancel 卡住）
-    err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
-    _log(f"[Job {job_id}] {err_msg}")
-    _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
-    # 注意：不能用 asyncio.to_thread 写 DB，因为线程池可能被僵尸任务占满导致死锁。
-    # 用同步方式直接写，SQLite 的写入足够快不会阻塞事件循环。
+    # Acquire concurrency slot for API-triggered analyses
+    # (scheduler has its own semaphore; manual/batch share this one)
+    sem = _get_analyze_semaphore()
+    if sem.locked():
+        _emit_job_event(job_id, "job.queued", {
+            "job_id": job_id, "symbol": request.symbol,
+        })
+    await sem.acquire()
     try:
-        with get_db_ctx() as db:
-            report_service.mark_report_failed(db, job_id, err_msg)
-    except Exception:
-        pass
-    _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+        # 用 asyncio.Task + sleep 竞速代替 wait_for，避免 cancel 卡在 to_thread 导致
+        # semaphore 永远不释放的问题。超时后标记失败但不 cancel 内部协程（让线程自然结束）。
+        inner_task = asyncio.create_task(
+            _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
+        )
+        done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
+        if inner_task in done:
+            # 正常完成（可能成功也可能异常）
+            if not inner_task.cancelled() and inner_task.exception():
+                _log(f"[Job {job_id}] failed: {inner_task.exception()}")
+            return
+        # 超时：标记失败，但不 cancel 内部 task（避免 cancel 卡住）
+        err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
+        _log(f"[Job {job_id}] {err_msg}")
+        _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
+        # 注意：不能用 asyncio.to_thread 写 DB，因为线程池可能被僵尸任务占满导致死锁。
+        # 用同步方式直接写，SQLite 的写入足够快不会阻塞事件循环。
+        try:
+            with get_db_ctx() as db:
+                report_service.mark_report_failed(db, job_id, err_msg)
+        except Exception:
+            pass
+        _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+    finally:
+        sem.release()
 
 
 async def _run_job_inner(
