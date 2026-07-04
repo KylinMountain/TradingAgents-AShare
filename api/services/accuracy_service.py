@@ -33,6 +33,11 @@ def _ensure_backtest_columns():
             existing_cols = {row[1] for row in result}
             needed = {
                 "entry_date": "VARCHAR(10)",
+                "price_3d": "FLOAT",
+                "return_3d": "FLOAT",
+                "correct_3d": "BOOLEAN",
+                "max_drawdown_3d": "FLOAT",
+                "benchmark_return_3d": "FLOAT",
                 "max_drawdown_5d": "FLOAT",
                 "max_drawdown_10d": "FLOAT",
                 "max_drawdown_20d": "FLOAT",
@@ -235,7 +240,7 @@ def backtest_signal(
         elif decision == "SELL" and target_price < signal_price:
             target_valid = True
 
-    horizons = [5, 10, 20]
+    horizons = [3, 5, 10, 20]
 
     # Benchmark: cache index start price (same entry_date for all horizons)
     index_start_price = _get_index_price_on_date("000001.SH", entry_date)
@@ -346,7 +351,7 @@ def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict
             existing = db.query(SignalBacktestDB).filter(
                 SignalBacktestDB.report_id == report.id
             ).first()
-            if not force and existing and existing.correct_5d is not None and existing.correct_10d is not None and existing.correct_20d is not None:
+            if not force and existing and existing.correct_3d is not None and existing.correct_5d is not None and existing.correct_10d is not None and existing.correct_20d is not None:
                 results.append(_serialize_backtest(existing))
                 continue
             if existing:
@@ -379,6 +384,9 @@ def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict
                 signal_price=bt_result["signal_price"],
                 target_price=report.target_price,
                 stop_loss_price=report.stop_loss_price,
+                price_3d=bt_result.get("price_3d"),
+                return_3d=bt_result.get("return_3d"),
+                correct_3d=bt_result.get("correct_3d"),
                 price_5d=bt_result.get("price_5d"),
                 return_5d=bt_result.get("return_5d"),
                 correct_5d=bt_result.get("correct_5d"),
@@ -389,9 +397,11 @@ def backfill_reports(user_id: Optional[str] = None, force: bool = False) -> Dict
                 return_20d=bt_result.get("return_20d"),
                 correct_20d=bt_result.get("correct_20d"),
                 entry_date=bt_result.get("entry_date"),
+                max_drawdown_3d=bt_result.get("max_drawdown_3d"),
                 max_drawdown_5d=bt_result.get("max_drawdown_5d"),
                 max_drawdown_10d=bt_result.get("max_drawdown_10d"),
                 max_drawdown_20d=bt_result.get("max_drawdown_20d"),
+                benchmark_return_3d=bt_result.get("benchmark_return_3d"),
                 benchmark_return_5d=bt_result.get("benchmark_return_5d"),
                 benchmark_return_10d=bt_result.get("benchmark_return_10d"),
                 benchmark_return_20d=bt_result.get("benchmark_return_20d"),
@@ -536,6 +546,7 @@ def get_accuracy_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
             "total": total,
             "sample_warning": sample_warning,
             "incomplete_20d_count": incomplete_20d,
+            "horizon_3d": _calc_stats(backtests, "3d"),
             "horizon_5d": _calc_stats(backtests, "5d"),
             "horizon_10d": _calc_stats(backtests, "10d"),
             "horizon_20d": _calc_stats(backtests, "20d"),
@@ -570,10 +581,16 @@ def get_accuracy_details(
 
 
 def _serialize_backtest(b: SignalBacktestDB) -> Dict[str, Any]:
+    # Lazy import to avoid circular dependency at module load time
+    from api.main import _get_reverse_stock_map_cached_only
+    name_map = _get_reverse_stock_map_cached_only()
+    raw_symbol = b.symbol
+    clean_symbol = raw_symbol.replace(".SZ", "").replace(".SH", "")
     return {
         "id": b.id,
         "report_id": b.report_id,
-        "symbol": b.symbol.replace(".SZ", "").replace(".SH", ""),
+        "symbol": clean_symbol,
+        "name": name_map.get(raw_symbol, name_map.get(raw_symbol.upper(), "")),
         "signal_date": b.signal_date,
         "entry_date": b.entry_date,
         "decision": b.decision,
@@ -581,6 +598,11 @@ def _serialize_backtest(b: SignalBacktestDB) -> Dict[str, Any]:
         "signal_price": b.signal_price,
         "target_price": b.target_price,
         "stop_loss_price": b.stop_loss_price,
+        "price_3d": b.price_3d,
+        "return_3d": b.return_3d,
+        "correct_3d": b.correct_3d,
+        "max_drawdown_3d": b.max_drawdown_3d,
+        "benchmark_return_3d": b.benchmark_return_3d,
         "price_5d": b.price_5d,
         "return_5d": b.return_5d,
         "correct_5d": b.correct_5d,

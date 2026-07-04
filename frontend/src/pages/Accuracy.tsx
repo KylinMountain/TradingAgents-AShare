@@ -39,6 +39,7 @@ interface AccuracySummary {
     total: number
     sample_warning?: string | null
     incomplete_20d_count?: number
+    horizon_3d: AccuracyStats
     horizon_5d: AccuracyStats
     horizon_10d: AccuracyStats
     horizon_20d: AccuracyStats
@@ -51,6 +52,7 @@ interface BacktestItem {
     id: string
     report_id: string
     symbol: string
+    name?: string
     signal_date: string
     entry_date?: string | null
     decision: string
@@ -58,6 +60,10 @@ interface BacktestItem {
     signal_price: number
     target_price: number | null
     stop_loss_price?: number | null
+    return_3d: number | null
+    correct_3d: boolean | null
+    max_drawdown_3d?: number | null
+    benchmark_return_3d?: number | null
     return_5d: number | null
     correct_5d: boolean | null
     max_drawdown_5d?: number | null
@@ -287,7 +293,8 @@ export default function Accuracy() {
             ) : (
                 <>
                     {/* Horizon comparison */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <HorizonPanel label="3日信号" stats={summary.horizon_3d} icon={<Activity className="w-5 h-5 text-cyan-500" />} />
                         <HorizonPanel label="5日信号" stats={summary.horizon_5d} icon={<Activity className="w-5 h-5 text-blue-500" />} />
                         <HorizonPanel label="10日信号" stats={summary.horizon_10d} icon={<Target className="w-5 h-5 text-indigo-500" />} />
                         <HorizonPanel label="20日信号" stats={summary.horizon_20d} icon={<BarChart3 className="w-5 h-5 text-purple-500" />} />
@@ -339,6 +346,7 @@ export default function Accuracy() {
                                         <th className="text-center px-2 py-3 font-medium text-slate-500">置信</th>
                                         <th className="text-right px-2 py-3 font-medium text-slate-500">入场价</th>
                                         <th className="text-right px-2 py-3 font-medium text-slate-500">目标价</th>
+                                        <th className="text-center px-3 py-3 font-medium text-slate-500">3日</th>
                                         <th className="text-center px-3 py-3 font-medium text-slate-500">5日</th>
                                         <th className="text-center px-3 py-3 font-medium text-slate-500">10日</th>
                                         <th className="text-center px-3 py-3 font-medium text-slate-500">20日</th>
@@ -347,7 +355,10 @@ export default function Accuracy() {
                                 <tbody>
                                     {details.map((item) => (
                                         <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                            <td className="px-3 py-3 font-medium text-slate-700 text-sm">{item.symbol}</td>
+                                            <td className="px-3 py-3 text-sm">
+                                                <span className="font-medium text-slate-700">{item.symbol}</span>
+                                                {item.name && <span className="text-xs text-slate-400 ml-1.5">{item.name}</span>}
+                                            </td>
                                             <td className="px-3 py-3 text-slate-500 text-xs">{item.signal_date}</td>
                                             <td className="px-3 py-3 text-slate-500 text-xs">{item.entry_date || '-'}</td>
                                             <td className="px-3 py-3 text-center">
@@ -365,7 +376,7 @@ export default function Accuracy() {
                                             </td>
                                             <td className="px-2 py-3 text-right text-slate-700 text-xs">{item.signal_price?.toFixed(2)}</td>
                                             <td className="px-2 py-3 text-right text-slate-500 text-xs">{item.target_price?.toFixed(2) || '-'}</td>
-                                            {(['5d', '10d', '20d'] as const).map((h) => {
+                                            {(['3d', '5d', '10d', '20d'] as const).map((h) => {
                                                 const ret = item[`return_${h}` as keyof BacktestItem] as number | null
                                                 const correct = item[`correct_${h}` as keyof BacktestItem] as boolean | null
                                                 const dd = item[`max_drawdown_${h}` as keyof BacktestItem] as number | null
