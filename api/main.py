@@ -738,6 +738,38 @@ class BatchScheduledTriggerResponse(BaseModel):
     jobs: List[BatchScheduledTriggerJob]
 
 
+class BatchAnalyzeRequest(BaseModel):
+    symbols: List[str] = Field(..., min_length=1, max_length=50, description="要批量分析的股票代码列表")
+    trade_date: Optional[str] = Field(default=None, description="交易日期 YYYY-MM-DD，默认今天")
+    selected_analysts: Optional[List[str]] = Field(default=None, description="要使用的分析师列表")
+    horizons: Optional[List[str]] = Field(default=None, description="分析周期，如 ['short'] 或 ['short','medium']")
+
+
+class BatchAnalyzeJobItem(BaseModel):
+    symbol: str
+    job_id: str
+    name: str = ""
+    status: Literal["pending", "running", "completed", "failed", "reused"]
+    reused_report_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BatchAnalyzeResponse(BaseModel):
+    batch_id: str
+    jobs: List[BatchAnalyzeJobItem]
+    summary: Dict[str, int]  # {"total": N, "new": N, "reused": N, "failed": N}
+
+
+class BatchAnalyzeStatusResponse(BaseModel):
+    batch_id: str
+    total: int
+    completed: int
+    failed: int
+    pending: int
+    running: int
+    jobs: List[BatchAnalyzeJobItem]
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["pending", "running", "completed", "failed"]
@@ -4728,6 +4760,185 @@ async def analyze(
         return AnalyzeResponse(job_id=job_id, status=final_status, created_at=now)
     _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
+
+
+@app.post("/v1/analyze/batch", response_model=BatchAnalyzeResponse)
+async def analyze_batch(
+    request: BatchAnalyzeRequest,
+    current_user: UserDB = Depends(_require_api_user),
+) -> BatchAnalyzeResponse:
+    trade_date = request.trade_date or cn_today_str()
+    actual_trade_date = _resolve_scheduled_trade_date(trade_date)
+    selected_analysts = request.selected_analysts or [
+        "market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"
+    ]
+    horizons = request.horizons or ["short"]
+    code_to_name = _get_reverse_stock_map()
+    batch_id = uuid4().hex
+
+    # Normalize symbols and deduplicate within the batch
+    raw_symbols = [s.strip() for s in request.symbols if s.strip()]
+    normalized_map: Dict[str, str] = {}  # normalized -> raw
+    for raw in raw_symbols:
+        norm = _normalize_symbol(raw)
+        if norm and norm not in normalized_map:
+            normalized_map[norm] = raw
+
+    if not normalized_map:
+        raise HTTPException(400, "没有有效的股票代码")
+
+    # Phase 1: Parallel context loading + dedup check for all symbols.
+    # Each call runs in a thread so SQLite writes don't block the event loop.
+    def _prepare_symbol_sync(symbol: str) -> Dict[str, Any]:
+        """Load user context and check report dedup for one symbol (runs in thread)."""
+        try:
+            with get_db_ctx() as db:
+                user_ctx = _compose_analysis_user_context(
+                    db, current_user.id, symbol, explicit_context={}
+                )
+            reused_id = _try_reuse_report(current_user.id, symbol, actual_trade_date)
+            return {"symbol": symbol, "user_ctx": user_ctx, "reused_id": reused_id, "error": None}
+        except Exception as e:
+            return {"symbol": symbol, "user_ctx": None, "reused_id": None, "error": str(e)}
+
+    symbols = list(normalized_map)
+    prep_tasks = [asyncio.to_thread(_prepare_symbol_sync, sym) for sym in symbols]
+    prep_results = await asyncio.gather(*prep_tasks)
+
+    # Phase 2: Create jobs for each prepared symbol
+    jobs: List[Dict[str, Any]] = []
+    new_count = reused_count = failed_count = 0
+
+    for result in prep_results:
+        symbol = result["symbol"]
+        if result["error"]:
+            job_id = uuid4().hex
+            now = _utcnow_iso()
+            _set_job(job_id, job_id=job_id, user_id=current_user.id, status="failed",
+                     created_at=now, symbol=symbol, trade_date=actual_trade_date,
+                     error=result["error"])
+            jobs.append({
+                "symbol": symbol, "job_id": job_id,
+                "name": code_to_name.get(symbol, symbol),
+                "status": "failed", "reused_report_id": None,
+                "error": result["error"],
+            })
+            failed_count += 1
+            continue
+
+        user_ctx = result["user_ctx"] or {}
+        reused_id = result["reused_id"]
+
+        if reused_id:
+            job_id = uuid4().hex
+            _instant_complete_from_report(job_id, reused_id, current_user.id)
+            jobs.append({
+                "symbol": symbol, "job_id": job_id,
+                "name": code_to_name.get(symbol, symbol),
+                "status": "reused", "reused_report_id": reused_id,
+                "error": None,
+            })
+            reused_count += 1
+            continue
+
+        # Build AnalyzeRequest with user context merged in
+        req = AnalyzeRequest(
+            symbol=symbol,
+            trade_date=actual_trade_date,
+            selected_analysts=selected_analysts,
+            horizons=horizons,
+        )
+        _apply_user_context_to_request(req, user_ctx)
+
+        job_id = uuid4().hex
+        now = _utcnow_iso()
+        _set_job(
+            job_id,
+            job_id=job_id,
+            user_id=current_user.id,
+            status="pending",
+            created_at=now,
+            started_at=None,
+            finished_at=None,
+            symbol=symbol,
+            trade_date=actual_trade_date,
+            error=None,
+        )
+        _emit_job_event(job_id, "job.created", {
+            "job_id": job_id, "symbol": symbol, "trade_date": actual_trade_date,
+        })
+        _create_tracked_task(_run_job(job_id, req, True, True, current_user.id, "batch_watchlist"))
+        jobs.append({
+            "symbol": symbol, "job_id": job_id,
+            "name": code_to_name.get(symbol, symbol),
+            "status": "pending", "reused_report_id": None,
+            "error": None,
+        })
+        new_count += 1
+
+    # Store batch metadata for status queries
+    _set_job(
+        batch_id,
+        batch_id=batch_id,
+        user_id=current_user.id,
+        job_ids=[j["job_id"] for j in jobs],
+        created_at=_utcnow_iso(),
+        total=len(jobs),
+        new_count=new_count,
+        reused_count=reused_count,
+        failed_count=failed_count,
+    )
+
+    return BatchAnalyzeResponse(
+        batch_id=batch_id,
+        jobs=[BatchAnalyzeJobItem(**j) for j in jobs],
+        summary={"total": len(jobs), "new": new_count, "reused": reused_count, "failed": failed_count},
+    )
+
+
+@app.get("/v1/analyze/batch/{batch_id}", response_model=BatchAnalyzeStatusResponse)
+def get_batch_analyze_status(
+    batch_id: str,
+    current_user: UserDB = Depends(_require_api_user),
+) -> BatchAnalyzeStatusResponse:
+    batch = _get_job(batch_id)
+    if not batch or batch.get("user_id") != current_user.id:
+        raise HTTPException(404, "batch not found")
+
+    job_ids = batch.get("job_ids", [])
+    jobs: List[BatchAnalyzeJobItem] = []
+    completed = failed = pending = running = 0
+
+    for jid in job_ids:
+        state = _get_job(jid)
+        if not state:
+            continue
+        status = state.get("status", "pending")
+        if status == "completed":
+            completed += 1
+        elif status == "failed":
+            failed += 1
+        elif status == "running":
+            running += 1
+        else:
+            pending += 1
+        jobs.append(BatchAnalyzeJobItem(
+            symbol=state.get("symbol", ""),
+            job_id=jid,
+            name=state.get("symbol", ""),
+            status=status,
+            error=state.get("error"),
+        ))
+
+    return BatchAnalyzeStatusResponse(
+        batch_id=batch_id,
+        total=len(jobs),
+        completed=completed,
+        failed=failed,
+        pending=pending,
+        running=running,
+        jobs=jobs,
+    )
 
 
 def _require_job_owner(job_id: str, current_user: UserDB) -> Dict[str, Any]:

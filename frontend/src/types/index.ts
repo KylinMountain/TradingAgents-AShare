@@ -104,6 +104,38 @@ export interface AnalysisResponse {
     created_at: string
 }
 
+export interface BatchAnalyzeRequest {
+    symbols: string[]
+    trade_date?: string
+    selected_analysts?: string[]
+    horizons?: string[]
+}
+
+export interface BatchAnalyzeJobItem {
+    symbol: string
+    job_id: string
+    name: string
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'reused'
+    reused_report_id?: string
+    error?: string
+}
+
+export interface BatchAnalyzeResponse {
+    batch_id: string
+    jobs: BatchAnalyzeJobItem[]
+    summary: { total: number; new: number; reused: number; failed: number }
+}
+
+export interface BatchAnalyzeStatusResponse {
+    batch_id: string
+    total: number
+    completed: number
+    failed: number
+    pending: number
+    running: number
+    jobs: BatchAnalyzeJobItem[]
+}
+
 export interface JobStatus {
     job_id: string
     status: 'pending' | 'running' | 'completed' | 'failed'

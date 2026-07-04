@@ -71,6 +71,14 @@ export default function Portfolio() {
     const [scheduledBatchBusyAction, setScheduledBatchBusyAction] = useState<string | null>(null)
     const [pendingHorizonTaskIds, setPendingHorizonTaskIds] = useState<Record<string, boolean>>({})
 
+    // Watchlist batch selection
+    const [selectedWatchlistIds, setSelectedWatchlistIds] = useState<string[]>([])
+    const [watchlistBatchBusy, setWatchlistBatchBusy] = useState(false)
+    const selectedWatchlistIdSet = new Set(selectedWatchlistIds)
+    const selectedWatchlistCount = watchlist.filter(item => selectedWatchlistIdSet.has(item.id)).length
+    const hasSelectedWatchlist = selectedWatchlistCount > 0
+    const allWatchlistSelected = watchlist.length > 0 && selectedWatchlistCount === watchlist.length
+
     // Search state
     const [searchQuery, setSearchQuery] = useState('')
     const [searchResults, setSearchResults] = useState<StockSearchResult[]>([])
@@ -139,6 +147,12 @@ export default function Portfolio() {
         const validIds = new Set(scheduled.map(task => task.id))
         setSelectedScheduledIds(current => current.filter(id => validIds.has(id)))
     }, [scheduled])
+
+    // Clean up stale watchlist selections when items are removed
+    useEffect(() => {
+        const validIds = new Set(watchlist.map(item => item.id))
+        setSelectedWatchlistIds(current => current.filter(id => validIds.has(id)))
+    }, [watchlist])
 
     useEffect(() => {
         if (selectedScheduledIds.length !== 1) return
@@ -512,6 +526,45 @@ export default function Portfolio() {
         }
     }
 
+    const toggleWatchlistSelection = (itemId: string) => {
+        setSelectedWatchlistIds(current =>
+            current.includes(itemId)
+                ? current.filter(id => id !== itemId)
+                : [...current, itemId]
+        )
+    }
+
+    const toggleSelectAllWatchlist = () => {
+        setSelectedWatchlistIds(current =>
+            current.length === watchlist.length ? [] : watchlist.map(item => item.id)
+        )
+    }
+
+    const triggerBatchAnalyze = async () => {
+        const selectedItems = watchlist.filter(item => selectedWatchlistIdSet.has(item.id))
+        if (selectedItems.length === 0) {
+            alert('请先勾选要批量分析的股票')
+            return
+        }
+
+        setWatchlistBatchBusy(true)
+        try {
+            const result = await api.analyzeBatch({ symbols: selectedItems.map(item => item.symbol) })
+            const { summary } = result
+            const parts: string[] = []
+            if (summary.new > 0) parts.push(`${summary.new} 个新分析已触发`)
+            if (summary.reused > 0) parts.push(`${summary.reused} 个复用已有报告`)
+            if (summary.failed > 0) parts.push(`${summary.failed} 个启动失败`)
+            alert(`批量分析：${parts.join('，')}`)
+            setSelectedWatchlistIds([])
+            navigate('/reports')
+        } catch (e) {
+            alert(e instanceof Error ? e.message : '批量分析触发失败')
+        } finally {
+            setWatchlistBatchBusy(false)
+        }
+    }
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20">
@@ -628,6 +681,37 @@ export default function Portfolio() {
                             <h2 className="font-semibold text-slate-900 dark:text-slate-100">自选列表 ({watchlist.length}/50)</h2>
                         </div>
 
+                        {/* Batch toolbar */}
+                        {watchlist.length > 0 && (
+                            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/30">
+                                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200">
+                                    <input
+                                        type="checkbox"
+                                        checked={allWatchlistSelected}
+                                        onChange={toggleSelectAllWatchlist}
+                                        disabled={watchlistBatchBusy}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    {hasSelectedWatchlist ? `已选 ${selectedWatchlistCount} 项` : '全选'}
+                                </label>
+
+                                {hasSelectedWatchlist && (
+                                    <>
+                                        <span className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+                                        <button
+                                            type="button"
+                                            onClick={() => void triggerBatchAnalyze()}
+                                            disabled={watchlistBatchBusy}
+                                            className="h-7 rounded-md bg-blue-500 px-3 text-[11px] font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition-colors flex items-center gap-1"
+                                        >
+                                            {watchlistBatchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Activity className="h-3 w-3" />}
+                                            批量分析
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         {watchlist.length === 0 ? (
                             <div className="text-center py-10">
                                 <Briefcase className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
@@ -638,8 +722,23 @@ export default function Portfolio() {
                             <div className="divide-y divide-slate-100 dark:divide-slate-700">
                                 {watchlist.map(item => {
                                     const report = latestReports[item.symbol]
+                                    const isSelected = selectedWatchlistIdSet.has(item.id)
                                     return (
-                                        <div key={item.id} className="flex items-center gap-3 py-3">
+                                        <div
+                                            key={item.id}
+                                            className={`flex items-center gap-3 py-3 px-1 -mx-1 rounded-lg transition-colors ${
+                                                isSelected
+                                                    ? 'bg-blue-50/60 ring-1 ring-blue-200/70 dark:bg-blue-500/10 dark:ring-blue-500/20'
+                                                    : ''
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => toggleWatchlistSelection(item.id)}
+                                                disabled={watchlistBatchBusy}
+                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
+                                            />
                                             <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center shrink-0">
                                                 <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                             </div>

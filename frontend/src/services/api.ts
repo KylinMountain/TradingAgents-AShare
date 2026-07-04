@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, BollingerDeviationResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ConceptBoard, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, BatchAnalyzeRequest, BatchAnalyzeResponse, BatchAnalyzeStatusResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, NiuxiongResponse, GSResponse, RadarResponse, PositionResponse, VolumeWashResponse, FundFlowResponse, BollingerDeviationResponse, DarkPoolAnalysisResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ConceptBoard, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse, BriefingDetailResponse, BriefingListResponse, YangYinHistoryPoint, GoldFingerPoint, RedGreenBgPoint, StrategyDecisionResponse, BiasAnalysisResponse, BiasSnapshotResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -65,6 +65,17 @@ class ApiService {
             method: 'POST',
             body: JSON.stringify(request),
         })
+    }
+
+    async analyzeBatch(request: BatchAnalyzeRequest): Promise<BatchAnalyzeResponse> {
+        return this.request<BatchAnalyzeResponse>('/v1/analyze/batch', {
+            method: 'POST',
+            body: JSON.stringify(request),
+        })
+    }
+
+    async getBatchAnalyzeStatus(batchId: string): Promise<BatchAnalyzeStatusResponse> {
+        return this.request<BatchAnalyzeStatusResponse>(`/v1/analyze/batch/${batchId}`)
     }
 
     async getJobStatus(jobId: string): Promise<JobStatus> {
