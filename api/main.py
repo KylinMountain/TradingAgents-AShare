@@ -748,7 +748,7 @@ class BatchScheduledTriggerResponse(BaseModel):
 
 
 class BatchAnalyzeRequest(BaseModel):
-    symbols: List[str] = Field(..., min_length=1, max_length=50, description="要批量分析的股票代码列表")
+    symbols: List[str] = Field(..., min_length=1, description="要批量分析的股票代码列表（不限制数量，自动排队）")
     trade_date: Optional[str] = Field(default=None, description="交易日期 YYYY-MM-DD，默认今天")
     selected_analysts: Optional[List[str]] = Field(default=None, description="要使用的分析师列表")
     horizons: Optional[List[str]] = Field(default=None, description="分析周期，如 ['short'] 或 ['short','medium']")
@@ -4958,6 +4958,31 @@ def get_batch_analyze_status(
         pending=pending,
         running=running,
         jobs=jobs,
+    )
+
+
+class AnalyzeQueueStatusResponse(BaseModel):
+    max_concurrency: int
+    running: int
+    queued: int
+
+
+@app.get("/v1/analyze/queue-status", response_model=AnalyzeQueueStatusResponse)
+def get_analyze_queue_status(
+    current_user: UserDB = Depends(_require_api_user),
+) -> AnalyzeQueueStatusResponse:
+    sem = _get_analyze_semaphore()
+    available = sem._value
+    if available >= 0:
+        running = _ANALYZE_CONCURRENCY - available
+        queued = 0
+    else:
+        running = _ANALYZE_CONCURRENCY
+        queued = -available
+    return AnalyzeQueueStatusResponse(
+        max_concurrency=_ANALYZE_CONCURRENCY,
+        running=running,
+        queued=queued,
     )
 
 

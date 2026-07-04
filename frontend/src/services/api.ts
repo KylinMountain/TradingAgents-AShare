@@ -78,6 +78,10 @@ class ApiService {
         return this.request<BatchAnalyzeStatusResponse>(`/v1/analyze/batch/${batchId}`)
     }
 
+    async getAnalyzeQueueStatus(): Promise<{ max_concurrency: number; running: number; queued: number }> {
+        return this.request('/v1/analyze/queue-status')
+    }
+
     async getJobStatus(jobId: string): Promise<JobStatus> {
         return this.request<JobStatus>(`/v1/jobs/${jobId}`)
     }
