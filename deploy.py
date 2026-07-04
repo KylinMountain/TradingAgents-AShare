@@ -104,7 +104,7 @@ def upload_frontend(ssh_client):
         sftp.close()
 
         # 3. 解压（此时 SFTP 已关闭，数据已落地）
-        remote_dest = os.path.join(REMOTE_DIR, "frontend")
+        remote_dest = REMOTE_DIR + "/frontend"
         stdin, stdout, stderr = ssh_client.exec_command(
             f"rm -rf {remote_dest}/dist && "
             f"tar -xzf {remote_tar} -C {remote_dest} && "
@@ -310,7 +310,7 @@ def main():
     try:
         # ---- 4a. 上传前端 ----
         if need_frontend:
-            upload_frontend(sftp, client)
+            upload_frontend(client)
             setup_nginx(client)
 
         # ---- 4b. 后端部署 ----
