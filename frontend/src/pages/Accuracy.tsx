@@ -21,10 +21,17 @@ interface AccuracyStats {
     sell_accuracy: number
 }
 
+interface ConfidenceLevelStats {
+    horizon_3d: AccuracyStats
+    horizon_5d: AccuracyStats
+    horizon_10d: AccuracyStats
+    horizon_20d: AccuracyStats
+}
+
 interface ConfidenceStats {
-    high: AccuracyStats
-    medium: AccuracyStats
-    low: AccuracyStats
+    high: ConfidenceLevelStats
+    medium: ConfidenceLevelStats
+    low: ConfidenceLevelStats
 }
 
 interface SymbolStats {
@@ -301,31 +308,54 @@ export default function Accuracy() {
                     </div>
 
                     {/* Confidence level analysis */}
-                    {summary.by_confidence && summary.by_confidence.high.count > 0 && (
+                    {summary.by_confidence && (
                         <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-100">
-                            <h3 className="text-lg font-semibold text-slate-800 mb-4">按置信度分析（10日维度）</h3>
-                            <div className="grid grid-cols-3 gap-6">
-                                <div className="text-center">
-                                    <div className="text-sm text-slate-500 mb-1">高置信度 (≥70)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.high.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                        {summary.by_confidence.high.accuracy}%
-                                    </div>
-                                    <div className="text-xs text-slate-400">{summary.by_confidence.high.count}条</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-sm text-slate-500 mb-1">中置信度 (40-69)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.medium.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                        {summary.by_confidence.medium.accuracy}%
-                                    </div>
-                                    <div className="text-xs text-slate-400">{summary.by_confidence.medium.count}条</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-sm text-slate-500 mb-1">低置信度 (&lt;40)</div>
-                                    <div className={`text-2xl font-bold ${(summary.by_confidence.low.accuracy || 0) >= 60 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                        {summary.by_confidence.low.accuracy}%
-                                    </div>
-                                    <div className="text-xs text-slate-400">{summary.by_confidence.low.count}条</div>
-                                </div>
+                            <h3 className="text-lg font-semibold text-slate-800 mb-4">按置信度分析</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-slate-100">
+                                            <th className="text-left px-3 py-2 font-medium text-slate-500">置信度</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">样本</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">3日准确率</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">5日准确率</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">10日准确率</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">20日准确率</th>
+                                            <th className="text-center px-3 py-2 font-medium text-slate-500">10日超额收益</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {(['high', 'medium', 'low'] as const).map(level => {
+                                            const cs = summary.by_confidence[level]
+                                            if (!cs.horizon_10d || cs.horizon_10d.count === 0) return null
+                                            const labels = { high: '高 (≥70)', medium: '中 (40-69)', low: '低 (<40)' }
+                                            const colors = { high: 'text-red-600', medium: 'text-amber-600', low: 'text-emerald-600' }
+                                            return (
+                                                <tr key={level} className="border-b border-slate-50">
+                                                    <td className={`px-3 py-3 font-medium ${colors[level]}`}>{labels[level]}</td>
+                                                    <td className="px-3 py-3 text-center text-slate-600">{cs.horizon_10d.count}条</td>
+                                                    {(['3d', '5d', '10d', '20d'] as const).map(h => {
+                                                        const s = cs[`horizon_${h}` as keyof ConfidenceLevelStats] as AccuracyStats
+                                                        if (!s || s.count === 0) return <td key={h} className="px-3 py-3 text-center text-slate-300">-</td>
+                                                        const acc = s.accuracy
+                                                        return (
+                                                            <td key={h} className={`px-3 py-3 text-center font-semibold ${acc >= 60 ? 'text-red-600' : acc >= 40 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                                                {acc}% <span className="text-xs font-normal text-slate-400">({s.correct}/{s.count})</span>
+                                                            </td>
+                                                        )
+                                                    })}
+                                                    <td className="px-3 py-3 text-center">
+                                                        {cs.horizon_10d.avg_excess_return != null ? (
+                                                            <span className={`font-medium ${cs.horizon_10d.avg_excess_return >= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                                {cs.horizon_10d.avg_excess_return > 0 ? '+' : ''}{cs.horizon_10d.avg_excess_return}%
+                                                            </span>
+                                                        ) : <span className="text-slate-300">-</span>}
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}

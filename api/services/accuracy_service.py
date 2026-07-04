@@ -551,9 +551,24 @@ def get_accuracy_summary(user_id: Optional[str] = None) -> Dict[str, Any]:
             "horizon_10d": _calc_stats(backtests, "10d"),
             "horizon_20d": _calc_stats(backtests, "20d"),
             "by_confidence": {
-                "high": _calc_stats(high_conf, "10d"),
-                "medium": _calc_stats(med_conf, "10d"),
-                "low": _calc_stats(low_conf, "10d"),
+                "high": {
+                    "horizon_3d": _calc_stats(high_conf, "3d"),
+                    "horizon_5d": _calc_stats(high_conf, "5d"),
+                    "horizon_10d": _calc_stats(high_conf, "10d"),
+                    "horizon_20d": _calc_stats(high_conf, "20d"),
+                },
+                "medium": {
+                    "horizon_3d": _calc_stats(med_conf, "3d"),
+                    "horizon_5d": _calc_stats(med_conf, "5d"),
+                    "horizon_10d": _calc_stats(med_conf, "10d"),
+                    "horizon_20d": _calc_stats(med_conf, "20d"),
+                },
+                "low": {
+                    "horizon_3d": _calc_stats(low_conf, "3d"),
+                    "horizon_5d": _calc_stats(low_conf, "5d"),
+                    "horizon_10d": _calc_stats(low_conf, "10d"),
+                    "horizon_20d": _calc_stats(low_conf, "20d"),
+                },
             },
             "by_symbol": symbol_stats,
         }
