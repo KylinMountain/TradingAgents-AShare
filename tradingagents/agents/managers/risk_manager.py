@@ -12,7 +12,7 @@ from tradingagents.agents.utils.debate_utils import (
 )
 
 
-def create_risk_manager(llm, memory):
+def create_risk_manager(llm, memory, data_collector=None):
     async def risk_manager_node(state) -> dict:
 
         company_name = state["company_of_interest"]
@@ -25,6 +25,15 @@ def create_risk_manager(llm, memory):
         sentiment_report = state["sentiment_report"]
         trader_plan = state["trader_investment_plan"]
         risk_feedback_state = state.get("risk_feedback_state", {})
+
+        # ── 概念共振数据 ──
+        ticker = state["company_of_interest"]
+        trade_date = state["trade_date"]
+        concept_resonance_text = ""
+        if data_collector:
+            pool = data_collector.get(ticker, trade_date)
+            if pool:
+                concept_resonance_text = pool.get("concept_resonance_text", "") or ""
 
         curr_situation = f"{market_research_report}\n\n{sentiment_report}\n\n{news_report}\n\n{fundamentals_report}"
         past_memories = memory.get_memories(curr_situation, n_matches=2)
@@ -45,6 +54,7 @@ def create_risk_manager(llm, memory):
             claims_text=format_claims_for_prompt(claims, empty_message="当前没有已登记风控 claim。"),
             unresolved_claims_text=format_claim_subset_for_prompt(claims, unresolved_claim_ids),
             round_summary=risk_debate_state.get("round_summary", "暂无风险轮次摘要。"),
+            concept_resonance_text=concept_resonance_text or "概念共振数据未计算。",
         )
 
         # ── 流式输出 ──

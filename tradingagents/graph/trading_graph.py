@@ -140,7 +140,10 @@ class TradingAgentsGraph:
             max_recur_limit=self.config.get("max_recur_limit", 100)
         )
         self.reflector = Reflector(self.quick_thinking_llm)
-        self.signal_processor = SignalProcessor(self.quick_thinking_llm)
+        self.signal_processor = SignalProcessor(
+            self.quick_thinking_llm,
+            confidence_threshold=self.config.get("signal_confidence_threshold", 40),
+        )
 
         # State tracking
         self.curr_state = None
@@ -160,26 +163,20 @@ class TradingAgentsGraph:
         kwargs = {}
         provider = self.config.get("llm_provider", "").lower()
 
+        # Pass api_key for all providers
+        api_key = self.config.get("api_key")
+        if api_key:
+            kwargs["api_key"] = api_key
+
         if provider == "google":
             thinking_level = self.config.get("google_thinking_level")
             if thinking_level:
                 kwargs["thinking_level"] = thinking_level
-            api_key = self.config.get("api_key")
-            if api_key:
-                kwargs["api_key"] = api_key
 
         elif provider == "openai":
             reasoning_effort = self.config.get("openai_reasoning_effort")
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
-            api_key = self.config.get("api_key")
-            if api_key:
-                kwargs["api_key"] = api_key
-
-        elif provider == "anthropic":
-            api_key = self.config.get("api_key")
-            if api_key:
-                kwargs["api_key"] = api_key
 
         return kwargs
 
@@ -330,6 +327,7 @@ class TradingAgentsGraph:
         self.data_collector.collect(ticker, trade_date)
 
         graph_args = self.propagator.get_graph_args()
+        graph_args["config"]["configurable"] = {"thread_id": f"{ticker}_{trade_date}"}
 
         state = self.propagator.create_initial_state(
             ticker, trade_date, user_intent=user_intent, horizon="short"

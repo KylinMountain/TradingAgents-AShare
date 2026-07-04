@@ -1,6 +1,7 @@
 """DataCollector: fetch all data once, serve windowed views to analyst agents."""
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -268,7 +269,7 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     v5_dir = "放量" if v5_end > v5_start * 1.2 else ("缩量" if v5_end < v5_start * 0.8 else "平稳")
     p5_v5 = "一致" if (p5_dir == "涨" and v5_dir == "放量") or (p5_dir == "跌" and v5_dir == "缩量") else ("背离" if v5_dir != "平稳" else "中性")
     if p5_v5 == "背离":
-        lines.append(f"| ⚠ 近5日量价关系 | 价格{p5_dir}+量能{v5_dir} | **背离** |")
+        lines.append(f"| [!] 近5日量价关系 | 价格{p5_dir}+量能{v5_dir} | **背离** |")
     else:
         lines.append(f"| 近5日量价关系 | 价格{p5_dir}+量能{v5_dir} | {p5_v5} |")
 
@@ -942,6 +943,25 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
             results["vpa_indicators"] = "VPA 数据不足"
     except Exception as e:
         results["vpa_indicators"] = f"VPA 计算失败：{e}"
+
+    # ── 概念共振分析（仅增强模式）──────────────────
+    if os.getenv("TA_ENHANCED", "1") not in ("0", "false", "no"):
+        try:
+            from tradingagents.dataflows.concept_resonance import (
+                compute_concept_resonance,
+                format_resonance_for_prompt,
+                extract_returns_from_df,
+            )
+            stock_returns = extract_returns_from_df(df) if df is not None else None
+            resonance_result = compute_concept_resonance(ticker, trade_date, stock_returns=stock_returns)
+            results["concept_resonance"] = resonance_result
+            results["concept_resonance_text"] = format_resonance_for_prompt(resonance_result)
+        except Exception as e:
+            results["concept_resonance"] = None
+            results["concept_resonance_text"] = f"概念共振计算失败：{e}"
+    else:
+        results["concept_resonance"] = None
+        results["concept_resonance_text"] = ""
 
     print(f"[Timer] Total Data Collection for {ticker} took {time.time() - fetch_start:.2f}s")
     return results

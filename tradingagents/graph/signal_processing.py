@@ -1,49 +1,80 @@
 # TradingAgents/graph/signal_processing.py
 
-import re
 import json
+import logging
+import re
 
 from langchain_openai import ChatOpenAI
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 
+logger = logging.getLogger(__name__)
+
 
 class SignalProcessor:
     """Processes trading signals to extract actionable decisions."""
 
-    def __init__(self, quick_thinking_llm: ChatOpenAI):
-        """Initialize with an LLM for processing."""
-        self.quick_thinking_llm = quick_thinking_llm
-
-    def process_signal(self, full_signal: str) -> str:
-        """
-        Process a full trading signal to extract the core decision.
+    def __init__(self, quick_thinking_llm: ChatOpenAI, confidence_threshold: int = 40):
+        """Initialize with an LLM for processing.
 
         Args:
-            full_signal: Complete trading signal text
+            quick_thinking_llm: LLM instance for signal extraction fallback.
+            confidence_threshold: minimum confidence (0-100) to accept non-HOLD
+                signals. Signals below this threshold are forced to HOLD.
+        """
+        self.quick_thinking_llm = quick_thinking_llm
+        self.confidence_threshold = confidence_threshold
 
-        Returns:
-            Extracted decision (BUY, SELL, or HOLD)
+    @staticmethod
+    def _extract_confidence(text: str) -> int:
+        """Extract confidence value from VERDICT JSON block in text.
+
+        Returns 0-100 int if found, 0 if unparseable (treats as no-confidence).
+        """
+        m = re.search(r'<!--\s*VERDICT:\s*(\{.*?\})\s*-->', text or "", re.DOTALL)
+        if not m:
+            return 0
+        try:
+            d = json.loads(m.group(1))
+            raw = d.get("confidence")
+            if raw is None:
+                return 50  # missing field → assume medium confidence
+            v = float(raw)
+            if v > 1.0:
+                return int(v)
+            return int(v * 100)
+        except Exception:
+            return 0
+
+    def process_signal(self, full_signal: str) -> str:
+        """Process a trading signal to extract decision, filtering low confidence.
+
+        Returns BUY, SELL, or HOLD. Signals with confidence below threshold
+        are forced to HOLD regardless of the stated direction.
         """
         if not full_signal:
             return "HOLD"
 
         decision = _extract_decision_keyword(full_signal)
-        if decision:
-            return decision
+        if not decision:
+            messages = [
+                ("system", get_prompt("signal_extractor_system", config=get_config())),
+                ("human", full_signal),
+            ]
+            response = str(self.quick_thinking_llm.invoke(messages).content).strip().upper()
+            decision = response if response in {"BUY", "SELL", "HOLD"} else "HOLD"
 
-        messages = [
-            (
-                "system",
-                get_prompt("signal_extractor_system", config=get_config()),
-            ),
-            ("human", full_signal),
-        ]
+        # ── 置信度过滤 ──
+        if decision != "HOLD":
+            confidence = self._extract_confidence(full_signal)
+            if confidence < self.confidence_threshold:
+                logger.info(
+                    "置信度过滤：信号=%s, 置信度=%d < 阈值=%d, 强制退守HOLD",
+                    decision, confidence, self.confidence_threshold,
+                )
+                return "HOLD"
 
-        response = str(self.quick_thinking_llm.invoke(messages).content).strip().upper()
-        if response in {"BUY", "SELL", "HOLD"}:
-            return response
-        return "HOLD"
+        return decision
 
 
 def _extract_decision_keyword(text: str) -> str | None:

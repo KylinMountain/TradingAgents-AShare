@@ -1,0 +1,42 @@
+{
+  "resonance_score": 0.18,
+  "leading_boards": [
+    {
+      "name": "特高压",
+      "correlation": 0.4182496113676872,
+      "direction": "涨",
+      "strength": 1.3785246938788465
+    },
+    {
+      "name": "光纤概念",
+      "correlation": 0.4156902209081354,
+      "direction": "涨",
+      "strength": 0.8038293097998417
+    },
+    {
+      "name": "柔性直流输电",
+      "correlation": 0.4146002284653172,
+      "direction": "涨",
+      "strength": 1.3007148444869099
+    },
+    {
+      "name": "风电",
+      "correlation": 0.4075961729376656,
+      "direction": "跌",
+      "strength": 1.4093684480092095
+    },
+    {
+      "name": "5G",
+      "correlation": 0.3874474972906644,
+      "direction": "涨",
+      "strength": 1.287601112462653
+    }
+  ],
+  "board_trend_summary": "主导概念：特高压、光纤概念、柔性直流输电。共振评分：0.18（方向分裂）",
+  "divergence_alert": false,
+  "board_disagreement": true,
+  "is_flat": false,
+  "insufficient_data": false,
+  "warnings": [],
+  "computed_at": "2026-06-29"
+}

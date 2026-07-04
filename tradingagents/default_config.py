@@ -18,10 +18,19 @@ DEFAULT_CONFIG = {
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     
+    # Enhanced mode: set to 0 to revert to pre-optimization baseline
+    # Controls: concept resonance, verdict aggregation, confidence filter, debate rounds
+    "enhanced_mode": os.getenv("TA_ENHANCED", "1") not in ("0", "false", "no"),
+
     # Debate and discussion settings
-    "max_debate_rounds": int(os.getenv("TA_MAX_DEBATE") or "2"),
+    "max_debate_rounds": 1 if os.getenv("TA_ENHANCED", "1") in ("0", "false", "no")
+                         else int(os.getenv("TA_MAX_DEBATE") or "2"),
     "max_risk_discuss_rounds": int(os.getenv("TA_MAX_RISK") or "1"),
     "max_recur_limit": 100,
+
+    # Signal confidence filtering (disabled in baseline mode)
+    "signal_confidence_threshold": 0 if os.getenv("TA_ENHANCED", "1") in ("0", "false", "no")
+                                    else int(os.getenv("TA_SIGNAL_CONFIDENCE") or "40"),
     
     # Prompt language control: zh, en, or auto
     "prompt_language": os.getenv("TA_LANGUAGE", "zh"),

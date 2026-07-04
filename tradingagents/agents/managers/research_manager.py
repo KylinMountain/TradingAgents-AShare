@@ -1,5 +1,7 @@
 import logging
+import os
 import time
+from typing import List
 
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
@@ -11,8 +13,91 @@ from tradingagents.agents.utils.debate_utils import (
 
 _logger = logging.getLogger(__name__)
 
+# ── 分析师权重配置 ──
+ANALYST_WEIGHTS = {
+    "volume_price_analyst": 2.0,   # 量价分析基于定量数据，信号更可靠
+    "smart_money_analyst": 2.0,    # 资金分析基于定量数据，信号更可靠
+    "social_media_analyst": 0.5,   # 社交舆情本质为新闻重包装，降权
+}
 
-def create_research_manager(llm, memory):
+DIRECTION_SCORE = {"看多": 2, "偏多": 1, "中性": 0, "偏空": -1, "看空": -2}
+
+AGENT_LABELS = {
+    "market_analyst": "市场",
+    "news_analyst": "新闻",
+    "social_media_analyst": "社交",
+    "fundamentals_analyst": "基本面",
+    "macro_analyst": "宏观",
+    "smart_money_analyst": "资金",
+    "volume_price_analyst": "量价",
+}
+
+
+def _aggregate_analyst_verdicts(analyst_traces: List[dict]) -> str:
+    """构建分析师裁决的结构化聚合摘要，注入研究经理提示词。"""
+    if not analyst_traces:
+        return "无分析师裁决数据。"
+
+    dir_count = {}
+    weighted_sum = 0.0
+    total_weight = 0.0
+    details = []
+
+    for trace in analyst_traces:
+        agent = trace.get("agent", "unknown")
+        verdict = trace.get("verdict", "中性")
+        confidence = trace.get("confidence", "中")
+
+        dir_count[verdict] = dir_count.get(verdict, 0) + 1
+
+        score = DIRECTION_SCORE.get(verdict, 0)
+        weight = ANALYST_WEIGHTS.get(agent, 1.0)
+        weighted_sum += score * weight
+        total_weight += weight
+
+        label = AGENT_LABELS.get(agent, agent)
+        details.append(f"{label}({verdict}/{confidence})")
+
+    # 方向分布统计
+    bullish = dir_count.get("看多", 0) + dir_count.get("偏多", 0)
+    bearish = dir_count.get("看空", 0) + dir_count.get("偏空", 0)
+    neutral = dir_count.get("中性", 0)
+
+    # 未加权共识评分：归一化到 [-1, +1]
+    raw_sum = sum(DIRECTION_SCORE.get(t.get("verdict", "中性"), 0) for t in analyst_traces)
+    raw_score = raw_sum / max(len(analyst_traces), 1) / 2.0
+
+    # 加权共识评分
+    weighted_score = weighted_sum / max(total_weight, 1.0) / 2.0
+
+    # 共识强度
+    majority = max(bullish, bearish, neutral)
+    if majority >= 4:
+        strength = "高"
+    elif majority >= 3:
+        strength = "中"
+    else:
+        strength = "低"
+
+    # 多数方向
+    if bullish > bearish:
+        majority_dir = "偏多"
+    elif bearish > bullish:
+        majority_dir = "偏空"
+    else:
+        majority_dir = "中性"
+
+    lines = [
+        f"分析师方向分布：{bullish}人偏多/看多，{bearish}人偏空/看空，{neutral}人中性",
+        f"多数方向：{majority_dir} | 共识强度：{strength}（{majority}/7一致）",
+        f"未加权共识评分：{raw_score:+.2f} | 加权共识评分（量价/资金×2，社交×0.5）：{weighted_score:+.2f}",
+        f"各分析师裁决：{'；'.join(details)}",
+    ]
+
+    return "\n".join(lines)
+
+
+def create_research_manager(llm, memory, data_collector=None):
     async def research_manager_node(state) -> dict:
         history = state["investment_debate_state"].get("history", "")
         market_research_report = state["market_report"]
@@ -21,6 +106,15 @@ def create_research_manager(llm, memory):
         fundamentals_report = state["fundamentals_report"]
         smart_money_report = state.get("smart_money_report", "")
         volume_price_report = state.get("volume_price_report", "")
+
+        # ── 概念共振数据 ──
+        ticker = state["company_of_interest"]
+        trade_date = state["trade_date"]
+        concept_resonance_text = ""
+        if data_collector:
+            pool = data_collector.get(ticker, trade_date)
+            if pool:
+                concept_resonance_text = pool.get("concept_resonance_text", "") or ""
 
         investment_debate_state = state["investment_debate_state"]
         claims = investment_debate_state.get("claims", [])
@@ -38,6 +132,13 @@ def create_research_manager(llm, memory):
         unresolved_claims_text = format_claim_subset_for_prompt(claims, unresolved_claim_ids)
         round_summary_text = round_summary or "暂无轮次摘要。"
 
+        # ── 结构化裁决聚合（仅增强模式）──
+        analyst_traces = state.get("analyst_traces", [])
+        if os.getenv("TA_ENHANCED", "1") not in ("0", "false", "no"):
+            analyst_consensus = _aggregate_analyst_verdicts(analyst_traces)
+        else:
+            analyst_consensus = ""
+
         prompt = get_prompt("research_manager_prompt", config=get_config()).format(
             past_memory_str=past_memory_str,
             history=history,
@@ -47,6 +148,8 @@ def create_research_manager(llm, memory):
             claims_text=claims_text,
             unresolved_claims_text=unresolved_claims_text,
             round_summary=round_summary_text,
+            analyst_consensus=analyst_consensus,
+            concept_resonance_text=concept_resonance_text or "概念共振数据未计算。",
         )
 
         _logger.info(

@@ -33,6 +33,7 @@ def create_macro_analyst(llm, data_collector=None):
             board_flow = pool.get("fund_flow_board", "无数据")
             recent_news = pool.get("news", "无数据")
             concept_board = pool.get("concept_board", "无数据")
+            concept_resonance_text = pool.get("concept_resonance_text", "")
         else:
             from datetime import datetime, timedelta
             from tradingagents.agents.utils.agent_utils import get_board_fund_flow, get_news, get_concept_board
@@ -49,6 +50,11 @@ def create_macro_analyst(llm, data_collector=None):
                 _safe(get_concept_board, {"symbol": ticker}),
             )
             board_flow, recent_news, concept_board = results
+            concept_resonance_text = ""
+
+        resonance_block = ""
+        if concept_resonance_text:
+            resonance_block = f"\n\n【概念板块共振分析】\n{concept_resonance_text}"
 
         messages = [
             SystemMessage(content=(
@@ -61,6 +67,7 @@ def create_macro_analyst(llm, data_collector=None):
                 f"【今日行业板块资金流向】\n{board_flow}\n\n"
                 f"【个股概念板块归属】\n{concept_board}\n\n"
                 f"【近期相关新闻】\n{recent_news}"
+                + resonance_block
             )),
         ]
 

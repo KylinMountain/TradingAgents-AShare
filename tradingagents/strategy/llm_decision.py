@@ -338,7 +338,7 @@ def _generate_trend_summary(df: pd.DataFrame) -> str:
         else:
             lines.append(f"  震荡区间：无明确横盘区间")
     if "is_UTAD" in df.columns and latest.get("is_UTAD", False):
-        lines.append(f"  ⚠ 当日出现UTAD(派发假突破)信号")
+        lines.append(f"  [!] 当日出现UTAD(派发假突破)信号")
 
     if "macd_hist_trend" in df.columns:
         lines.append(f"  MACD状态：DIF={latest.get('macd_dif',0):.2f} DEA={latest.get('macd_dea',0):.2f} 柱趋势={latest.get('macd_hist_trend','?')}")

@@ -1,11 +1,14 @@
 import contextvars
 import json
+import logging
 import operator
 import re
 from typing import Annotated, Any, List, Tuple
 
 from typing_extensions import Optional, TypedDict
 from langgraph.graph import MessagesState
+
+logger = logging.getLogger(__name__)
 
 # ContextVar used to pass the AgentProgressTracker into async graph nodes
 # without putting it in the LangGraph state (which would require serialization).
@@ -14,16 +17,89 @@ current_tracker_var: contextvars.ContextVar = contextvars.ContextVar(
     "current_tracker", default=None
 )
 
+# Direction keyword mapping: Chinese + English → normalized direction
+_DIRECTION_CN_MAP = {
+    "看多": "看多", "偏多": "偏多", "中性": "中性", "偏空": "偏空", "看空": "看空",
+    "BULLISH": "看多", "MODERATELY BULLISH": "偏多", "SLIGHTLY BULLISH": "偏多",
+    "BEARISH": "看空", "MODERATELY BEARISH": "偏空", "SLIGHTLY BEARISH": "偏空",
+    "NEUTRAL": "中性", "HOLD": "中性",
+}
+
+
+def _normalize_direction(raw: str) -> str:
+    """Normalize direction string to Chinese standard form."""
+    return _DIRECTION_CN_MAP.get(raw.strip().upper(), "中性")
+
+
+def _map_confidence(value) -> str:
+    """Map confidence value to three levels: 高/中/低.
+
+    Supports both 0-100 int and 0.0-1.0 float formats.
+    Missing or unparseable → '中'.
+    """
+    if value is None:
+        return "中"
+    try:
+        v = float(value)
+    except (ValueError, TypeError):
+        return "中"
+    if v > 1.0:
+        # 0-100 scale
+        if v >= 70:
+            return "高"
+        elif v >= 40:
+            return "中"
+        return "低"
+    else:
+        # 0.0-1.0 scale
+        if v >= 0.7:
+            return "高"
+        elif v >= 0.4:
+            return "中"
+        return "低"
+
+
+def _fallback_direction_from_text(text: str) -> Tuple[str, bool]:
+    """Scan last 500 chars for direction keywords. Returns (direction, found)."""
+    tail = (text or "")[-500:]
+    # Ordered by specificity: check unambiguous directions first
+    patterns = [
+        (r'看多', '看多'), (r'偏多', '偏多'),
+        (r'看空', '看空'), (r'偏空', '偏空'),
+        (r'中性', '中性'),
+        (r'\bBULLISH\b', '看多'), (r'\bBEARISH\b', '看空'),
+        (r'\bNEUTRAL\b', '中性'),
+    ]
+    for pat, direction in patterns:
+        if re.search(pat, tail, re.IGNORECASE):
+            return direction, True
+    return "中性", False
+
 
 def extract_verdict(text: str) -> Tuple[str, str]:
-    """Extract VERDICT block from analyst output. Returns (direction, confidence)."""
+    """Extract VERDICT block from analyst output. Returns (direction, confidence).
+
+    Priority:
+    1. Parse VERDICT JSON → extract direction + confidence
+    2. JSON parse failure → keyword fallback on last 500 chars
+    3. No keywords → default (中性, 低)
+
+    Confidence: supports 0-100 int or 0.0-1.0 float. Missing → '中'.
+    """
     m = re.search(r'<!--\s*VERDICT:\s*(\{.*?\})\s*-->', text or "", re.DOTALL)
     if m:
         try:
             d = json.loads(m.group(1))
-            return d.get("direction", "中性"), "中"
+            direction = _normalize_direction(d.get("direction", "中性"))
+            confidence = _map_confidence(d.get("confidence"))
+            return direction, confidence
         except Exception:
-            pass
+            logger.debug("VERDICT JSON解析失败，启用关键词回退")
+
+    direction, found = _fallback_direction_from_text(text or "")
+    if found:
+        logger.debug("关键词回退提取方向: %s", direction)
+        return direction, "低"
     return "中性", "低"
 
 

@@ -1,0 +1,44 @@
+{
+  "resonance_score": 0.12,
+  "leading_boards": [
+    {
+      "name": "共封装光学(CPO)",
+      "correlation": 0.7009051496233869,
+      "direction": "涨",
+      "strength": 0.9704314134810165
+    },
+    {
+      "name": "5G",
+      "correlation": 0.5934047837349402,
+      "direction": "涨",
+      "strength": 1.287601112462653
+    },
+    {
+      "name": "芯片概念",
+      "correlation": 0.5798910748415568,
+      "direction": "涨",
+      "strength": 0.21036233843257035
+    },
+    {
+      "name": "中国AI 50",
+      "correlation": 0.5480253278632097,
+      "direction": "涨",
+      "strength": 1.2572595115533858
+    },
+    {
+      "name": "数据中心(AIDC)",
+      "correlation": 0.5414170773503725,
+      "direction": "涨",
+      "strength": 1.4597906299042207
+    }
+  ],
+  "board_trend_summary": "主导概念：共封装光学(CPO)、5G、芯片概念。共振评分：0.12（跟涨）",
+  "divergence_alert": false,
+  "board_disagreement": false,
+  "is_flat": false,
+  "insufficient_data": false,
+  "warnings": [
+    "概念'人民币贬值受益'未出现在THS概念板块列表中，跳过"
+  ],
+  "computed_at": "2026-06-29"
+}

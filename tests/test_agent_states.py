@@ -47,3 +47,46 @@ def test_extract_verdict_missing():
 def test_extract_verdict_empty():
     direction, confidence = extract_verdict("")
     assert direction == "中性"
+    assert confidence == "低"
+
+
+def test_extract_verdict_confidence_int():
+    text = '<!-- VERDICT: {"direction": "看多", "confidence": 80, "reason": "强支撑"} -->'
+    direction, confidence = extract_verdict(text)
+    assert direction == "看多"
+    assert confidence == "高"
+
+
+def test_extract_verdict_confidence_float():
+    text = '<!-- VERDICT: {"direction": "偏空", "confidence": 0.55, "reason": "破位"} -->'
+    direction, confidence = extract_verdict(text)
+    assert direction == "偏空"
+    assert confidence == "中"
+
+
+def test_extract_verdict_confidence_low():
+    text = '<!-- VERDICT: {"direction": "中性", "confidence": 25, "reason": "信号矛盾"} -->'
+    direction, confidence = extract_verdict(text)
+    assert direction == "中性"
+    assert confidence == "低"
+
+
+def test_extract_verdict_english_direction():
+    text = '<!-- VERDICT: {"direction": "BULLISH", "confidence": 75, "reason": "breakout"} -->'
+    direction, confidence = extract_verdict(text)
+    assert direction == "看多"
+    assert confidence == "高"
+
+
+def test_extract_verdict_keyword_fallback():
+    text = "综合来看，该股技术面偏多，资金面中性，建议谨慎参与"
+    direction, confidence = extract_verdict(text)
+    assert direction in ("看多", "偏多")
+    assert confidence == "低"
+
+
+def test_extract_verdict_no_keyword():
+    text = "今日市场波动较大，关注后续走势"
+    direction, confidence = extract_verdict(text)
+    assert direction == "中性"
+    assert confidence == "低"

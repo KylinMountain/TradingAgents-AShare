@@ -1,0 +1,44 @@
+{
+  "resonance_score": -0.18,
+  "leading_boards": [
+    {
+      "name": "AI语料",
+      "correlation": 0.7567935799555924,
+      "direction": "跌",
+      "strength": 2.2336680150493327
+    },
+    {
+      "name": "多模态AI",
+      "correlation": 0.7353886677644415,
+      "direction": "跌",
+      "strength": 1.830110153633848
+    },
+    {
+      "name": "语音技术",
+      "correlation": 0.7176022548587296,
+      "direction": "跌",
+      "strength": 1.2927343968124827
+    },
+    {
+      "name": "人脸识别",
+      "correlation": 0.6809218501349384,
+      "direction": "跌",
+      "strength": 1.441556852217829
+    },
+    {
+      "name": "智能穿戴",
+      "correlation": 0.6714605095997085,
+      "direction": "涨",
+      "strength": 0.8266491282986687
+    }
+  ],
+  "board_trend_summary": "主导概念：AI语料、多模态AI、语音技术。共振评分：-0.18（方向分裂）",
+  "divergence_alert": false,
+  "board_disagreement": true,
+  "is_flat": false,
+  "insufficient_data": false,
+  "warnings": [
+    "概念'ChatGPT概念'未出现在THS概念板块列表中，跳过"
+  ],
+  "computed_at": "2026-06-29"
+}
