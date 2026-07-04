@@ -28,9 +28,9 @@ def create_volume_price_analyst(llm, data_collector=None):
                 level2_quotes = windowed.get("level2_quotes", "无数据")
                 data_window = windowed.get("_data_window", "14天")
             else:
-                vpa_data, stock_data, data_window = "无数据", "无数据", "14天"
+                vpa_data, stock_data, level2_quotes, data_window = "无数据", "无数据", "无数据", "14天"
         else:
-            vpa_data, stock_data, data_window = "无数据", "无数据", "14天"
+            vpa_data, stock_data, level2_quotes, data_window = "无数据", "无数据", "无数据", "14天"
 
         messages = [
             SystemMessage(content=horizon_ctx + system_message + "\n\n请全程使用中文。"),

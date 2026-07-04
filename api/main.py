@@ -2527,8 +2527,9 @@ async def _run_job_inner(
                                 },
                             )
                 
-            except Exception as e:
-                _log(f"Error during default streaming: {e}")
+            except Exception:
+                _log(f"Error during default streaming:\n{traceback.format_exc()}")
+                raise
             finally:
                 current_tracker_var.reset(_tracker_token)
         else:
