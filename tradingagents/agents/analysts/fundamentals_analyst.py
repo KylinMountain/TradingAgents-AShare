@@ -56,6 +56,9 @@ def create_fundamentals_analyst(llm, data_collector=None):
             keys = list(tasks.keys())
             results = await asyncio.gather(*[tasks[k] for k in keys])
             outputs = dict(zip(keys, results))
+            # 确保非工具字段也有默认值
+            for _k in ("shareholder_count", "dividend_history", "f10_detail"):
+                outputs.setdefault(_k, "无数据")
 
         messages = [
             SystemMessage(content=system_message + "\n\n请全程使用中文。"),
