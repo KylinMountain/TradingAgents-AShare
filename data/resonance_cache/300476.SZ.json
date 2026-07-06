@@ -1,44 +1,44 @@
 {
-  "resonance_score": 0.16,
+  "resonance_score": -0.06,
   "leading_boards": [
     {
-      "name": "共封装光学(CPO)",
-      "correlation": 0.7465614355092169,
-      "direction": "涨",
-      "strength": 0.9704314134810165
-    },
-    {
       "name": "PCB概念",
-      "correlation": 0.7411221983130653,
+      "correlation": 0.2656737378372287,
       "direction": "涨",
-      "strength": 1.1399001064818393
+      "strength": 0.8679539619801591
     },
     {
-      "name": "富士康概念",
-      "correlation": 0.6981381923297287,
+      "name": "粤港澳大湾区",
+      "correlation": 0.2467009394503359,
+      "direction": "跌",
+      "strength": 0.22762738276018044
+    },
+    {
+      "name": "共封装光学(CPO)",
+      "correlation": 0.23675848434733135,
       "direction": "涨",
-      "strength": 0.8942666479013807
+      "strength": 0.3650692997326499
     },
     {
       "name": "5G",
-      "correlation": 0.6927783240744619,
-      "direction": "涨",
-      "strength": 1.287601112462653
+      "correlation": 0.22355564835966102,
+      "direction": "跌",
+      "strength": 0.004406756326920114
     },
     {
-      "name": "特斯拉概念",
-      "correlation": 0.6509872578007005,
-      "direction": "涨",
-      "strength": 1.337749428828412
+      "name": "新能源汽车",
+      "correlation": 0.20982456627377835,
+      "direction": "跌",
+      "strength": 0.3203450422002341
     }
   ],
-  "board_trend_summary": "主导概念：共封装光学(CPO)、PCB概念、富士康概念。共振评分：0.16（跟涨）",
+  "board_trend_summary": "主导概念：PCB概念、粤港澳大湾区、共封装光学(CPO)。共振评分：-0.06（方向分裂）",
   "divergence_alert": false,
-  "board_disagreement": false,
+  "board_disagreement": true,
   "is_flat": false,
   "insufficient_data": false,
   "warnings": [
     "概念'人民币贬值受益'未出现在THS概念板块列表中，跳过"
   ],
-  "computed_at": "2026-06-29"
+  "computed_at": "2025-06-20"
 }

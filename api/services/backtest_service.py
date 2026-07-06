@@ -235,7 +235,6 @@ def submit(
     """Submit a backtest job. Returns job_id."""
     job_id = uuid4().hex
     _set(job_id,
-         job_id=job_id,
          symbol=symbol,
          start_date=start_date,
          end_date=end_date,

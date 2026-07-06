@@ -393,7 +393,7 @@ class TradingAgentsGraph:
         directory.mkdir(parents=True, exist_ok=True)
         with open(
             f"eval_results/{ticker}/TradingAgentsStrategy_logs/dual_horizon_{trade_date}.json",
-            "w",
+            "w", encoding="utf-8",
         ) as f:
             json.dump(entry, f, indent=4, ensure_ascii=False)
 
@@ -459,7 +459,7 @@ class TradingAgentsGraph:
 
         with open(
             f"eval_results/{safe_ticker}/TradingAgentsStrategy_logs/full_states_log_{trade_date}.json",
-            "w",
+            "w", encoding="utf-8",
         ) as f:
             json.dump(self.log_states_dict, f, indent=4)
 

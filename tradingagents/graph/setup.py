@@ -92,10 +92,14 @@ class GraphSetup:
             selected_analysts (list): List of analyst types to include.
             checkpointer: Optional LangGraph checkpointer for state persistence.
         """
+        factories = _load_agent_factories()
+        if not selected_analysts:
+            selected_analysts = [
+                "market", "social", "news", "fundamentals",
+                "macro", "smart_money", "volume_price",
+            ]
         if len(selected_analysts) == 0:
             raise ValueError("Trading Agents Graph Setup Error: no analysts selected!")
-
-        factories = _load_agent_factories()
 
         # Create analyst nodes
         analyst_nodes = {}
