@@ -74,31 +74,8 @@ class CnTushareProvider(BaseMarketDataProvider):
     # ── 以下 8 个方法供 smart_money_analyst 使用 ──
 
     def get_individual_fund_flow(self, symbol: str) -> str:
-        """个股近5日分级资金流（小单/中单/大单/超大单）。"""
-        ts_code = _to_ts_code(symbol)
-        pro = _get_pro()
-        df = pro.moneyflow(ts_code=ts_code)
-        if df is None or df.empty:
-            raise NotImplementedError(f"tushare moneyflow empty for {ts_code}")
-        df = df.head(5).copy()
-        df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d").dt.strftime("%Y-%m-%d")
-        # 选择关键列，与 akshare 输出对齐
-        cols = ["trade_date"]
-        for prefix, label in [("buy_sm", "小单买入"), ("sell_sm", "小单卖出"),
-                               ("buy_md", "中单买入"), ("sell_md", "中单卖出"),
-                               ("buy_lg", "大单买入"), ("sell_lg", "大单卖出"),
-                               ("buy_elg", "超大单买入"), ("sell_elg", "超大单卖出"),
-                               ("net_mf_amount", "主力净流入")]:
-            if prefix in df.columns:
-                cols.append(prefix)
-        df = df[[c for c in cols if c in df.columns]]
-        df.columns = [c.replace("buy_sm", "小单买入").replace("sell_sm", "小单卖出")
-                       .replace("buy_md", "中单买入").replace("sell_md", "中单卖出")
-                       .replace("buy_lg", "大单买入").replace("sell_lg", "大单卖出")
-                       .replace("buy_elg", "超大单买入").replace("sell_elg", "超大单卖出")
-                       .replace("net_mf_amount", "主力净流入")
-                       .replace("trade_date", "日期") for c in df.columns]
-        return f"{symbol} 近5日分级资金流向（Tushare）：\n{df.to_string(index=False)}"
+        """个股资金流向 — 优先走 akshare（返回小单/中单/大单/超大单分项，120日数据）。"""
+        raise NotImplementedError("cn_tushare: use cn_akshare for richer fund flow breakdown")
 
     def get_lhb_detail(self, symbol: str, date: str) -> str:
         """龙虎榜明细。"""
