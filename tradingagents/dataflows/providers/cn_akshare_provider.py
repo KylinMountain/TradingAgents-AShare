@@ -1253,56 +1253,54 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return f"{symbol} 分红送转数据获取失败：{type(exc).__name__}: {exc}"
 
     def get_concept_board(self, symbol: str) -> str:
-        """获取个股所属概念/行业/地域板块归属。东财 slist（spt=3），回退同花顺。"""
+        """获取个股所属概念/行业板块归属。优先同花顺概念，东财补行业。"""
+        import re
+        import requests as _requests
+
         code = self._normalize_symbol(symbol)
-        market = "1" if code.startswith(("6", "9")) else "0"
-        secid = f"{market}.{code}"
+        concepts: list = []  # {"name": str, "type": str}
+
+        # 1. 同花顺概念板块（优先，更全）
         try:
-            from .em_http_utils import em_get
-            url = "https://push2.eastmoney.com/api/qt/slist/get"
-            params = {
-                "spt": "3", "fltt": "2", "invt": "2",
-                "fields": "f12,f14,f13,f3,f2,f15",
-                "secids": secid,
+            ths_code = code
+            url = f"https://basic.10jqka.com.cn/{ths_code}/concept.html"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://basic.10jqka.com.cn/",
             }
-            r = em_get(url, params=params, timeout=10,
-                       headers={"Referer": "https://quote.eastmoney.com/"})
-            data = r.json()
-            items = (data.get("data") or {}).get("diff")
-            if items:
-                result = []
-                for it in items:
-                    result.append({
-                        "代码": it.get("f12", ""),
-                        "板块名称": it.get("f14", ""),
-                        "板块类型": it.get("f13", ""),
-                        "涨跌幅%": it.get("f3", ""),
-                        "最新价": it.get("f2", ""),
-                    })
-                df = pd.DataFrame(result)
-                return f"{symbol} 所属板块归属：\n{df.to_string(index=False)}"
+            resp = _requests.get(url, headers=headers, timeout=10)
+            text = resp.content.decode("gbk", errors="ignore")
+            matches = re.findall(r'class="gnName"[^>]*>\s*([^<]+?)\s*</td>', text)
+            for m in matches:
+                name = m.strip()
+                if name:
+                    concepts.append({"name": name, "type": "概念"})
         except Exception:
             pass
-        return self._concept_board_ths_fallback(symbol)
 
-    def _concept_board_ths_fallback(self, symbol: str) -> str:
-        """Fallback: use THS/xueqiu basic info for industry/concept data."""
+        # 2. 东财行业板块（fallback for industry）
         try:
-            with AKSHARE_CALL_LOCK:
-                ak = self._ak()
-                df_info = ak.stock_individual_basic_info_xq(symbol=self._xq_symbol(symbol))
-                if df_info is not None and not df_info.empty:
-                    items = dict(zip(df_info["item"].astype(str), df_info["value"].astype(str)))
-                    result = []
-                    for key in ["行业", "板块", "概念", "上市板块"]:
-                        if key in items:
-                            result.append({"分类": key, "内容": items[key]})
-                    if result:
-                        df = pd.DataFrame(result)
-                        return f"{symbol} 所属板块归属（同花顺）：\n{df.to_string(index=False)}"
-        except Exception as exc:
-            logger.debug("THS concept board fallback failed for %s: %s", symbol, exc)
-        return f"{symbol} 概念板块数据暂不可用。"
+            market = "1" if code.startswith(("6", "9")) else "0"
+            secid = f"{market}.{code}"
+            url = f"https://push2.eastmoney.com/api/qt/slist/get?spt=1&np=3&fltt=2&invt=2&fields=f100&secid={secid}"
+            headers = {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://quote.eastmoney.com/",
+            }
+            resp = _requests.get(url, headers=headers, timeout=5)
+            data = resp.json()
+            for item in data.get("data", {}).get("diff", []):
+                industry = item.get("f100", "")
+                if industry and industry != "-":
+                    concepts.append({"name": industry, "type": "行业"})
+        except Exception:
+            pass
+
+        if not concepts:
+            return f"{symbol} 概念板块数据暂不可用。"
+
+        df = pd.DataFrame(concepts)
+        return f"{symbol} 所属概念板块（同花顺+东财）：\n{df.to_string(index=False)}"
 
     def get_individual_fund_flow_120d(self, symbol: str) -> str:
         """获取个股120日主力资金流向。东财 push2his daykline。"""
