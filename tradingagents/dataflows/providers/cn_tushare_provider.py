@@ -5,13 +5,20 @@ route_to_vendor 用 getattr 动态检测，未实现的方法自动 fallback 到
 """
 
 import os
+import logging
 import pandas as pd
 from .base import BaseMarketDataProvider
 
-_TUSHARE_TOKEN = os.environ.get(
-    "TUSHARE_TOKEN",
-    "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada",
-)
+logger = logging.getLogger(__name__)
+
+_DEFAULT_TUSHARE_TOKEN = "23651a8611b00bf491c7378d81d0bc6265543153530194be989e6ada"
+
+_TUSHARE_TOKEN = os.environ.get("TUSHARE_TOKEN") or _DEFAULT_TUSHARE_TOKEN
+
+if not os.environ.get("TUSHARE_TOKEN"):
+    logger.info("TUSHARE_TOKEN env not set, using built-in default token")
+    # Set env so subprocesses and other modules can see it
+    os.environ.setdefault("TUSHARE_TOKEN", _DEFAULT_TUSHARE_TOKEN)
 
 
 def _get_pro():
