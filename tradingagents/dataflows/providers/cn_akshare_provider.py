@@ -545,17 +545,9 @@ class CnAkshareProvider(BaseMarketDataProvider):
 
             info_df = None
             try:
-                info_df = ak.stock_individual_info_em(symbol=code)
+                info_df = ak.stock_profile_cninfo(symbol=code)
             except Exception as exc:
-                errors.append(f"stock_individual_info_em: {type(exc).__name__}")
-
-            if info_df is None or info_df.empty:
-                try:
-                    info_df = ak.stock_individual_basic_info_xq(symbol=self._xq_symbol(ticker))
-                    if not info_df.empty and set(info_df.columns) >= {"item", "value"}:
-                        info_df = info_df.rename(columns={"item": "item", "value": "value"})
-                except Exception as exc:
-                    errors.append(f"stock_individual_basic_info_xq: {type(exc).__name__}")
+                errors.append(f"stock_profile_cninfo: {type(exc).__name__}")
 
             abstract_df = None
             try:
@@ -953,7 +945,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
             ak = self._ak()
             code = self._normalize_symbol(symbol)
             with AKSHARE_CALL_LOCK:
-                df = ak.stock_lhb_detail_em(symbol=code, start_date=date, end_date=date)
+                df = ak.stock_lhb_detail_em(start_date=date, end_date=date)
             if df is None or df.empty:
                 return f"{symbol} 在 {date} 无龙虎榜数据（非异动日属正常）。"
             return f"{symbol} 龙虎榜明细（{date}）：\n{df.head(20).to_string(index=False)}"
@@ -982,12 +974,12 @@ class CnAkshareProvider(BaseMarketDataProvider):
         try:
             ak = self._ak()
             with AKSHARE_CALL_LOCK:
-                df = ak.stock_hot_follow_xq(symbol="最热门")
+                df = ak.stock_hot_rank_em()
             if df is None or df.empty:
-                return "雪球热搜数据暂不可用。"
-            return f"雪球热搜前20：\n{df.head(20).to_string(index=False)}"
+                return "热门股票数据暂不可用。"
+            return f"热门股票排行（共{len(df)}只，前20）：\n{df.head(20).to_string(index=False)}"
         except Exception as exc:
-            return f"雪球热搜数据获取失败：{type(exc).__name__}: {exc}"
+            return f"热门股票数据获取失败：{type(exc).__name__}: {exc}"
 
     # ── 新增数据源：北向资金、融资融券、大宗交易、龙虎榜席位、机构调研、股东增减持、限售解禁、股权质押 ──
 
