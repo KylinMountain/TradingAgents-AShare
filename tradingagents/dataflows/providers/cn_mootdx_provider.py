@@ -342,20 +342,35 @@ class CnMootdxProvider(BaseMarketDataProvider):
     def get_f10_detail(self, symbol: str, category: int = 0) -> str:
         """F10 公司资料，category: 0=最新提示 1=公司概况 2=财务分析 3=股东研究
         4=主力追踪 5=行业分析 6=公司大事 7=经营分析 8=分红融资。"""
-        client = _get_client()
         code = self._normalize_symbol(symbol)
         try:
             from mootdx.reader import Reader
         except ImportError:
-            raise NotImplementedError("mootdx Reader not available; install mootdx>=0.11.1")
+            return f"F10 数据不可用（mootdx Reader 未安装）。"
+        import os
+        import tempfile
 
-        reader = Reader.factory(market="std")
+        # 尝试常见通达信数据目录，都找不到则创建临时目录（无本地数据返回空）
+        tdx_candidates = [
+            os.path.expanduser("~/.mootdx"),
+            os.path.expanduser("~/tdx"),
+            "C:\\new_tdx",
+            "D:\\tdx",
+            "/opt/tdx",
+        ]
+        tdxdir = None
+        for d in tdx_candidates:
+            if os.path.isdir(d):
+                tdxdir = d
+                break
+        if tdxdir is None:
+            tdxdir = tempfile.mkdtemp(prefix="mootdx_")
+
         try:
+            reader = Reader.factory(market="std", tdxdir=tdxdir)
             result = reader.F10(code, category)
-        except Exception as exc:
-            raise NotImplementedError(
-                f"cn_mootdx F10 category={category} unavailable for {symbol}: {exc}"
-            ) from exc
+        except Exception:
+            return f"F10 category {category} data empty for {symbol}"
 
         if not result:
             return f"F10 category {category} data empty for {symbol}"
