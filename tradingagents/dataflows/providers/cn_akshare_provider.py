@@ -263,7 +263,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
         return out.sort_values("Date").reset_index(drop=True)
 
     @staticmethod
-    def _shrink_table(df: pd.DataFrame, max_rows: int = 12, max_cols: int = 16) -> pd.DataFrame:
+    def _shrink_table(df: pd.DataFrame, max_rows: int = 12, max_cols: int = 120) -> pd.DataFrame:
         if df is None or df.empty:
             return df
         rows = min(max_rows, len(df))
@@ -593,7 +593,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 df = ak.stock_financial_report_sina(stock=symbol, symbol=report_name)
                 if df is None or df.empty:
                     raise ValueError("empty dataframe")
-                return self._shrink_table(df, max_rows=12, max_cols=18).to_markdown(index=False)
+                return self._shrink_table(df, max_rows=12).to_markdown(index=False)
             except Exception as exc:
                 errors.append(f"stock_financial_report_sina: {type(exc).__name__}")
 
@@ -604,7 +604,7 @@ class CnAkshareProvider(BaseMarketDataProvider):
                 df = ak.stock_financial_abstract_new_ths(symbol=code, indicator=indicator)
                 if df is None or df.empty:
                     raise ValueError("empty dataframe")
-                return self._shrink_table(df, max_rows=12, max_cols=18).to_markdown(index=False)
+                return self._shrink_table(df, max_rows=12).to_markdown(index=False)
             except Exception as exc:
                 errors.append(f"stock_financial_abstract_new_ths: {type(exc).__name__}")
 
