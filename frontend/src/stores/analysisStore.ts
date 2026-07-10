@@ -79,6 +79,7 @@ interface AnalysisState {
     isConnected: boolean
     analysisRunState: 'idle' | 'running' | 'completed' | 'failed'
     analysisRunError: string | null
+    analysisOvertimeNotice: string | null
 
     // Current analysis horizon (for badge display)
     currentHorizon: string | null
@@ -107,6 +108,7 @@ interface AnalysisState {
     setIsAnalyzing: (isAnalyzing: boolean) => void
     setIsConnected: (isConnected: boolean) => void
     setAnalysisRunState: (state: 'idle' | 'running' | 'completed' | 'failed', error?: string | null) => void
+    setAnalysisOvertimeNotice: (notice: string | null) => void
     setCurrentHorizon: (horizon: string | null) => void
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
@@ -190,6 +192,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     isConnected: false,
     analysisRunState: 'idle',
     analysisRunError: null,
+    analysisOvertimeNotice: null,
     currentHorizon: null,
 
     setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
@@ -404,6 +407,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         isConnected: false,
         analysisRunState: 'idle',
         analysisRunError: null,
+        analysisOvertimeNotice: null,
         currentHorizon: null,
     }),
 
@@ -431,7 +435,10 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     setAnalysisRunState: (analysisRunState, error = null) => set({
         analysisRunState,
         analysisRunError: analysisRunState === 'failed' ? error : null,
+        ...(analysisRunState === 'running' ? {} : { analysisOvertimeNotice: null }),
     }),
+
+    setAnalysisOvertimeNotice: (analysisOvertimeNotice) => set({ analysisOvertimeNotice }),
 
     setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
 
@@ -456,6 +463,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         isConnected: false,
         analysisRunState: 'idle',
         analysisRunError: null,
+        analysisOvertimeNotice: null,
         currentHorizon: null,
     }))
 }), {
@@ -491,6 +499,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             isConnected: false,
             analysisRunState: 'idle',
             analysisRunError: null,
+            analysisOvertimeNotice: null,
             chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
         }
     },
