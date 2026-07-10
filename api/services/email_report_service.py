@@ -391,7 +391,7 @@ def render_report_html(report: "ReportDB", frontend_url: str = "", stock_name: s
         f'觉得有帮助？给项目点个 '
         f'<a href="{_GITHUB_URL}" style="color:#3b82f6;text-decoration:none;">&#11088; Star</a>'
         f' 或 '
-        f'<a href="{_GITHUB_URL}/sponsors" style="color:#3b82f6;text-decoration:none;">&#10084;&#65039; 赞助支持</a>'
+        f'<a href="https://app.510168.xyz/sponsor" style="color:#3b82f6;text-decoration:none;">&#10084;&#65039; 赞助支持</a>'
         f'</p>'
         f'<p style="margin:12px 0 0;font-size:11px;color:#cbd5e1;">不想收到此邮件？请登录后在「设置」页面关闭「邮件报告推送」即可取消订阅。</p>'
         '</td></tr>'

@@ -1,30 +1,27 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Github, Heart, Cpu, Code2, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { getBaseUrl } from '@/services/api'
 
 const GITHUB_REPO = 'KylinMountain/TradingAgents-AShare'
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/contributors?per_page=100`
 const CACHE_KEY = 'ta-contributors-cache'
 const CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
-interface MoneySponsor {
+interface SponsorItem {
+    id: string
+    sponsor_type: string
     name: string
-    github?: string
-    avatar?: string
-    date: string
-}
-
-interface TokenSponsor {
-    name: string
-    github?: string
-    provider: string
+    github?: string | null
+    avatar?: string | null
+    email?: string | null
+    provider?: string | null
     date: string
 }
 
 interface SponsorsData {
-    money: MoneySponsor[]
-    token: TokenSponsor[]
-    excludeContributors?: string[]
+    money: SponsorItem[]
+    token: SponsorItem[]
 }
 
 interface GitHubContributor {
@@ -62,17 +59,18 @@ function formatDate(dateStr: string): string {
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
-function SponsorCard({ name, github, avatar, date, badge, badgeColor, extra }: {
+function SponsorCard({ name, github, avatar, email, date, badge, badgeColor, extra }: {
     name: string
     github?: string
     avatar?: string
+    email?: string
     date: string
     badge: string
     badgeColor: string
     extra?: string
 }) {
     return (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+        <div className="group relative flex items-center gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
             <Avatar name={name} github={github} avatar={avatar} />
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -89,6 +87,11 @@ function SponsorCard({ name, github, avatar, date, badge, badgeColor, extra }: {
                     <span className="text-[11px] text-slate-400 dark:text-slate-500">{formatDate(date)}</span>
                 </div>
             </div>
+            {email && (
+                <div className="absolute left-1/2 -translate-x-1/2 -top-9 px-2.5 py-1 rounded-lg bg-slate-800 dark:bg-slate-700 text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-lg">
+                    {email}
+                </div>
+            )}
         </div>
     )
 }
@@ -98,17 +101,22 @@ export default function Thanks() {
     const [sponsors, setSponsors] = useState<SponsorsData | null>(null)
     const [contributors, setContributors] = useState<GitHubContributor[]>([])
     const [loadingContributors, setLoadingContributors] = useState(true)
+    const [excludeContributors, setExcludeContributors] = useState<string[]>([])
 
     useEffect(() => {
-        fetch('/sponsors.json')
+        fetch(`${getBaseUrl()}/v1/sponsors`)
             .then(res => res.json())
             .then(setSponsors)
             .catch(() => setSponsors({ money: [], token: [] }))
+
+        fetch('/sponsors.json')
+            .then(res => res.json())
+            .then(data => setExcludeContributors(data.excludeContributors ?? []))
+            .catch(() => {})
     }, [])
 
     useEffect(() => {
-        if (!sponsors) return
-        const excludeSet = new Set(sponsors.excludeContributors ?? [])
+        const excludeSet = new Set(excludeContributors)
 
         const cached = localStorage.getItem(CACHE_KEY)
         if (cached) {
@@ -130,7 +138,7 @@ export default function Thanks() {
             })
             .catch(() => {})
             .finally(() => setLoadingContributors(false))
-    }, [sponsors])
+    }, [excludeContributors])
 
     const hasMoney = sponsors && sponsors.money.length > 0
     const hasToken = sponsors && sponsors.token.length > 0
@@ -162,6 +170,7 @@ export default function Thanks() {
                                             name={s.name}
                                             github={s.github || undefined}
                                             avatar={s.avatar || undefined}
+                                            email={s.email || undefined}
                                             date={s.date}
                                             badge="资金赞助"
                                             badgeColor="bg-pink-50 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300"
@@ -186,7 +195,7 @@ export default function Thanks() {
                                             name={s.name}
                                             github={s.github || undefined}
                                             date={s.date}
-                                            badge={s.provider}
+                                            badge={s.provider ?? ""}
                                             badgeColor="bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300"
                                             extra="Token 赞助"
                                         />

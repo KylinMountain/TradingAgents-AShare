@@ -567,6 +567,7 @@ export interface RuntimeConfig {
     server_fallback_enabled?: boolean
     email_report_enabled?: boolean
     wecom_report_enabled?: boolean
+    default_analysts?: string[]
 }
 
 export interface RuntimeConfigUpdateResponse {
@@ -590,6 +591,7 @@ export interface RuntimeConfigUpdate {
     clear_wecom_webhook?: boolean
     email_report_enabled?: boolean
     wecom_report_enabled?: boolean
+    default_analysts?: string[]
     warmup?: boolean
     force_warmup?: boolean
 }
@@ -653,6 +655,28 @@ export interface UserToken {
 
 export interface UserTokenCreateRequest {
     name: string
+}
+
+// Feedback types
+export interface FeedbackItem {
+    id: string
+    user_email: string
+    subject: string
+    content: string
+    admin_reply?: string | null
+    replied_at?: string | null
+    is_read: boolean
+    created_at?: string
+    updated_at?: string
+}
+
+export interface FeedbackListResponse {
+    total: number
+    feedbacks: FeedbackItem[]
+}
+
+export interface FeedbackUnreadResponse {
+    unread_count: number
 }
 
 // Debate message (for battle view)

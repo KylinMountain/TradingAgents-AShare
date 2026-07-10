@@ -202,7 +202,7 @@ class CnBaoStockProvider(BaseMarketDataProvider):
     ) -> str:
         raise NotImplementedError("cn_baostock does not provide global news yet.")
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         raise NotImplementedError(
             "cn_baostock does not provide insider transactions yet."
         )

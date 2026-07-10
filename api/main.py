@@ -39,8 +39,9 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, ScheduledAnalysisDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, init_db, get_db, get_db_ctx
-from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.job_store import get_job_store as _new_job_store
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -59,6 +60,10 @@ def _get_real_ip(request: Request) -> Optional[str]:
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.graph.data_collector import DataCollector
+
+# 全局共享 DataCollector：同一 ticker+date 的数据只拉一次，所有 job 复用缓存
+_shared_data_collector = DataCollector()
 from tradingagents.dataflows.trade_calendar import cn_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
@@ -104,152 +109,6 @@ def _report_version_stats() -> None:
     threading.Thread(target=_send, daemon=True).start()
 
 
-_scheduler_task: Optional[asyncio.Task] = None
-_scheduled_analysis_max_concurrency = int(os.getenv("TA_SCHEDULED_ANALYSIS_MAX_CONCURRENCY", "10"))
-_scheduled_analysis_semaphore: Optional[asyncio.Semaphore] = None
-_scheduled_analysis_queue_lock: Optional[asyncio.Lock] = None
-_scheduled_analysis_waiting_job_ids: list[str] = []
-_scheduled_analysis_running_job_ids: set[str] = set()
-
-
-def _ensure_scheduled_analysis_queue() -> tuple[asyncio.Semaphore, asyncio.Lock]:
-    global _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
-    if _scheduled_analysis_semaphore is None:
-        _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
-    if _scheduled_analysis_queue_lock is None:
-        _scheduled_analysis_queue_lock = asyncio.Lock()
-    return _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
-
-
-async def _scheduled_analysis_acquire(job_id: str, symbol: str) -> None:
-    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
-
-    async with queue_lock:
-        _scheduled_analysis_waiting_job_ids.append(job_id)
-        queue_position = _scheduled_analysis_waiting_job_ids.index(job_id) + 1
-        running_count = len(_scheduled_analysis_running_job_ids)
-        _set_job(
-            job_id,
-            queue_position=queue_position,
-            waiting_ahead_count=max(0, queue_position - 1),
-            scheduled_running_count=running_count,
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] queued job={job_id} symbol={symbol} "
-            f"waiting_position={queue_position} running={running_count}/{_scheduled_analysis_max_concurrency}"
-        )
-
-    await semaphore.acquire()
-
-    async with queue_lock:
-        if job_id in _scheduled_analysis_waiting_job_ids:
-            _scheduled_analysis_waiting_job_ids.remove(job_id)
-        _scheduled_analysis_running_job_ids.add(job_id)
-        _set_job(
-            job_id,
-            queue_position=None,
-            waiting_ahead_count=None,
-            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] acquired slot job={job_id} symbol={symbol} "
-            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
-            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
-        )
-
-
-async def _scheduled_analysis_release(job_id: str, symbol: str) -> None:
-    semaphore, queue_lock = _ensure_scheduled_analysis_queue()
-
-    async with queue_lock:
-        _scheduled_analysis_running_job_ids.discard(job_id)
-        if job_id in _scheduled_analysis_waiting_job_ids:
-            _scheduled_analysis_waiting_job_ids.remove(job_id)
-        _set_job(
-            job_id,
-            queue_position=None,
-            waiting_ahead_count=None,
-            scheduled_running_count=len(_scheduled_analysis_running_job_ids),
-            scheduled_concurrency_limit=_scheduled_analysis_max_concurrency,
-        )
-        _log(
-            f"[Scheduled Queue] released slot job={job_id} symbol={symbol} "
-            f"running={len(_scheduled_analysis_running_job_ids)}/{_scheduled_analysis_max_concurrency} "
-            f"waiting={len(_scheduled_analysis_waiting_job_ids)}"
-        )
-
-    semaphore.release()
-
-
-@asynccontextmanager
-async def _scheduled_analysis_slot(job_id: str, symbol: str):
-    await _scheduled_analysis_acquire(job_id, symbol)
-    try:
-        yield
-    finally:
-        await _scheduled_analysis_release(job_id, symbol)
-
-
-async def _scheduler_loop():
-    """Background loop: check every minute for scheduled tasks to trigger.
-
-    Each task has its own trigger_time (HH:MM). The scheduler runs on trading
-    days only, outside of trading hours (before 9:15 or after 15:00). Tasks
-    are triggered when current time >= task.trigger_time and the task hasn't
-    run today yet.
-    """
-    from tradingagents.dataflows.trade_calendar import is_cn_trading_day
-    from zoneinfo import ZoneInfo
-
-    _log("[Scheduler] Started.")
-    while True:
-        await asyncio.sleep(60)
-        try:
-            now = datetime.now(tz=ZoneInfo("Asia/Shanghai"))
-            today = now.strftime("%Y-%m-%d")
-            current_hhmm = now.strftime("%H:%M")
-
-            if not is_cn_trading_day(today):
-                continue
-            time_val = now.hour * 60 + now.minute
-            if 8 * 60 < time_val < 20 * 60:
-                continue
-
-            with get_db_ctx() as db:
-                tasks = scheduled_service.get_pending_tasks(db, today, current_hhmm)
-                if not tasks:
-                    continue
-
-                # 先标记为"已触发"防止下次循环重复启动
-                for task in tasks:
-                    task.last_run_date = today
-                    task.last_run_status = "running"
-                db.commit()
-
-                # commit 后 SQLAlchemy 会 expire 属性，db.close() 后访问会抛
-                # DetachedInstanceError，所以这里拷贝成 dict 传给 job 函数
-                task_snapshots = [
-                    {
-                        "id": task.id,
-                        "user_id": task.user_id,
-                        "symbol": task.symbol,
-                        "horizon": task.horizon,
-                    }
-                    for task in tasks
-                ]
-
-                _log(f"[Scheduler] Launching {len(task_snapshots)} tasks (staggered)")
-                for i, snap in enumerate(task_snapshots):
-                    if i > 0:
-                        await asyncio.sleep(1)
-                    _create_tracked_task(_run_scheduled_job(snap, today))
-
-        except Exception as e:
-            logger.error(f"[Scheduler] Error: {e}")
-
-
 def _resolve_scheduled_trade_date(trade_date: str) -> str:
     """Use the requested trading day, or fall back to the latest CN trading day."""
     from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
@@ -266,7 +125,15 @@ def _build_scheduled_analyze_request(
     scheduled_user_context: Optional[Dict[str, Any]] = None,
 ) -> "AnalyzeRequest":
     scheduled_user_context = scheduled_user_context or _build_imported_user_context(db, user_id, symbol)
-    return AnalyzeRequest(
+    # Read user's saved analyst selection from DB
+    user_cfg = auth_service.get_user_llm_config(db, user_id)
+    selected = None
+    if user_cfg and user_cfg.default_analysts:
+        try:
+            selected = json.loads(user_cfg.default_analysts)
+        except Exception:
+            pass
+    req = AnalyzeRequest(
         symbol=symbol,
         trade_date=trade_date,
         horizons=[horizon],
@@ -284,137 +151,96 @@ def _build_scheduled_analyze_request(
         average_cost=scheduled_user_context.get("average_cost"),
         user_notes=scheduled_user_context.get("user_notes"),
     )
+    if selected:
+        req.selected_analysts = selected
+    return req
 
 
-async def _send_scheduled_report_notifications(user_id: str, report_id: str, symbol: str) -> None:
-    """Send configured scheduled report notifications."""
-    try:
-        from api.services.email_report_service import send_report_email_with_retry
-        from api.services.wecom_notification_service import send_report_message_with_retry
-
-        email_user = None
-        report_to_send = None
-        webhook_url = None
-        wecom_report_enabled = True
-        with get_db_ctx() as db:
-            user = db.query(UserDB).filter(UserDB.id == user_id).first()
-            report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
-            user_cfg = auth_service.get_user_llm_config(db, user_id)
-            webhook_url = auth_service.decrypt_secret(getattr(user_cfg, "wecom_webhook_encrypted", None))
-            if report:
-                db.expunge(report)
-                report_to_send = report
-            if user:
-                wecom_report_enabled = getattr(user, "wecom_report_enabled", True)
-                if getattr(user, "email_report_enabled", True):
-                    db.expunge(user)
-                    email_user = user
-        if email_user and report_to_send:
-            _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
-            _create_tracked_task(
-                send_report_email_with_retry(email_user, report_to_send),
-                label=f"Email notification task ({symbol})",
-            )
-        if report_to_send and webhook_url and wecom_report_enabled:
-            _log(f"[Scheduler] Sending WeCom report for {symbol}")
-            _create_tracked_task(
-                send_report_message_with_retry(report_to_send, webhook_url),
-                label=f"WeCom notification task ({symbol})",
-            )
-    except Exception as e:
-        logger.warning(f"[Scheduler] Notification send failed for {symbol}: {e}")
-
-
-async def _run_scheduled_analysis_once(
+async def _run_manual_trigger(
     task: dict,
     requested_trade_date: str,
     job_id: str,
-    *,
-    mark_schedule_run: bool,
 ) -> None:
-    """Execute one scheduled analysis, optionally recording it as the daily scheduled run."""
+    """Execute a manual-trigger analysis (no scheduler concurrency control).
+
+    Used by the /v1/scheduled/{id}/trigger and /v1/scheduled/batch/trigger
+    endpoints. Calls _run_job directly then records the test result.
+    """
     task_id = task["id"]
     user_id = task["user_id"]
     symbol = task["symbol"]
     horizon = task.get("horizon") or "short"
 
-    _ensure_job_event_queue(job_id)
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
-    _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
+    _log(f"[Manual Trigger] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
     try:
-        async with _scheduled_analysis_slot(job_id, symbol):
-            with get_db_ctx() as db:
-                scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(db, user_id, symbol)
-                req = _build_scheduled_analyze_request(
-                    db=db,
-                    user_id=user_id,
-                    symbol=symbol,
-                    horizon=horizon,
-                    trade_date=actual_trade_date,
-                    scheduled_user_context=scheduled_user_context,
-                )
+        with get_db_ctx() as db:
+            scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(
+                db, user_id, symbol
+            )
+            req = _build_scheduled_analyze_request(
+                db=db,
+                user_id=user_id,
+                symbol=symbol,
+                horizon=horizon,
+                trade_date=actual_trade_date,
+                scheduled_user_context=scheduled_user_context,
+            )
 
-            await _run_job(job_id, req, False, True, user_id, "scheduled" if mark_schedule_run else "scheduled_manual")
+        await _run_job(job_id, req, False, True, user_id, "scheduled_manual")
         job_state = _get_job(job_id)
         if job_state.get("status") == "failed":
-            raise RuntimeError(job_state.get("error") or f"scheduled analysis job {job_id} failed")
+            raise RuntimeError(job_state.get("error") or f"manual trigger job {job_id} failed")
         with get_db_ctx() as db:
-            if mark_schedule_run:
-                scheduled_service.mark_run_success(db, task_id, requested_trade_date, job_id)
-            else:
-                scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
-        _log(f"[Scheduler] Completed {symbol}")
-
-        await _send_scheduled_report_notifications(user_id, job_id, symbol)
+            scheduled_service.record_manual_test_result(db, task_id, "success", report_id=job_id)
+        _log(f"[Manual Trigger] Completed {symbol}")
     except Exception as e:
-        logger.error(f"[Scheduler] Failed {symbol}: {e}\n{traceback.format_exc()}")
+        logger.error(f"[Manual Trigger] Failed {symbol}: {e}\n{traceback.format_exc()}")
         with get_db_ctx() as db:
-            if mark_schedule_run:
-                scheduled_service.mark_run_failed(db, task_id, requested_trade_date)
-            else:
-                scheduled_service.record_manual_test_result(db, task_id, "failed")
-
-
-async def _run_scheduled_job(task: dict, trade_date: str):
-    """Execute a single scheduled analysis job.
-
-    Args:
-        task: dict with keys id, user_id, symbol, horizon (plain values,
-              not an ORM instance, to avoid DetachedInstanceError).
-        trade_date: YYYY-MM-DD string.
-    """
-    user_id = task["user_id"]
-    symbol = task["symbol"]
-
-    _log(f"[Scheduler] Running {symbol} for user={user_id}")
-    job_id = uuid4().hex
-    try:
-        await _run_scheduled_analysis_once(
-            task,
-            trade_date,
-            job_id,
-            mark_schedule_run=True,
-        )
-    finally:
-        _job_events.pop(job_id, None)
+            scheduled_service.record_manual_test_result(db, task_id, "failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
-    global _scheduler_task, _scheduled_analysis_semaphore, _scheduled_analysis_queue_lock
+    # Raise the AnyIO thread limiter ceiling so frequent sync endpoints
+    # (tracking-board polling, /v1/jobs/{id} polling, akshare-backed
+    # market endpoints) cannot starve each other when the event loop is
+    # also running long-lived `_run_job` tasks.
+    try:
+        from anyio import to_thread as _anyio_to_thread
+
+        limiter = _anyio_to_thread.current_default_thread_limiter()
+        desired = int(os.getenv("ANYIO_THREAD_LIMIT", "120"))
+        if limiter.total_tokens < desired:
+            limiter.total_tokens = desired
+            _log(f"AnyIO thread limiter raised to {desired}.")
+    except Exception as exc:
+        _log(f"Could not raise AnyIO thread limiter: {exc}")
+
+    # Default asyncio executor is used by `asyncio.to_thread`. The CPython
+    # default is `min(32, cpu_count + 4)`, which is too small when many
+    # `_run_job_inner` coroutines fan out concurrent `to_thread` calls for
+    # DB writes, LLM extraction, and akshare data collection.
+    new_default_executor: Optional[ThreadPoolExecutor] = None
+    try:
+        loop = asyncio.get_running_loop()
+        executor_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_WORKERS", "64"))
+        new_default_executor = ThreadPoolExecutor(
+            max_workers=executor_workers,
+            thread_name_prefix="ta-asyncio",
+        )
+        loop.set_default_executor(new_default_executor)
+        _log(f"Default asyncio executor set to {executor_workers} workers.")
+    except Exception as exc:
+        _log(f"Could not configure default asyncio executor: {exc}")
+
     init_db()
     _log("Database initialized.")
-    with _jobs_lock:
-        _jobs.clear()
-        _job_events.clear()
+    store = get_job_store()
+    store.clear()
     _background_tasks.clear()
-    _scheduled_analysis_semaphore = asyncio.Semaphore(_scheduled_analysis_max_concurrency)
-    _scheduled_analysis_queue_lock = asyncio.Lock()
-    _scheduled_analysis_waiting_job_ids.clear()
-    _scheduled_analysis_running_job_ids.clear()
-    _log(f"[Scheduled Queue] Concurrency limit set to {_scheduled_analysis_max_concurrency}")
 
     # Security: warn loudly if using default secret key
     if not os.getenv("TA_APP_SECRET_KEY"):
@@ -425,32 +251,6 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
-    # 启动时把卡在 running 的定时任务重置
-    with get_db_ctx() as db:
-        stale = db.query(ScheduledAnalysisDB).filter(
-            ScheduledAnalysisDB.last_run_status == "running"
-        ).all()
-        if stale:
-            for item in stale:
-                # 检查是否已有对应的成功报告（任务实际完成了但状态卡在 running）
-                has_report = item.last_report_id and db.query(ReportDB).filter(
-                    ReportDB.id == item.last_report_id,
-                    ReportDB.status == "completed",
-                ).first()
-                if has_report:
-                    item.last_run_status = "success"
-                    # 保留 last_run_date，不重新触发
-                else:
-                    item.last_run_status = "stale"
-                    item.last_run_date = None  # 真正未完成，允许重新触发
-            db.commit()
-            _log(f"[Scheduler] Reset {len(stale)} stale 'running' tasks on startup.")
-        report_reset = report_service.recover_stale_active_reports(db)
-        if report_reset["total"]:
-            _log(
-                "[Reports] Recovered %s stale active reports on startup (marked failed)."
-                % report_reset["total"]
-            )
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
     from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
     _load_cn_trade_dates()
@@ -458,12 +258,11 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
-    _scheduler_task = asyncio.create_task(_scheduler_loop())
     yield
     _log("Shutting down: Cleaning up resources...")
-    if _scheduler_task:
-        _scheduler_task.cancel()
     _executor.shutdown(wait=True)
+    if new_default_executor is not None:
+        new_default_executor.shutdown(wait=False)
     _log("Executor shutdown complete.")
 
 
@@ -502,8 +301,15 @@ app.add_middleware(
 )
 
 _executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
-_jobs_lock = Lock()
-_jobs: Dict[str, Dict[str, Any]] = {}
+
+# ── Singleton job store (in-memory or Redis depending on REDIS_URL) ─────────
+_job_store_instance: Optional[Any] = None
+
+def get_job_store():
+    global _job_store_instance
+    if _job_store_instance is None:
+        _job_store_instance = _new_job_store()
+    return _job_store_instance
 
 # Runtime config overrides via PATCH /v1/config
 _global_config_overrides: Dict[str, Any] = {}
@@ -515,7 +321,6 @@ _CONFIG_OVERRIDES_ALLOWLIST = {
     "max_debate_rounds", "max_risk_discuss_rounds",
     "prompt_language",
 }
-_job_events: Dict[str, "asyncio.Queue[Dict[str, Any]]"] = {}
 # Hold references to fire-and-forget tasks so they are not garbage collected
 _background_tasks: set = set()
 
@@ -529,7 +334,7 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "600"))  # seconds
+_JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "1800"))  # seconds (默认 30 分钟，适配多 Agent 长流程分析)
 def _create_tracked_task(coro, *, label: str = "Background task") -> asyncio.Task:
     """Create an asyncio task and keep a reference to prevent GC.
     Also logs unhandled exceptions via a done callback."""
@@ -780,7 +585,7 @@ class AnalyzeRequest(UserContextInput):
     symbol: str = Field(default="", description="股票代码，如 600519.SH（当 query 包含代码时可省略）")
     trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -840,7 +645,7 @@ class ChatCompletionRequest(UserContextInput):
     messages: List[ChatMessage]
     stream: bool = True
     selected_analysts: List[str] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money"]
+        default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -1012,6 +817,7 @@ class UserRuntimeConfigResponse(BaseModel):
     server_fallback_enabled: bool = True
     email_report_enabled: bool = True
     wecom_report_enabled: bool = True
+    default_analysts: List[str] = Field(default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"])
 
 
 class UserRuntimeConfigUpdateRequest(BaseModel):
@@ -1029,6 +835,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     clear_wecom_webhook: bool = False
     warmup: bool = True
     force_warmup: bool = False
+    default_analysts: Optional[List[str]] = None
 
 
 class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
@@ -1249,51 +1056,23 @@ def _optional_user(
 
 
 def _set_job(job_key: str, **kwargs) -> None:
-    with _jobs_lock:
-        if job_key not in _jobs:
-            _jobs[job_key] = {}
-        _jobs[job_key].update(kwargs)
+    # Callers may pass job_id=<value> as a stored field.  Since
+    # store.set_job()'s first positional param is also called job_id,
+    # we must strip it from kwargs to avoid a "got multiple values" TypeError.
+    # _get_job() always injects job_id back into the returned dict.
+    kwargs.pop("job_id", None)
+    get_job_store().set_job(job_key, **kwargs)
 
 
 def _get_job(job_key: str) -> Dict[str, Any]:
-    with _jobs_lock:
-        return dict(_jobs.get(job_key, {}))
-
-
-def _ensure_job_event_queue(job_id: str) -> "asyncio.Queue[Dict[str, Any]]":
-    with _jobs_lock:
-        q = _job_events.get(job_id)
-        if q is None:
-            q = asyncio.Queue()
-            _job_events[job_id] = q
-        return q
+    d = get_job_store().get_job(job_key)
+    if d:
+        d.setdefault("job_id", job_key)
+    return d
 
 
 def _emit_job_event(job_id: str, event: str, data: Dict[str, Any]) -> None:
-    """Thread-safe event emitter: uses call_soon_threadsafe when called from a
-    non-event-loop thread (e.g. inside asyncio.to_thread callbacks)."""
-    payload = {
-        "event": event,
-        "data": data,
-        "timestamp": _utcnow_iso(),
-    }
-    q = _ensure_job_event_queue(job_id)
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # We are inside the event loop – safe to call directly
-        q.put_nowait(payload)
-    else:
-        # Called from a worker thread – schedule on the main loop
-        try:
-            main_loop = asyncio.get_event_loop()
-            main_loop.call_soon_threadsafe(q.put_nowait, payload)
-        except RuntimeError:
-            # Fallback: no event loop available at all
-            q.put_nowait(payload)
+    get_job_store().emit_event(job_id, event, data)
 
 
 def _attach_job_runtime_state(target: Any, job_id: Optional[str]) -> Any:
@@ -1765,23 +1544,29 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
+    # 用 asyncio.Task + sleep 竞速代替 wait_for，避免 cancel 卡在 to_thread 导致
+    # semaphore 永远不释放的问题。超时后标记失败但不 cancel 内部协程（让线程自然结束）。
+    inner_task = asyncio.create_task(
+        _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
+    )
+    done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
+    if inner_task in done:
+        # 正常完成（可能成功也可能异常）
+        if not inner_task.cancelled() and inner_task.exception():
+            _log(f"[Job {job_id}] failed: {inner_task.exception()}")
+        return
+    # 超时：标记失败，但不 cancel 内部 task（避免 cancel 卡住）
+    err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
+    _log(f"[Job {job_id}] {err_msg}")
+    _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
+    # 注意：不能用 asyncio.to_thread 写 DB，因为线程池可能被僵尸任务占满导致死锁。
+    # 用同步方式直接写，SQLite 的写入足够快不会阻塞事件循环。
     try:
-        await asyncio.wait_for(
-            _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source),
-            timeout=_JOB_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
-        _log(f"[Job {job_id}] {err_msg}")
-        _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
-        try:
-            def _record_timeout():
-                with get_db_ctx() as db:
-                    report_service.mark_report_failed(db, job_id, err_msg)
-            await asyncio.to_thread(_record_timeout)
-        except Exception:
-            pass
-        _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+        with get_db_ctx() as db:
+            report_service.mark_report_failed(db, job_id, err_msg)
+    except Exception:
+        pass
+    _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
 
 
 async def _run_job_inner(
@@ -1859,16 +1644,20 @@ async def _run_job_inner(
             )
             return
 
+        _shared_data_collector.ref(request.symbol, request.trade_date)
         graph = TradingAgentsGraph(
             selected_analysts=request.selected_analysts,
             debug=False,
             config=config,
+            data_collector=_shared_data_collector,
         )
         final_state: Optional[Dict[str, Any]] = None
 
-        # Ensure horizons is never empty
+        # 强制单周期：多个 horizon 时只取第一个，避免 dual-horizon 双倍开销
         if not request.horizons:
             request.horizons = ["short"]
+        elif len(request.horizons) > 1:
+            request.horizons = [request.horizons[0]]
 
         # ── Dual-horizon intent-driven path ──────────────────────────────────
         if request.query:
@@ -2033,7 +1822,10 @@ async def _run_job_inner(
                         if db_updates:
                             await asyncio.to_thread(_horizon_partial_update, db_updates)
                 except Exception as e:
-                    _log(f"Error during horizon streaming ({horizon}): {e}")
+                    _log(
+                        f"Error during horizon streaming ({horizon}): {e!r}\n"
+                        f"{traceback.format_exc()}"
+                    )
                     raise
                 finally:
                     current_tracker_var.reset(_tracker_token)
@@ -2052,12 +1844,11 @@ async def _run_job_inner(
             horizon_errors = []
             for i, r in enumerate(results):
                 if isinstance(r, Exception):
-                    _log(f"Horizon '{request.horizons[i]}' failed: {r}")
+                    tb = "".join(traceback.format_exception(type(r), r, r.__traceback__))
+                    _log(f"Horizon '{request.horizons[i]}' failed: {r!r}\n{tb}")
                     horizon_errors.append(f"{request.horizons[i]}: {r}")
             if horizon_errors:
                 raise RuntimeError(f"Horizon analysis failed: {'; '.join(horizon_errors)}")
-
-            graph.data_collector.evict(ticker, request.trade_date)
 
             short_r = graph._build_horizon_result("short", horizon_states.get("short") or {})
             medium_r = graph._build_horizon_result("medium", horizon_states.get("medium") or {})
@@ -2255,14 +2046,21 @@ async def _run_job_inner(
                         msg = messages[-1]
                         content = _extract_message_text(getattr(msg, "content", ""))
                         agent_name = getattr(msg, "name", None)
+                        msg_type = getattr(msg, "type", "unknown")  # human/system/ai/tool
 
                         if content:
-                            _log(f"[Agent Message] {agent_name}: {content[:200]}...")
+                            if agent_name:
+                                _log(f"[Agent Message] {agent_name}: {content[:200]}...")
+                            elif msg_type in ("human", "system"):
+                                # Graph 入口的初始 prompt，不是 agent 产出，跳过
+                                pass
+                            else:
+                                _log(f"[Agent Message] {msg_type}: {content[:200]}...")
 
                         for tool_call in getattr(msg, "tool_calls", []) or []:
                             tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else getattr(tool_call, "name", "unknown")
                             tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
-                            _log(f"[Tool Call] {agent_name}: {tool_name}")
+                            _log(f"[Tool Call] {agent_name or msg_type}: {tool_name}")
 
                             agent_display = agent_name
                             if not agent_display:
@@ -2420,6 +2218,8 @@ async def _run_job_inner(
             "job.failed",
             {"job_id": job_id, "error": err_msg},
         )
+    finally:
+        _shared_data_collector.evict(request.symbol, request.trade_date)
 
 
 def _normalize_symbol(raw: str) -> str:
@@ -2652,22 +2452,14 @@ def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict
 
 
 async def _stream_job_events(job_id: str):
-    q = _ensure_job_event_queue(job_id)
+    store = get_job_store()
     yield _sse_pack("job.ready", {"job_id": job_id})
-    while True:
-        try:
-            event = await asyncio.wait_for(q.get(), timeout=15)
-            yield _sse_pack(event["event"], event["data"])
-            if event["event"] in ("job.completed", "job.failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-        except asyncio.TimeoutError:
-            # 仅在 status 已完成且无更多事件时关闭（兜底，正常路径不会触发）
-            status = _jobs.get(job_id, {}).get("status")
-            if status in ("completed", "failed"):
-                yield "event: done\ndata: [DONE]\n\n"
-                break
-            yield _sse_pack("ping", {"timestamp": _utcnow_iso()})
+    async for event in store.subscribe(job_id):
+        evt_name = event["event"]
+        yield _sse_pack(evt_name, event["data"])
+        if evt_name in ("job.completed", "job.failed"):
+            yield "event: done\ndata: [DONE]\n\n"
+            return
 
 
 @app.get("/healthz")
@@ -2703,6 +2495,15 @@ def version_stats(payload: Dict[str, Any] = Body(...), request: Request = None, 
     return {"status": "ok"}
 
 
+_RESOLVABLE_SYMBOL_RE = re.compile(
+    r"^("
+    r"\d{6}\.(SH|SZ|BJ)"          # A 股 / 北交所
+    r"|\d{4,5}\.HK"                # 港股
+    r"|[A-Z][A-Z0-9.\-]{0,10}"     # 美股 / 通用 ticker
+    r")$"
+)
+
+
 @app.get("/v1/market/kline", response_model=KlineResponse)
 def get_kline(
     symbol: str,
@@ -2719,7 +2520,16 @@ def get_kline(
         candles = _fetch_index_kline(symbol, start, end)
     else:
         # Normalize symbol (convert "阳光电源" -> "300274.SZ")
+        original = symbol
         symbol = _normalize_symbol(symbol)
+        if not _RESOLVABLE_SYMBOL_RE.match(symbol):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unrecognized symbol {original!r} (normalized to {symbol!r}); "
+                    f"expected formats: '300394.SZ' / 'AAPL' / '00700.HK'"
+                ),
+            )
         config = _build_runtime_config({})
         set_config(config)
         raw = route_to_vendor("get_stock_data", symbol, start, end)
@@ -2860,13 +2670,20 @@ async def analyze(
     request: AnalyzeRequest,
     current_user: UserDB = Depends(_require_api_user),
 ) -> AnalyzeResponse:
-    with get_db_ctx() as db:
-        merged_user_context = _compose_analysis_user_context(
-            db,
-            current_user.id,
-            request.symbol,
-            explicit_context=_extract_request_user_context(request),
-        )
+    explicit_context = _extract_request_user_context(request)
+
+    def _load_user_context() -> Dict[str, Any]:
+        with get_db_ctx() as db:
+            return _compose_analysis_user_context(
+                db,
+                current_user.id,
+                request.symbol,
+                explicit_context=explicit_context,
+            )
+
+    # Don't block the event loop on a sync SQLite read while the scheduler
+    # process may be holding write locks.
+    merged_user_context = await asyncio.to_thread(_load_user_context)
     _apply_user_context_to_request(request, merged_user_context)
 
     job_id = uuid4().hex
@@ -2885,7 +2702,6 @@ async def analyze(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -2893,15 +2709,14 @@ async def analyze(
     )
     if request.dry_run:
         await _run_job(job_id, request, True, True, current_user.id, "api")
-        final_status = _jobs.get(job_id, {}).get("status", "completed")
+        final_status = _get_job(job_id).get("status", "completed")
         return AnalyzeResponse(job_id=job_id, status=final_status, created_at=now)
     _create_tracked_task(_run_job(job_id, request, True, True, current_user.id, "api"))
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
 
 
 def _require_job_owner(job_id: str, current_user: UserDB) -> Dict[str, Any]:
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    job = _get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     owner_id = job.get("user_id")
@@ -2982,9 +2797,8 @@ async def _ai_extract_symbol_and_date_streaming(
 字段说明：
 - stock_name：用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）；美股直接填 ticker。
 - date：YYYY-MM-DD 格式。今天是 {today}，如未提及则填今天。
-- horizons：分析周期数组：
+- horizons：分析周期，只能选一个：
   * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"→ ["medium"]
-  * 同时提到短期和中期 → ["short", "medium"]
   * 其他所有情况（含未提及）→ ["short"]
 - focus_areas：用户关注的分析维度关键词列表，如 ["技术面", "资金面", "业绩"]，未提及则 []。
 - specific_questions：用户提出的具体问题列表，如 ["近期有无催化剂？", "主力是否出货？"]，未提及则 []。
@@ -3080,9 +2894,8 @@ def _ai_extract_symbol_and_date(
 字段说明：
 - stock_name：用户提到的公司名称或股票代码原文（如"华盛天成"、"贵州茅台"、"600519"、"AAPL"）；美股直接填 ticker。
 - date：YYYY-MM-DD 格式。今天是 {today}，如未提及则填今天。
-- horizons：分析周期数组：
+- horizons：分析周期，只能选一个：
   * 用户明确提到"中线/中期/几个月/季度/长期/趋势投资"→ ["medium"]
-  * 同时提到短期和中期 → ["short", "medium"]
   * 其他所有情况（含未提及）→ ["short"]
 - focus_areas：用户关注的分析维度关键词列表，如 ["技术面", "资金面", "业绩"]，未提及则 []。
 - specific_questions：用户提出的具体问题列表，如 ["近期有无催化剂？", "主力是否出货？"]，未提及则 []。
@@ -3165,7 +2978,6 @@ async def chat_completions(
     # 这样用户提交查询后立刻收到 job.ready，不用等待 thinking 模型的 StockExtract。
     if request.stream:
         job_id = uuid4().hex
-        _ensure_job_event_queue(job_id)
 
         async def _extract_and_run():
             try:
@@ -3185,14 +2997,19 @@ async def chat_completions(
                     "focus_areas": focus_areas,
                     "specific_questions": specific_questions,
                 }
-                with get_db_ctx() as db:
-                    merged_user_context = _compose_analysis_user_context(
-                        db,
-                        current_user.id,
-                        symbol,
-                        explicit_context=_extract_request_user_context(request),
-                        inferred_context=inferred_user_context,
-                    )
+                explicit_context = _extract_request_user_context(request)
+
+                def _load_user_context() -> Dict[str, Any]:
+                    with get_db_ctx() as db:
+                        return _compose_analysis_user_context(
+                            db,
+                            current_user.id,
+                            symbol,
+                            explicit_context=explicit_context,
+                            inferred_context=inferred_user_context,
+                        )
+
+                merged_user_context = await asyncio.to_thread(_load_user_context)
                 pre_intent["user_context"] = merged_user_context
                 analyze_req = AnalyzeRequest(
                     symbol=symbol,
@@ -3260,14 +3077,19 @@ async def chat_completions(
         "focus_areas": focus_areas,
         "specific_questions": specific_questions,
     }
-    with get_db_ctx() as db:
-        merged_user_context = _compose_analysis_user_context(
-            db,
-            current_user.id,
-            symbol,
-            explicit_context=_extract_request_user_context(request),
-            inferred_context=inferred_user_context,
-        )
+    explicit_context = _extract_request_user_context(request)
+
+    def _load_user_context_nonstream() -> Dict[str, Any]:
+        with get_db_ctx() as db:
+            return _compose_analysis_user_context(
+                db,
+                current_user.id,
+                symbol,
+                explicit_context=explicit_context,
+                inferred_context=inferred_user_context,
+            )
+
+    merged_user_context = await asyncio.to_thread(_load_user_context_nonstream)
     pre_intent["user_context"] = merged_user_context
     analyze_req = AnalyzeRequest(
         symbol=symbol,
@@ -3305,7 +3127,6 @@ async def chat_completions(
         result=None,
         decision=None,
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.created",
@@ -3313,8 +3134,8 @@ async def chat_completions(
     )
     if request.dry_run:
         await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
-        status_text = _jobs.get(job_id, {}).get("status", "completed")
-        decision_text = _jobs.get(job_id, {}).get("decision", "DRY_RUN")
+        status_text = _get_job(job_id).get("status", "completed")
+        decision_text = _get_job(job_id).get("decision", "DRY_RUN")
         return {
             "id": f"chatcmpl-{job_id}",
             "object": "chat.completion",
@@ -3816,6 +3637,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
         email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
         wecom_report_enabled=user.wecom_report_enabled if user and hasattr(user, "wecom_report_enabled") else True,
+        default_analysts=json.loads(user_cfg.default_analysts) if user_cfg and user_cfg.default_analysts else ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"],
     )
 
 
@@ -3895,6 +3717,7 @@ def update_runtime_config(
         wecom_webhook_url=normalized_wecom_webhook,
         clear_api_key=updates.clear_api_key,
         clear_wecom_webhook=updates.clear_wecom_webhook,
+        default_analysts=updates.default_analysts,
     )
     user_pref_updated = False
     if updates.email_report_enabled is not None:
@@ -4430,18 +4253,16 @@ async def trigger_scheduled_analyses_batch(
             user_id=current_user.id,
             request_source="scheduled_manual_batch",
         )
-        _ensure_job_event_queue(job_id)
         _emit_job_event(
             job_id,
             "job.queued",
             {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
         )
         _create_tracked_task(
-            _run_scheduled_analysis_once(
+            _run_manual_trigger(
                 task_snapshot,
                 requested_trade_date,
                 job_id,
-                mark_schedule_run=False,
             )
         )
 
@@ -4454,9 +4275,6 @@ async def trigger_scheduled_analyses_batch(
             "created_at": now,
             "current_position": scheduled_user_context.get("current_position"),
             "average_cost": scheduled_user_context.get("average_cost"),
-            "waiting_ahead_count": _get_job(job_id).get("waiting_ahead_count"),
-            "scheduled_running_count": _get_job(job_id).get("scheduled_running_count"),
-            "scheduled_concurrency_limit": _get_job(job_id).get("scheduled_concurrency_limit"),
         })
 
     return {
@@ -4497,18 +4315,16 @@ async def trigger_scheduled_analysis_once(
         user_id=current_user.id,
         request_source="scheduled_manual",
     )
-    _ensure_job_event_queue(job_id)
     _emit_job_event(
         job_id,
         "job.queued",
         {"job_id": job_id, "symbol": task["symbol"], "trade_date": actual_trade_date},
     )
     _create_tracked_task(
-        _run_scheduled_analysis_once(
+        _run_manual_trigger(
             task_snapshot,
             requested_trade_date,
             job_id,
-            mark_schedule_run=False,
         )
     )
     return AnalyzeResponse(job_id=job_id, status="pending", created_at=now)
@@ -4544,10 +4360,162 @@ def delete_scheduled_analysis(
         raise HTTPException(404, "未找到该定时任务")
 
 
+# ─── Sponsor endpoints (public, no auth) ────────────────────────────────────
+
+
+class SponsorItem(BaseModel):
+    id: str
+    sponsor_type: str
+    name: str
+    github: Optional[str] = None
+    avatar: Optional[str] = None
+    email: Optional[str] = None
+    provider: Optional[str] = None
+    date: str
+    # NOTE: amount is intentionally excluded from the public API
+
+
+class SponsorsResponse(BaseModel):
+    money: List[SponsorItem]
+    token: List[SponsorItem]
+
+
+def _sponsor_to_item(s: SponsorDB) -> SponsorItem:
+    return SponsorItem(
+        id=s.id,
+        sponsor_type=s.sponsor_type,
+        name=s.name,
+        github=s.github,
+        avatar=s.avatar,
+        email=s.email,
+        provider=s.provider,
+        date=s.date,
+    )
+
+
+@app.get("/v1/sponsors", response_model=SponsorsResponse)
+def list_sponsors(db: Session = Depends(get_db)):
+    """Public endpoint: list all visible sponsors grouped by type."""
+    all_sponsors = sponsor_service.list_sponsors(db)
+    money = [_sponsor_to_item(s) for s in all_sponsors if s.sponsor_type == "money"]
+    token = [_sponsor_to_item(s) for s in all_sponsors if s.sponsor_type == "token"]
+    return SponsorsResponse(money=money, token=token)
+
+
+# ─── Feedback endpoints ─────────────────────────────────────────────────────
+
+
+class FeedbackCreateRequest(BaseModel):
+    subject: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=1, max_length=5000)
+
+
+class FeedbackItem(BaseModel):
+    id: str
+    user_email: str
+    subject: str
+    content: str
+    admin_reply: Optional[str] = None
+    replied_at: Optional[datetime] = None
+    is_read: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    @field_serializer("replied_at", "created_at", "updated_at")
+    def serialize_dt(self, v: Optional[datetime], _info: Any) -> Optional[str]:
+        return v.isoformat() if v else None
+
+
+class FeedbackListResponse(BaseModel):
+    total: int
+    feedbacks: List[FeedbackItem]
+
+
+class FeedbackUnreadResponse(BaseModel):
+    unread_count: int
+
+
+def _fb_to_item(fb: FeedbackDB) -> FeedbackItem:
+    return FeedbackItem(
+        id=fb.id,
+        user_email=fb.user_email,
+        subject=fb.subject,
+        content=fb.content,
+        admin_reply=fb.admin_reply,
+        replied_at=fb.replied_at,
+        is_read=fb.is_read,
+        created_at=fb.created_at,
+        updated_at=fb.updated_at,
+    )
+
+
+@app.post("/v1/feedbacks", response_model=FeedbackItem, status_code=201)
+def create_feedback(
+    req: FeedbackCreateRequest,
+    current_user: UserDB = Depends(_require_web_user),
+    db: Session = Depends(get_db),
+):
+    fb = feedback_service.create_feedback(db, current_user, req.subject, req.content)
+    return _fb_to_item(fb)
+
+
+@app.get("/v1/feedbacks", response_model=FeedbackListResponse)
+def list_feedbacks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: UserDB = Depends(_require_web_user),
+    db: Session = Depends(get_db),
+):
+    items, total = feedback_service.list_feedbacks(db, current_user.id, page, page_size)
+    return FeedbackListResponse(total=total, feedbacks=[_fb_to_item(fb) for fb in items])
+
+
+@app.get("/v1/feedbacks/unread-count", response_model=FeedbackUnreadResponse)
+def feedback_unread_count(
+    current_user: UserDB = Depends(_require_web_user),
+    db: Session = Depends(get_db),
+):
+    count = feedback_service.unread_count(db, current_user.id)
+    return FeedbackUnreadResponse(unread_count=count)
+
+
+@app.get("/v1/feedbacks/{feedback_id}", response_model=FeedbackItem)
+def get_feedback(
+    feedback_id: str,
+    current_user: UserDB = Depends(_require_web_user),
+    db: Session = Depends(get_db),
+):
+    fb = feedback_service.get_feedback(db, feedback_id)
+    if not fb or fb.user_id != current_user.id:
+        raise HTTPException(404, "未找到该反馈")
+    # auto mark read
+    if not fb.is_read and fb.admin_reply:
+        feedback_service.mark_read(db, feedback_id, current_user.id)
+        fb.is_read = True
+    return _fb_to_item(fb)
+
+
+@app.post("/v1/feedbacks/{feedback_id}/read")
+def mark_feedback_read(
+    feedback_id: str,
+    current_user: UserDB = Depends(_require_web_user),
+    db: Session = Depends(get_db),
+):
+    fb = feedback_service.mark_read(db, feedback_id, current_user.id)
+    if not fb:
+        raise HTTPException(404, "未找到该反馈")
+    return {"ok": True}
+
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 # ─── Static Files & SPA Routing ──────────────────────────────────────────────
+
+# Serve uploaded files (avatars etc.) from shared uploads directory
+_uploads_dir = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent / "uploads")))
+if _uploads_dir.is_dir():
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 # Mount frontend if dist exists
 dist_path = os.path.join(os.getcwd(), "frontend/dist")

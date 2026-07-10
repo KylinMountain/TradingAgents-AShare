@@ -53,7 +53,7 @@ class BaseMarketDataProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         raise NotImplementedError
 
     def get_realtime_quotes(self, symbols: list[str]) -> str:
@@ -63,4 +63,3 @@ class BaseMarketDataProvider(ABC):
         price, open, high, low, previous_close, change, change_pct, volume, amount.
         """
         raise NotImplementedError
-

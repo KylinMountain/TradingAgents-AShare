@@ -31,12 +31,16 @@ DEFAULT_CONFIG = {
     "provider_trace": os.getenv("TA_TRACE", "1").lower() in ("1", "true", "yes", "on"),
     
     # Data vendor configuration
+    "investoday_api_key": os.getenv("INVESTODAY_API_KEY", "").strip(),
+    "investoday_base_url": (
+        os.getenv("INVESTODAY_BASE_URL", "https://data-api.investoday.net/data").strip()
+    ),
     "data_vendors": {
-        "core_stock_apis": "cn_akshare,cn_baostock,yfinance",
-        "technical_indicators": "cn_akshare,cn_baostock,yfinance",
-        "fundamental_data": "cn_akshare,cn_baostock,yfinance",
-        "news_data": "cn_akshare,cn_baostock,yfinance",
-        "realtime_data": "cn_akshare",
+        "core_stock_apis": "cn_akshare,cn_baostock,cn_investoday,yfinance",
+        "technical_indicators": "cn_akshare,cn_baostock,cn_investoday,yfinance",
+        "fundamental_data": "cn_akshare,cn_baostock,cn_investoday,yfinance",
+        "news_data": "cn_akshare,cn_baostock,cn_investoday,yfinance",
+        "realtime_data": "cn_akshare,cn_investoday",
     },
     "tool_vendors": {},
 }

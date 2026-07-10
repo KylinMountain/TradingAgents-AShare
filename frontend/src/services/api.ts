@@ -1,4 +1,4 @@
-import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse } from '@/types'
+import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -9,8 +9,6 @@ export function getBaseUrl(): string {
     return 'http://localhost:8000'
 }
 
-// Kept for backward compatibility
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function getAuthToken(): string | null {
     try {
@@ -322,6 +320,30 @@ class ApiService {
         return this.request<{ message: string }>(`/v1/tokens/${tokenId}`, {
             method: 'DELETE',
         })
+    }
+
+    // Feedback
+    async createFeedback(subject: string, content: string): Promise<FeedbackItem> {
+        return this.request<FeedbackItem>('/v1/feedbacks', {
+            method: 'POST',
+            body: JSON.stringify({ subject, content }),
+        })
+    }
+
+    async listFeedbacks(page = 1, pageSize = 20): Promise<FeedbackListResponse> {
+        return this.request<FeedbackListResponse>(`/v1/feedbacks?page=${page}&page_size=${pageSize}`)
+    }
+
+    async getFeedback(id: string): Promise<FeedbackItem> {
+        return this.request<FeedbackItem>(`/v1/feedbacks/${id}`)
+    }
+
+    async getFeedbackUnreadCount(): Promise<FeedbackUnreadResponse> {
+        return this.request<FeedbackUnreadResponse>('/v1/feedbacks/unread-count')
+    }
+
+    async markFeedbackRead(id: string): Promise<void> {
+        return this.request<void>(`/v1/feedbacks/${id}/read`, { method: 'POST' })
     }
 }
 

@@ -134,6 +134,8 @@ def _ensure_user_schema() -> None:
             llm_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
             if "wecom_webhook_encrypted" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
+            if "default_analysts" not in llm_columns:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN default_analysts TEXT"))
     except Exception as e:
         logger.error("Failed to ensure user schema: %s", e)
 
@@ -354,6 +356,7 @@ class UserLLMConfigDB(Base):
     max_risk_discuss_rounds = Column(Integer, nullable=True)
     api_key_encrypted = Column(Text, nullable=True)
     wecom_webhook_encrypted = Column(Text, nullable=True)
+    default_analysts = Column(Text, nullable=True)  # JSON list, e.g. '["market","social",...]'
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -412,6 +415,41 @@ class ScheduledAnalysisDB(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint('user_id', 'symbol', name='uq_scheduled_user_symbol'),)
+
+
+class SponsorDB(Base):
+    """Sponsor records managed by admin project."""
+    __tablename__ = "sponsors"
+
+    id = Column(String(36), primary_key=True, index=True)
+    sponsor_type = Column(String(20), nullable=False, index=True)  # money | token
+    name = Column(String(100), nullable=False)
+    github = Column(String(100), nullable=True)
+    avatar = Column(String(500), nullable=True)
+    email = Column(String(255), nullable=True)
+    provider = Column(String(100), nullable=True)       # token sponsor: provider name
+    amount = Column(Float, nullable=True)                # admin-only, NOT exposed in public API
+    date = Column(String(10), nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_visible = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class FeedbackDB(Base):
+    """User feedback / message board."""
+    __tablename__ = "feedbacks"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(64), index=True, nullable=False)
+    user_email = Column(String(255), nullable=False)
+    subject = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    admin_reply = Column(Text, nullable=True)
+    replied_at = Column(DateTime, nullable=True)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class ImportedPortfolioPositionDB(Base):
