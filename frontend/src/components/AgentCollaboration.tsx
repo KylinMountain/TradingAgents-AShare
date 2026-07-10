@@ -1,4 +1,4 @@
-import { useMemo, useCallback, memo } from 'react'
+import { useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import {
     ReactFlow,
     Handle,
@@ -8,6 +8,7 @@ import {
     type Edge,
     type NodeProps,
     type NodeTypes,
+    type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useAnalysisStore } from '@/stores/analysisStore'
@@ -144,6 +145,12 @@ const GROUP_LABELS: GroupLabelDef[] = [
     { id: 'group-risk', label: '风控团队', position: { x: 1164, y: 44 }, width: 248, height: 450 },
 ]
 
+const FIT_VIEW_OPTIONS = {
+    padding: 0.06,
+    minZoom: 0.72,
+    maxZoom: 1,
+} as const
+
 // ── 自定义节点组件 ────────────────────────────────────────────────────────────
 
 interface AgentNodeData {
@@ -163,6 +170,7 @@ type GroupLabelNodeData = {
     [key: string]: unknown
 }
 type GroupLabelFlowNode = Node<GroupLabelNodeData, 'groupLabel'>
+type CollaborationNode = AgentFlowNode | GroupLabelFlowNode
 
 function AgentNodeComponent({ data }: NodeProps<AgentFlowNode>) {
     const { meta, status, verdict, isParticipating, selected } = data
@@ -287,6 +295,36 @@ interface AgentCollaborationProps {
 
 export default function AgentCollaboration({ onSelectSection, onOpenDebate, selectedSection }: AgentCollaborationProps) {
     const { agents, isAnalyzing, streamingSections, report, currentHorizon } = useAnalysisStore()
+    const flowInstanceRef = useRef<ReactFlowInstance<CollaborationNode, Edge> | null>(null)
+
+    const fitGraph = useCallback((duration = 300) => {
+        void flowInstanceRef.current?.fitView({
+            ...FIT_VIEW_OPTIONS,
+            duration,
+        })
+    }, [])
+
+    // Completed agent cards are taller than pending cards. Re-fit once the
+    // analysis settles so the bottom Volume Price node remains fully visible.
+    useEffect(() => {
+        if (isAnalyzing) return
+        const frameId = window.requestAnimationFrame(() => fitGraph())
+        return () => window.cancelAnimationFrame(frameId)
+    }, [isAnalyzing, fitGraph])
+
+    // Keep the complete workflow visible when the browser window changes size.
+    useEffect(() => {
+        let timeoutId: ReturnType<typeof window.setTimeout> | undefined
+        const handleResize = () => {
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+            timeoutId = window.setTimeout(() => fitGraph(0), 120)
+        }
+        window.addEventListener('resize', handleResize)
+        return () => {
+            window.removeEventListener('resize', handleResize)
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+        }
+    }, [fitGraph])
 
     const cards = useMemo(() => META.map((meta) => {
         const agent = agents.find(a => a.name === meta.name)
@@ -309,7 +347,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
     const participatingCount = cards.filter(c => c.status !== 'skipped').length
 
     // 构建 React Flow 节点
-    const nodes: (AgentFlowNode | GroupLabelFlowNode)[] = useMemo(() => {
+    const nodes: CollaborationNode[] = useMemo(() => {
         const agentNodes: AgentFlowNode[] = cards.map(card => ({
             id: card.meta.name,
             type: 'agent',
@@ -434,18 +472,22 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
                     edges={edges}
                     nodeTypes={nodeTypes}
                     onNodeClick={handleNodeClick}
-                    defaultViewport={{ x: 20, y: 20, zoom: 1 }}
+                    onInit={(instance) => {
+                        flowInstanceRef.current = instance
+                    }}
+                    fitView
+                    fitViewOptions={FIT_VIEW_OPTIONS}
                     nodesDraggable={false}
                     nodesConnectable={false}
                     nodesFocusable={false}
                     edgesFocusable={false}
-                    panOnDrag
+                    panOnDrag={true}
                     panOnScroll={false}
                     zoomOnScroll={false}
                     zoomOnPinch={false}
                     zoomOnDoubleClick={false}
                     preventScrolling={false}
-                    translateExtent={[[-40, -40], [1730, 780]]}
+                    translateExtent={[[-300, -160], [2050, 900]]}
                     proOptions={{ hideAttribution: true }}
                 />
             </div>
