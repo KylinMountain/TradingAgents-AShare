@@ -69,6 +69,20 @@ def test_nan_rows_are_skipped():
     assert detect_board_anomalies(df) == []
 
 
+def test_nan_board_name_is_skipped():
+    df = pd.DataFrame([{"行业": float("nan"), "行业-涨跌幅": 1.5, "净额": 4.0}])
+    assert detect_board_anomalies(df) == []
+
+
+def test_case_e_not_masked_by_case_c_when_net_inflow_is_large():
+    # Regression: a falling board with net_inflow > 5 used to be misclassified
+    # as C ("quiet accumulation", shown in a bullish tone) instead of E
+    # ("accumulation against the drop", a mixed/warning signal).
+    df = pd.DataFrame([_row("重挫板块", -3.0, 6.0)])
+    result = detect_board_anomalies(df)
+    assert result == [BoardAnomaly("重挫板块", "E", -3.0, 6.0)]
+
+
 def test_zt_pool_concentration_threshold():
     below = pd.DataFrame([{"code": i} for i in range(30)])
     above = pd.DataFrame([{"code": i} for i in range(31)])

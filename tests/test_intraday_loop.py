@@ -1,33 +1,11 @@
-from datetime import datetime
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
 import pytest
 
-from scheduler.intraday import _BoostState, _within_trading_window, run_one_tick
+from scheduler.intraday import _BoostState, run_intraday_loop_forever, run_one_tick
 from scheduler.intraday_rules import BoardAnomaly
-
-
-def _dt(hh, mm):
-    return datetime(2026, 7, 10, hh, mm)
-
-
-@pytest.mark.parametrize(
-    "hh,mm,expected",
-    [
-        (9, 29, False),   # before open
-        (9, 30, True),    # right at open
-        (11, 29, True),   # just before lunch
-        (11, 30, False),  # lunch starts
-        (12, 30, False),  # lunch
-        (12, 59, False),  # still lunch
-        (13, 0, True),    # lunch ends
-        (15, 0, True),    # right at close
-        (15, 1, False),   # after close
-    ],
-)
-def test_within_trading_window(hh, mm, expected):
-    assert _within_trading_window(_dt(hh, mm)) is expected
 
 
 def test_boost_state_default_is_normal_interval():
@@ -86,3 +64,57 @@ async def test_run_one_tick_board_anomaly_triggers_attribution_and_persist():
     assert isinstance(called_anomaly, BoardAnomaly)
     assert called_anomaly.board_name == "CRO概念"
     mock_persist.assert_called_once_with("2026-07-10", called_anomaly, fake_result)
+
+
+@pytest.mark.asyncio
+async def test_run_one_tick_processes_multiple_anomalies_concurrently_and_isolated():
+    concept_df = pd.DataFrame(
+        [
+            {"行业": "板块甲", "行业-涨跌幅": 4.43, "净额": 19.56},
+            {"行业": "板块乙", "行业-涨跌幅": 5.0, "净额": 20.0},
+        ]
+    )
+    fake_result = type("R", (), {"cause_summary": "text", "fund_source": None, "judgement": None, "llm_failed": False})()
+
+    async def _analyze(anomaly, trade_date, config):
+        if anomaly.board_name == "板块甲":
+            raise RuntimeError("boom")
+        return fake_result
+
+    with patch("tradingagents.dataflows.providers.cn_akshare_provider.CnAkshareProvider.get_concept_fund_flow_df", return_value=concept_df), \
+         patch("tradingagents.dataflows.providers.cn_akshare_provider.CnAkshareProvider.get_zt_pool_df", return_value=pd.DataFrame()), \
+         patch("scheduler.intraday.analyze_cause", new=AsyncMock(side_effect=_analyze)), \
+         patch("scheduler.intraday._persist_signal") as mock_persist, \
+         patch("api.main._build_runtime_config", return_value={"llm_provider": "openai"}):
+        found = await run_one_tick("2026-07-10")
+
+    assert found is True
+    # 板块甲's attribution raised, but 板块乙 must still be persisted.
+    assert mock_persist.call_count == 1
+    assert mock_persist.call_args[0][1].board_name == "板块乙"
+
+
+@pytest.mark.asyncio
+async def test_run_one_tick_survives_concept_fetch_failure():
+    with patch("tradingagents.dataflows.providers.cn_akshare_provider.CnAkshareProvider.get_concept_fund_flow_df", side_effect=RuntimeError("network down")), \
+         patch("tradingagents.dataflows.providers.cn_akshare_provider.CnAkshareProvider.get_zt_pool_df", return_value=pd.DataFrame()):
+        found = await run_one_tick("2026-07-10")
+    assert found is False
+
+
+@pytest.mark.asyncio
+async def test_run_intraday_loop_forever_restarts_after_crash_then_stops_on_cancel():
+    calls = {"n": 0}
+
+    async def _fake_loop():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("crash")
+        raise asyncio.CancelledError()
+
+    with patch("scheduler.intraday.intraday_loop", new=_fake_loop), \
+         patch("scheduler.intraday._RESTART_BACKOFF_SECONDS", 0):
+        with pytest.raises(asyncio.CancelledError):
+            await run_intraday_loop_forever()
+
+    assert calls["n"] == 2

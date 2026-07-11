@@ -73,6 +73,24 @@ async def test_analyze_cause_parses_structured_fields_on_success():
 
 
 @pytest.mark.asyncio
+async def test_analyze_cause_truncates_overlong_fund_source_and_judgement():
+    # Regression: api/database.py's fund_source/judgement columns have a
+    # fixed max length; a verbose LLM response must never be able to trip a
+    # DB length error regardless of the current column width.
+    overlong = "机构" * 100
+    good_output = (
+        f"【异动】CRO概念 Case A\n"
+        f"• 资金来源: {overlong}\n"
+        f"• 判断: {overlong}\n"
+    )
+    with patch("scheduler.intraday_agent.build_intraday_agent_model", return_value=_FAKE_MODEL), \
+         patch("scheduler.intraday_agent.Runner.run", new=AsyncMock(return_value=_FakeRunResult(good_output))):
+        result = await analyze_cause(_ANOMALY, "2026-07-09", _CONFIG)
+    assert len(result.fund_source) <= 64
+    assert len(result.judgement) <= 64
+
+
+@pytest.mark.asyncio
 async def test_analyze_cause_falls_back_on_exception():
     with patch("scheduler.intraday_agent.build_intraday_agent_model", return_value=_FAKE_MODEL), \
          patch("scheduler.intraday_agent.Runner.run", new=AsyncMock(side_effect=RuntimeError("boom"))):

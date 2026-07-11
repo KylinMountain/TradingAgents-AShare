@@ -49,7 +49,7 @@ def detect_board_anomalies(concept_fund_flow_df: pd.DataFrame) -> list[BoardAnom
         change_pct = row.get(_COL_CHANGE_PCT)
         net_inflow = row.get(_COL_NET_INFLOW)
         board_name = row.get(_COL_BOARD_NAME)
-        if pd.isna(change_pct) or pd.isna(net_inflow) or not board_name:
+        if pd.isna(change_pct) or pd.isna(net_inflow) or pd.isna(board_name) or not str(board_name).strip():
             continue
         change_pct = float(change_pct)
         net_inflow = float(net_inflow)
@@ -68,16 +68,20 @@ def detect_board_anomalies(concept_fund_flow_df: pd.DataFrame) -> list[BoardAnom
 
 
 def _classify(change_pct: float, net_inflow: float) -> str | None:
+    # D and E must be checked before C: C's range (change_pct < 1.0, i.e. "not
+    # really rising") is broad enough to also match any drop, so a falling
+    # board with net_inflow > 5 would otherwise be misclassified as the
+    # benign "quiet accumulation" C instead of D/E.
     if change_pct > 1.0 and net_inflow > 3:
         return "A"
     if change_pct > 2.0 and net_inflow < -1:
         return "B"
-    if change_pct < 1.0 and net_inflow > 5:
-        return "C"
     if change_pct < -1.5 and net_inflow < -3:
         return "D"
     if change_pct < -2.0 and net_inflow > 2:
         return "E"
+    if change_pct < 1.0 and net_inflow > 5:
+        return "C"
     return None
 
 

@@ -428,8 +428,12 @@ class IntradaySignalDB(Base):
     change_pct = Column(Float, nullable=False)
     net_inflow = Column(Float, nullable=False)
     cause_summary = Column(Text, nullable=True)
-    fund_source = Column(String(20), nullable=True)  # 机构/游资/主力/不明
-    judgement = Column(String(20), nullable=True)     # 一日游/持续行情/主力提前布局
+    # Extracted via regex from free-form LLM prose (scheduler/intraday_agent.py),
+    # not a fixed enum, so give it real headroom beyond the short canonical
+    # labels ("机构"/"游资"/"主力"/"不明", "一日游/不追"/"持续行情"/"主力提前布局")
+    # to avoid a DataError on Postgres/MySQL if the model appends extra words.
+    fund_source = Column(String(64), nullable=True)
+    judgement = Column(String(64), nullable=True)
     llm_failed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 

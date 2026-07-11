@@ -726,7 +726,18 @@ class IntradaySignalItem(BaseModel):
     fund_source: Optional[str] = None
     judgement: Optional[str] = None
     llm_failed: bool
-    created_at: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", when_used="json")
+    def serialize_created_at(self, value: Optional[datetime]) -> Optional[str]:
+        # IntradaySignalDB.created_at is a plain Column(DateTime); SQLite
+        # silently strips tzinfo on round-trip even though the stored value
+        # was always UTC (datetime.now(timezone.utc)) -- _serialize_datetime_utc
+        # re-attaches UTC rather than letting a naive isoformat() string get
+        # parsed as local time by the frontend (an 8h offset in Beijing).
+        return _serialize_datetime_utc(value)
 
 
 class IntradayFeedResponse(BaseModel):
@@ -4115,22 +4126,7 @@ def get_intraday_feed(
             query = query.filter(IntradaySignalDB.created_at > since_row.created_at)
     rows = query.order_by(IntradaySignalDB.created_at.desc()).limit(limit).all()
     return IntradayFeedResponse(
-        items=[
-            IntradaySignalItem(
-                id=row.id,
-                trade_date=row.trade_date,
-                board_name=row.board_name,
-                anomaly_case=row.anomaly_case,
-                change_pct=row.change_pct,
-                net_inflow=row.net_inflow,
-                cause_summary=row.cause_summary,
-                fund_source=row.fund_source,
-                judgement=row.judgement,
-                llm_failed=row.llm_failed,
-                created_at=row.created_at.isoformat(),
-            )
-            for row in rows
-        ]
+        items=[IntradaySignalItem.model_validate(row) for row in rows]
     )
 
 

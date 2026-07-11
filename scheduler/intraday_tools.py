@@ -33,9 +33,19 @@ logger = logging.getLogger(__name__)
 
 _provider = CnAkshareProvider()
 
-# DDGS().text() can hang indefinitely on DNS/TLS failures (no internal
-# timeout) -- isolate it in a single-shot executor so callers are bounded.
+# DDGS's own request-level timeout (backed by the `primp` HTTP client, which
+# properly bounds DNS+connect+read) -- this is the primary defense and should
+# make the call return well within it in the vast majority of cases.
+_DDGS_REQUEST_TIMEOUT_SECONDS = 8
+
+# Backstop only: in the rare case DDGS still wedges past its own timeout,
+# bound how long we wait before giving up. The worker thread can't be killed
+# (Python has no thread-cancel API), so it may linger until its socket
+# eventually errors out; a small *shared, reused* pool (rather than a fresh
+# one per call) caps how many such threads can pile up over a trading day
+# instead of growing unbounded.
 _SEARCH_TIMEOUT_SECONDS = 12
+_search_executor = _cf.ThreadPoolExecutor(max_workers=4, thread_name_prefix="intraday-websearch")
 
 
 def get_market_wire_fn(limit: int = 30) -> str:
@@ -51,26 +61,28 @@ def get_lhb_market_snapshot_fn(date: str, limit: int = 30) -> str:
 
 
 def _ddgs_search(query: str, max_results: int):
-    return DDGS().text(query, max_results=max_results)
+    return DDGS(timeout=_DDGS_REQUEST_TIMEOUT_SECONDS).text(query, max_results=max_results)
 
 
 def web_search_fn(query: str, max_results: int = 10) -> str:
-    ex = _cf.ThreadPoolExecutor(max_workers=1)
     try:
-        fut = ex.submit(_ddgs_search, query, max_results)
+        fut = _search_executor.submit(_ddgs_search, query, max_results)
         try:
             results = fut.result(timeout=_SEARCH_TIMEOUT_SECONDS)
         except _cf.TimeoutError:
-            # DDGS is wedged in DNS/TLS -- abandon the worker (don't wait for
-            # it; the thread exits on its own once its socket errors out)
-            # and report a timeout to the caller instead of hanging forever.
+            # DDGS's own timeout should have fired by now; this only trips if
+            # it's wedged below the HTTP-client layer (e.g. OS-level DNS
+            # hang). The submitted job stays queued on the shared executor
+            # and is not cancelled (Python has no thread-cancel API) -- it
+            # will eventually finish and free its slot on its own.
             logger.warning("web_search timed out after %ds: %s", _SEARCH_TIMEOUT_SECONDS, query[:80])
             return json.dumps({"query": query, "results": [], "count": 0, "error": "search_timeout"}, ensure_ascii=False)
         except Exception as exc:
             logger.warning("web_search failed: %s", exc)
             return json.dumps({"query": query, "results": [], "count": 0, "error": str(exc)}, ensure_ascii=False)
-    finally:
-        ex.shutdown(wait=False)
+    except Exception as exc:
+        logger.warning("web_search failed to submit: %s", exc)
+        return json.dumps({"query": query, "results": [], "count": 0, "error": str(exc)}, ensure_ascii=False)
 
     try:
         items = [

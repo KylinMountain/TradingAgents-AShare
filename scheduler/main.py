@@ -428,9 +428,9 @@ async def _startup():
     # Global intraday concept-board anomaly scan — independent loop, own
     # trading-hours clock, runs alongside (not instead of) the per-user
     # scheduled-analysis loop below.
-    from scheduler.intraday import intraday_loop
+    from scheduler.intraday import run_intraday_loop_forever
 
-    _create_tracked_task(intraday_loop(), label="Intraday anomaly scan loop")
+    _create_tracked_task(run_intraday_loop_forever(), label="Intraday anomaly scan loop")
     _log("[Intraday] anomaly scan task launched.")
 
     # Run the scheduler loop (blocks until cancelled)

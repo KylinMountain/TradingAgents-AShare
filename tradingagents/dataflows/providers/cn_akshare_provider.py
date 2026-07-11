@@ -918,18 +918,19 @@ class CnAkshareProvider(BaseMarketDataProvider):
 
         列名沿用 akshare 原始返回（含"行业"字样是 akshare 自身命名，实际是概念板块数据）：
         序号/行业(概念名)/行业指数/行业-涨跌幅/流入资金/流出资金/净额/公司家数/领涨股/领涨股-涨跌幅/当前价。
-        流入资金/流出资金/净额单位为"亿元"。失败时返回空 DataFrame，不抛异常（调用方按空表处理）。
+        流入资金/流出资金/净额单位为"亿元"。
+
+        接口异常时直接向上抛出（不在此吞掉），让调用方按各自语境处理——盘中扫描
+        的调用方会记录警告并降级为空表，而 get_concept_fund_flow() 这类面向 LLM
+        工具/展示层的封装仍需要把具体异常原因暴露给使用者，不能和"今天确实没数据"
+        混为一谈。
         """
-        try:
-            ak = self._ak()
-            with AKSHARE_CALL_LOCK:
-                df = ak.stock_fund_flow_concept(symbol="即时")
-            if df is None or df.empty:
-                return pd.DataFrame()
-            return df.reset_index(drop=True)
-        except Exception as exc:
-            _lock_logger.warning("[cn_akshare] get_concept_fund_flow_df failed: %s", exc)
+        ak = self._ak()
+        with AKSHARE_CALL_LOCK:
+            df = ak.stock_fund_flow_concept(symbol="即时")
+        if df is None or df.empty:
             return pd.DataFrame()
+        return df.reset_index(drop=True)
 
     def get_concept_fund_flow(self) -> str:
         """获取概念板块资金流向排名（供 LLM 工具调用的格式化文本）。
@@ -1018,17 +1019,16 @@ class CnAkshareProvider(BaseMarketDataProvider):
             return f"龙虎榜数据获取失败（akshare 接口异常）：{type(exc).__name__}"
 
     def get_zt_pool_df(self, date: str) -> pd.DataFrame:
-        """获取涨停板情绪池（原始 DataFrame，供盘中异动检测规则引擎使用）。失败时返回空 DataFrame。"""
-        try:
-            ak = self._ak()
-            with AKSHARE_CALL_LOCK:
-                df = ak.stock_zt_pool_em(date=date.replace("-", ""))
-            if df is None or df.empty:
-                return pd.DataFrame()
-            return df.reset_index(drop=True)
-        except Exception as exc:
-            _lock_logger.warning("[cn_akshare] get_zt_pool_df failed: %s", exc)
+        """获取涨停板情绪池（原始 DataFrame，供盘中异动检测规则引擎使用）。
+
+        接口异常时直接向上抛出（不在此吞掉），理由同 get_concept_fund_flow_df。
+        """
+        ak = self._ak()
+        with AKSHARE_CALL_LOCK:
+            df = ak.stock_zt_pool_em(date=date.replace("-", ""))
+        if df is None or df.empty:
             return pd.DataFrame()
+        return df.reset_index(drop=True)
 
     def get_zt_pool(self, date: str) -> str:
         """获取涨停板情绪池，反映市场整体情绪温度。"""

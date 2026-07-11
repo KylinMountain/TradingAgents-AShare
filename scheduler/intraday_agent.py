@@ -64,6 +64,11 @@ _TAG_CLEANUP_PATTERNS = [
 _FUND_SOURCE_RE = re.compile(r"资金来源[:：]\s*([^\n•]+)")
 _JUDGEMENT_RE = re.compile(r"判断[:：]\s*([^\n•]+)")
 
+# api/database.py's IntradaySignalDB.fund_source/judgement columns are
+# String(64); truncate defensively here regardless of the current column
+# width so a verbose LLM response can never trip a DB length error.
+_SHORT_FIELD_MAX_LENGTH = 64
+
 
 @dataclass(frozen=True)
 class CauseAttributionResult:
@@ -77,6 +82,10 @@ def _clean_output(output: str) -> str:
     for pattern in _TAG_CLEANUP_PATTERNS:
         output = pattern.sub("", output)
     return output.strip()
+
+
+def _truncate(value: str) -> str:
+    return value[:_SHORT_FIELD_MAX_LENGTH]
 
 
 def _fallback_result(anomaly: BoardAnomaly) -> CauseAttributionResult:
@@ -124,8 +133,8 @@ async def analyze_cause(anomaly: BoardAnomaly, trade_date: str, config: Dict[str
         judgement_match = _JUDGEMENT_RE.search(output)
         return CauseAttributionResult(
             cause_summary=output,
-            fund_source=fund_source_match.group(1).strip() if fund_source_match else None,
-            judgement=judgement_match.group(1).strip() if judgement_match else None,
+            fund_source=_truncate(fund_source_match.group(1).strip()) if fund_source_match else None,
+            judgement=_truncate(judgement_match.group(1).strip()) if judgement_match else None,
             llm_failed=False,
         )
     except asyncio.TimeoutError:

@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from uuid import uuid4
-from zoneinfo import ZoneInfo
+
+import pandas as pd
 
 from scheduler.intraday_agent import analyze_cause
 from scheduler.intraday_rules import BoardAnomaly, detect_board_anomalies, detect_zt_pool_concentration
@@ -28,7 +28,7 @@ _NORMAL_INTERVAL_SECONDS = 300  # 5 min
 _BOOST_INTERVAL_SECONDS = 120  # 2 min
 _BOOST_DURATION_SECONDS = 900  # 15 min
 
-_TZ = ZoneInfo("Asia/Shanghai")
+_RESTART_BACKOFF_SECONDS = 30
 
 
 class _BoostState:
@@ -42,15 +42,6 @@ class _BoostState:
 
     def current_interval(self, now_ts: float) -> int:
         return _BOOST_INTERVAL_SECONDS if now_ts < self._boosted_until_ts else _NORMAL_INTERVAL_SECONDS
-
-
-def _within_trading_window(now: datetime) -> bool:
-    hhmm = now.hour * 60 + now.minute
-    if not (9 * 60 + 30 <= hhmm <= 15 * 60):
-        return False
-    if 11 * 60 + 30 <= hhmm < 13 * 60:
-        return False  # lunch break
-    return True
 
 
 def _persist_signal(trade_date: str, anomaly: BoardAnomaly, result) -> None:
@@ -74,13 +65,40 @@ def _persist_signal(trade_date: str, anomaly: BoardAnomaly, result) -> None:
         db.commit()
 
 
+async def _process_anomaly(trade_date: str, anomaly: BoardAnomaly, config: dict) -> None:
+    """Attribute + persist a single anomaly. Isolated so one board's failure
+    (LLM error, DB write error) never loses the other anomalies in the tick."""
+    try:
+        result = await analyze_cause(anomaly, trade_date, config)
+        await asyncio.to_thread(_persist_signal, trade_date, anomaly, result)
+        logger.info(
+            "[Intraday] %s Case %s persisted (llm_failed=%s)",
+            anomaly.board_name, anomaly.anomaly_case, result.llm_failed,
+        )
+    except Exception as exc:
+        logger.error(
+            "[Intraday] failed to process %s Case %s: %s",
+            anomaly.board_name, anomaly.anomaly_case, exc,
+        )
+
+
 async def run_one_tick(trade_date: str) -> bool:
     """Fetch → detect → attribute → persist. Returns True iff any anomaly was found (drives boost)."""
     from tradingagents.dataflows.providers.cn_akshare_provider import CnAkshareProvider
 
     provider = CnAkshareProvider()
-    concept_df = await asyncio.to_thread(provider.get_concept_fund_flow_df)
-    zt_df = await asyncio.to_thread(provider.get_zt_pool_df, trade_date)
+
+    try:
+        concept_df = await asyncio.to_thread(provider.get_concept_fund_flow_df)
+    except Exception as exc:
+        logger.warning("[Intraday] concept fund flow fetch failed: %s", exc)
+        concept_df = pd.DataFrame()
+
+    try:
+        zt_df = await asyncio.to_thread(provider.get_zt_pool_df, trade_date)
+    except Exception as exc:
+        logger.warning("[Intraday] zt pool fetch failed: %s", exc)
+        zt_df = pd.DataFrame()
 
     board_anomalies = detect_board_anomalies(concept_df)
     zt_concentrated = detect_zt_pool_concentration(zt_df)
@@ -92,35 +110,53 @@ async def run_one_tick(trade_date: str) -> bool:
         from api.main import _build_runtime_config
 
         config = await asyncio.to_thread(_build_runtime_config, {})
-        for anomaly in board_anomalies:
-            result = await analyze_cause(anomaly, trade_date, config)
-            await asyncio.to_thread(_persist_signal, trade_date, anomaly, result)
-            logger.info(
-                "[Intraday] %s Case %s persisted (llm_failed=%s)",
-                anomaly.board_name, anomaly.anomaly_case, result.llm_failed,
-            )
+        # Concurrent, not sequential: each anomaly's attribution has its own
+        # timeout (scheduler/intraday_agent.py), and processing them one at a
+        # time can eat most/all of the post-anomaly boost window on a
+        # multi-board tick -- exactly the high-volatility case boost exists
+        # to serve fastest.
+        await asyncio.gather(*(_process_anomaly(trade_date, a, config) for a in board_anomalies))
 
     return True
 
 
 async def intraday_loop() -> None:
-    """Background loop: trading-hours-only concept-board anomaly scan. Runs forever."""
-    from tradingagents.dataflows.trade_calendar import is_cn_trading_day
+    """Trading-hours-only concept-board anomaly scan, one tick per iteration."""
+    from tradingagents.dataflows.trade_calendar import cn_market_phase, now_cn
+    from tradingagents.dataflows.providers.cn_akshare_provider import set_scheduled_task_context
+
+    # Mark every akshare call this task (and everything it awaits/to_thread's,
+    # which inherits this task's contextvars) makes as "scheduled" so it's
+    # capped by AKSHARE_CALL_LOCK's reserved sub-pool instead of competing
+    # with interactive frontend requests at full priority.
+    set_scheduled_task_context(True)
 
     boost = _BoostState()
     logger.info("[Intraday] Loop started.")
     while True:
-        now = datetime.now(tz=_TZ)
-        interval = _NORMAL_INTERVAL_SECONDS
+        now = now_cn()
         try:
-            today = now.strftime("%Y-%m-%d")
-            if is_cn_trading_day(today) and _within_trading_window(now):
-                found = await run_one_tick(today)
+            if cn_market_phase(now) == "in_session":
+                found = await run_one_tick(now.strftime("%Y-%m-%d"))
                 if found:
                     boost.trigger(now.timestamp())
                     logger.info("[Intraday] anomaly found, boosting to %ds interval", _BOOST_INTERVAL_SECONDS)
         except Exception as exc:
             # A single bad tick (akshare hiccup, DB blip, etc.) must never kill the loop.
             logger.error("[Intraday] tick failed: %s", exc)
-        interval = boost.current_interval(datetime.now(tz=_TZ).timestamp())
+        interval = boost.current_interval(now_cn().timestamp())
         await asyncio.sleep(interval)
+
+
+async def run_intraday_loop_forever() -> None:
+    """Supervisor: restart intraday_loop with backoff if it ever exits
+    unexpectedly. Real cancellation (process shutdown) is not swallowed."""
+    while True:
+        try:
+            await intraday_loop()
+            logger.error("[Intraday] loop returned unexpectedly, restarting in %ds", _RESTART_BACKOFF_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("[Intraday] loop crashed, restarting in %ds: %s", _RESTART_BACKOFF_SECONDS, exc)
+        await asyncio.sleep(_RESTART_BACKOFF_SECONDS)

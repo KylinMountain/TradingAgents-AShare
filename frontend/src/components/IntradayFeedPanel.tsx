@@ -78,21 +78,26 @@ export default function IntradayFeedPanel() {
 
     useEffect(() => {
         let cancelled = false
+        // Guards against out-of-order responses: if refresh #1 is slow and
+        // resolves after refresh #2 (already applied to state), #1's stale
+        // result must not overwrite #2's fresher one.
+        let latestRequestId = 0
 
         async function load(isRefresh: boolean) {
+            const requestId = ++latestRequestId
             if (isRefresh) setRefreshing(true)
             else setLoading(true)
 
             try {
                 const response = await api.getIntradayFeed()
-                if (cancelled) return
+                if (cancelled || requestId !== latestRequestId) return
                 setSignals(response.items)
                 setError(null)
             } catch (err) {
-                if (cancelled) return
+                if (cancelled || requestId !== latestRequestId) return
                 setError(err instanceof Error ? err.message : '盘中异动加载失败')
             } finally {
-                if (!cancelled) {
+                if (!cancelled && requestId === latestRequestId) {
                     setLoading(false)
                     setRefreshing(false)
                 }

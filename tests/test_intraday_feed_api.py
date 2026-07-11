@@ -78,6 +78,24 @@ def test_intraday_feed_returns_items_newest_first():
     assert ids.index(newer.id) < ids.index(older.id)
 
 
+def test_intraday_feed_created_at_includes_utc_offset():
+    # Regression: IntradaySignalDB.created_at is a plain Column(DateTime),
+    # which silently strips tzinfo on SQLite round-trip. A naive isoformat()
+    # string (no 'Z'/offset) gets parsed as *local* time by the frontend's
+    # `new Date(iso)`, displaying every signal's time 8h off in Beijing.
+    client = _get_client()
+    token = _auth_unique(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    row = _insert_signal(board_name="时区板块")
+
+    r = client.get("/v1/intraday/feed", headers=headers, params={"limit": 1})
+    assert r.status_code == 200
+    created_at = r.json()["items"][0]["created_at"]
+    assert created_at.endswith("+00:00") or created_at.endswith("Z"), created_at
+    assert datetime.fromisoformat(created_at).tzinfo is not None
+
+
 def test_intraday_feed_llm_failed_signal_has_null_fund_source():
     client = _get_client()
     token = _auth_unique(client)

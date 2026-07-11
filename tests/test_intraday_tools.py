@@ -17,6 +17,16 @@ def test_web_search_returns_parsed_results():
     assert out["results"][0]["title"] == "标题A"
 
 
+def test_ddgs_search_passes_explicit_timeout():
+    # Regression: DDGS() used to be constructed with no timeout, relying
+    # entirely on the outer ThreadPoolExecutor timeout (which can't stop an
+    # already-wedged thread). DDGS's own timeout is enforced by its
+    # underlying HTTP client and should be the primary defense.
+    with patch.object(intraday_tools, "DDGS") as mock_ddgs_cls:
+        intraday_tools._ddgs_search("测试查询", 10)
+    mock_ddgs_cls.assert_called_once_with(timeout=intraday_tools._DDGS_REQUEST_TIMEOUT_SECONDS)
+
+
 def test_web_search_times_out_instead_of_hanging():
     def _wedged(query, max_results):
         time.sleep(2)  # simulate DDGS hanging on DNS/TLS failure (bounded so the test itself stays fast)

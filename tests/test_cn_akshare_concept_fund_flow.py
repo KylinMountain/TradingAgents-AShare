@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from tradingagents.dataflows.providers.cn_akshare_provider import CnAkshareProvider
 
@@ -41,7 +42,12 @@ def test_get_concept_fund_flow_df_empty_on_empty_response():
     assert df.empty
 
 
-def test_get_concept_fund_flow_df_empty_on_exception():
+def test_get_concept_fund_flow_df_propagates_exception():
+    # Regression: this used to swallow the exception and return an empty
+    # DataFrame, making a real akshare outage indistinguishable from a
+    # legitimate no-data day for every caller (including the cause-
+    # attribution LLM agent, which could then fabricate a plausible-but-
+    # wrong conclusion instead of reporting the data source is broken).
     class _RaisingClient:
         def stock_fund_flow_concept(self, symbol="即时"):
             raise RuntimeError("boom")
@@ -50,8 +56,8 @@ def test_get_concept_fund_flow_df_empty_on_exception():
         def _ak(self):
             return _RaisingClient()
 
-    df = _RaisingProvider().get_concept_fund_flow_df()
-    assert df.empty
+    with pytest.raises(RuntimeError, match="boom"):
+        _RaisingProvider().get_concept_fund_flow_df()
 
 
 def test_get_concept_fund_flow_formats_sorted_text():
@@ -66,3 +72,18 @@ def test_get_concept_fund_flow_empty_message():
     provider = _StubProvider(pd.DataFrame())
     text = provider.get_concept_fund_flow()
     assert "暂不可用" in text
+
+
+def test_get_concept_fund_flow_surfaces_exception_detail():
+    # The string-returning wrapper must still catch and report the real
+    # error, rather than a generic "no data" message.
+    class _RaisingClient:
+        def stock_fund_flow_concept(self, symbol="即时"):
+            raise RuntimeError("boom")
+
+    class _RaisingProvider(CnAkshareProvider):
+        def _ak(self):
+            return _RaisingClient()
+
+    text = _RaisingProvider().get_concept_fund_flow()
+    assert "RuntimeError" in text
