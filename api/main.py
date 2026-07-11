@@ -2878,6 +2878,13 @@ async def _ai_extract_symbol_and_date_streaming(
         if fast_symbol:
             _log(f"[StockExtract] LLM 未返回 stock_name，使用 regex 兜底: {fast_symbol}")
             return fast_symbol, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        # LLM 挂掉(限流/模型下线/网络)且原文没有代码时，拿原文在本地股票名单里
+        # 搜一次：_search_cn_stock_by_name 支持"名称是输入子串"的匹配，
+        # "分析一下 飞沃科技" 可以不经 LLM 直接命中 301232.SZ
+        local_code = await asyncio.to_thread(_search_cn_stock_by_name, text)
+        if local_code:
+            _log(f"[StockExtract] LLM 失败，本地名单从原文兜底命中: {local_code}")
+            return local_code, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
@@ -2985,6 +2992,11 @@ def _ai_extract_symbol_and_date(
         if fast_symbol:
             _log(f"[StockExtract] LLM 未返回 stock_name，使用 regex 兜底: {fast_symbol}")
             return fast_symbol, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        # LLM 挂掉且原文没有代码时，拿原文在本地股票名单里搜一次（同流式版本）
+        local_code = _search_cn_stock_by_name(text)
+        if local_code:
+            _log(f"[StockExtract] LLM 失败，本地名单从原文兜底命中: {local_code}")
+            return local_code, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         _log(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
