@@ -2206,7 +2206,7 @@ async def _run_job_inner(
         _log(f"Job completed successfully: {job_id}")
         _log(f"[Timer] TOTAL Job execution (single_horizon) took {time.time() - job_start_t:.2f}s")
     except Exception as exc:
-        err_msg = f"{type(exc).__name__}: {exc}"
+        err_msg = _humanize_analysis_error(f"{type(exc).__name__}: {exc}")
         _set_job(
             job_id,
             status="failed",
@@ -2231,6 +2231,35 @@ async def _run_job_inner(
         )
     finally:
         _shared_data_collector.evict(request.symbol, request.trade_date)
+
+
+_ANALYSIS_ERROR_HINTS: List[tuple] = [
+    (r"Insufficient Balance|Error code: 402",
+     "您配置的大模型 API Key 余额不足。请前往模型服务商充值，或在「设置」中更换其他模型。"),
+    (r"DataInspectionFailed|sensitive words detect|data_inspection",
+     "模型服务商的内容安全审查拦截了本次分析输出（A股分析内容偶发误伤）。请重试一次；若频繁出现，建议在「设置」中更换其他模型服务商。"),
+    (r"Error code: 429|too.?many.?requests|throttling|rate.?limit",
+     "模型服务限流（请求过于频繁或额度受限）。请稍后重试，或在「设置」中更换模型。"),
+    (r"Error code: 401|Authorization Failed|invalid.*api.?key|authentication",
+     "模型 API Key 无效或已过期。请在「设置」中检查 API Key 配置并点击「测试」验证。"),
+    (r"Unsupported model|invalid_parameter.*model|model.*not.*(exist|found)",
+     "配置的模型名称不被服务商支持（可能已下线或改名）。请在「设置」中更换模型名称。"),
+    (r"Error code: 5\d\d|overloaded|InternalError|upload file failed",
+     "模型服务端暂时故障。请稍后重试；若持续失败，建议在「设置」中更换模型。"),
+    (r"Connection error|peer closed connection|Request timed out|timed?.?out|ConnectTimeout|Connection refused",
+     "连接模型服务失败（网络波动或服务不可达）。请稍后重试，并确认「设置」中的 Base URL 可以访问。"),
+]
+
+
+def _humanize_analysis_error(err: str) -> str:
+    """把 LLM/网络的原始报错翻译成用户能看懂的提示与建议动作。
+
+    识别不了的错误原样返回；识别出的保留截断后的原始错误便于反馈排查。
+    """
+    for pat, hint in _ANALYSIS_ERROR_HINTS:
+        if re.search(pat, err, re.IGNORECASE):
+            return f"{hint}\n\n（原始错误：{err[:200]}）"
+    return err
 
 
 def _normalize_symbol(raw: str) -> str:
@@ -3119,7 +3148,7 @@ async def chat_completions(
                 await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
             except Exception as exc:
                 _log(f"[chat] _extract_and_run failed: {exc}")
-                _emit_job_event(job_id, "job.failed", {"error": str(exc)})
+                _emit_job_event(job_id, "job.failed", {"error": _humanize_analysis_error(str(exc))})
 
         _create_tracked_task(_extract_and_run())
         return StreamingResponse(
