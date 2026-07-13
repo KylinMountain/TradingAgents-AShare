@@ -52,7 +52,7 @@ def test_recover_stale_active_reports_marks_empty_running_report_failed():
         result = report_service.recover_stale_active_reports(db)
 
         refreshed = db.query(ReportDB).filter(ReportDB.id == report.id).first()
-        assert result == {"total": 1, "completed": 0, "failed": 1}
+        assert result == {"total": 1, "failed": 1}
         assert refreshed is not None
         assert refreshed.status == "failed"
         assert refreshed.error == report_service.STALE_REPORT_ERROR_MESSAGE
@@ -73,7 +73,7 @@ def test_recover_stale_active_reports_marks_partial_running_report_failed():
         result = report_service.recover_stale_active_reports(db)
 
         refreshed = db.query(ReportDB).filter(ReportDB.id == report.id).first()
-        assert result == {"total": 1, "completed": 0, "failed": 1}
+        assert result == {"total": 1, "failed": 1}
         assert refreshed is not None
         assert refreshed.status == "failed"
         assert refreshed.error == report_service.STALE_REPORT_ERROR_MESSAGE
