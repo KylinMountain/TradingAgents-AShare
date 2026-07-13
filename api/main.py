@@ -1570,7 +1570,7 @@ async def _run_job(
     try:
         if _JOB_TIMEOUT > 0:
             done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
-            if inner_task not in done:
+            if inner_task not in done and not inner_task.done():
                 overtime_at = _utcnow_iso()
                 message = f"任务已运行超过 {_JOB_TIMEOUT} 秒，后台仍在继续"
                 _log(f"[Job {job_id}] {message}")

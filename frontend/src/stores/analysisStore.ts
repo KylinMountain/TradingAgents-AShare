@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { reconcilePersistedChatMessages } from '@/utils/chatRecovery'
 import type {
     Agent,
     JobStatus,
@@ -27,7 +28,7 @@ export interface ChatMessage {
     timestamp: string
     agent?: string      // The name of the agent who sent the message
     section?: string    // only for role='report'
-    complete?: boolean  // only for role='report'
+    complete?: boolean  // completed report or agent message
 }
 
 const createInitialChatMessages = (): ChatMessage[] => [
@@ -480,10 +481,14 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobStopLoss: state.jobStopLoss,
         // Filter out transient status indicator messages (e.g. __typing__, __parsing__)
         // so they don't persist across page refreshes
-        chatMessages: state.chatMessages.filter(m => !m.content.startsWith('__')),
+        chatMessages: state.chatMessages.filter(m =>
+            !m.content.startsWith('__') &&
+            !(m.role === 'assistant' && m.agent && !m.complete)
+        ),
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>
+        const restoredChatMessages = reconcilePersistedChatMessages(persisted.chatMessages ?? [])
         return {
             ...currentState,
             ...persisted,
@@ -500,7 +505,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             analysisRunState: 'idle',
             analysisRunError: null,
             analysisOvertimeNotice: null,
-            chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
+            chatMessages: restoredChatMessages.length ? restoredChatMessages : currentState.chatMessages,
         }
     },
 }))

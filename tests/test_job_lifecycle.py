@@ -81,6 +81,34 @@ def test_job_finishing_before_deadline_does_not_emit_overtime():
     assert events == ["job.completed"]
 
 
+def test_completed_task_is_not_overwritten_by_stale_wait_snapshot():
+    store = InMemoryJobStore()
+    events: list[str] = []
+
+    async def fake_inner(job_id, *_args, **_kwargs):
+        main._set_job(job_id, status="completed", error=None, overtime=False)
+        main._emit_job_event(job_id, "job.completed", {"job_id": job_id})
+
+    async def stale_wait_snapshot(tasks, **_kwargs):
+        task = next(iter(tasks))
+        await task
+        return set(), {task}
+
+    async def scenario() -> None:
+        with (
+            patch.object(main, "_job_store_instance", store),
+            patch.object(main, "_JOB_TIMEOUT", 1),
+            patch.object(main, "_run_job_inner", side_effect=fake_inner),
+            patch.object(main.asyncio, "wait", side_effect=stale_wait_snapshot),
+            patch.object(main, "_emit_job_event", side_effect=lambda _j, event, _d: events.append(event)),
+        ):
+            await main._run_job("job-stale-wait", _request())
+
+    asyncio.run(scenario())
+    assert events == ["job.completed"]
+    assert store.get_job("job-stale-wait")["status"] == "completed"
+
+
 def test_zero_timeout_disables_warning_but_still_waits_for_completion():
     store = InMemoryJobStore()
     events: list[str] = []
