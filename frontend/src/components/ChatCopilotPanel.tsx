@@ -9,7 +9,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
-import { classifyRecoveredJobStatus, getJobLifecycleUpdate } from '@/utils/jobLifecycle'
+import {
+    classifyRecoveredJobStatus,
+    DEFAULT_OVERTIME_NOTICE,
+    getJobLifecycleUpdate,
+    hasRecoveryPollingReachedLimit,
+    RECOVERY_POLL_TIMEOUT_MESSAGE,
+} from '@/utils/jobLifecycle'
 import type {
     AgentReportEvent,
     AgentSnapshotEvent,
@@ -207,6 +213,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const recoverInterruptedJob = async (signal: AbortSignal) => {
         const { currentJobId } = useAnalysisStore.getState()
         if (!currentJobId) return false
+        let recoveryPollAttempts = 0
 
         pushSystem(`分析流中断，正在回查任务状态：${currentJobId}`)
         setIsConnected(false)
@@ -214,6 +221,15 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         setAnalysisRunState('running')
 
         while (!signal.aborted) {
+            if (hasRecoveryPollingReachedLimit(recoveryPollAttempts)) {
+                pushAssistant(RECOVERY_POLL_TIMEOUT_MESSAGE)
+                setCurrentHorizon(null)
+                setIsAnalyzing(false)
+                setAnalysisRunState('failed', RECOVERY_POLL_TIMEOUT_MESSAGE)
+                return true
+            }
+            recoveryPollAttempts += 1
+
             try {
                 const status = await api.getJobStatus(currentJobId)
                 if (signal.aborted) return false
@@ -268,11 +284,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 }
 
                 if (status.overtime || status.status === 'failed') {
-                    setAnalysisOvertimeNotice(
-                        status.overtime
-                            ? '分析耗时较长，后台仍在继续，正在等待最终结果。'
-                            : '分析已超过旧版服务的时间阈值，但后台仍在继续，正在等待最终结果。',
-                    )
+                    setAnalysisOvertimeNotice(DEFAULT_OVERTIME_NOTICE)
                 }
             } catch (error) {
                 if (signal.aborted) return false
@@ -734,6 +746,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 const recovered = await recoverInterruptedJob(recoveryController.signal)
                 if (!recovered) {
                     if (!recoveryController.signal.aborted) {
+                        setIsAnalyzing(false)
                         setAnalysisRunState('failed', errorMessage)
                         pushAssistant(`请求中断：${errorMessage}\n\n后端任务可能仍在执行，请稍后到历史报告中查看结果。`)
                     }

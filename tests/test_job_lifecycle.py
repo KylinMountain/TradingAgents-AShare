@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from unittest.mock import patch
 
 from api.job_store import InMemoryJobStore
@@ -39,6 +40,7 @@ def test_soft_timeout_emits_overtime_then_allows_completion():
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 0.01),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 1),
             patch.object(main, "_run_job_inner", side_effect=fake_inner),
             patch.object(main, "_emit_job_event", side_effect=capture_event),
         ):
@@ -57,7 +59,8 @@ def test_soft_timeout_emits_overtime_then_allows_completion():
     assert job["status"] == "completed"
     assert job["error"] is None
     assert job["overtime"] is False
-    assert events[0][1]["elapsed_seconds"] == 0.01
+    assert events[0][1]["elapsed_seconds"] >= 0.01
+    assert events[0][1]["soft_timeout_seconds"] == 0.01
 
 
 def test_job_finishing_before_deadline_does_not_emit_overtime():
@@ -72,6 +75,7 @@ def test_job_finishing_before_deadline_does_not_emit_overtime():
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 1),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 2),
             patch.object(main, "_run_job_inner", side_effect=fake_inner),
             patch.object(main, "_emit_job_event", side_effect=lambda _j, event, _d: events.append(event)),
         ):
@@ -95,9 +99,12 @@ def test_completed_task_is_not_overwritten_by_stale_wait_snapshot():
         return set(), {task}
 
     async def scenario() -> None:
+        # main.asyncio is the process-wide asyncio module.  This patch is
+        # intentionally scoped to the context so it cannot leak to other tests.
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 1),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 2),
             patch.object(main, "_run_job_inner", side_effect=fake_inner),
             patch.object(main.asyncio, "wait", side_effect=stale_wait_snapshot),
             patch.object(main, "_emit_job_event", side_effect=lambda _j, event, _d: events.append(event)),
@@ -122,6 +129,7 @@ def test_zero_timeout_disables_warning_but_still_waits_for_completion():
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 0),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 1),
             patch.object(main, "_run_job_inner", side_effect=fake_inner),
             patch.object(main, "_emit_job_event", side_effect=lambda _j, event, _d: events.append(event)),
         ):
@@ -147,6 +155,7 @@ def test_unexpected_inner_exception_marks_job_failed():
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 1),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 2),
             patch.object(main, "_run_job_inner", side_effect=failing_inner),
             patch.object(main, "_emit_job_event", side_effect=capture_event),
             patch.object(main, "get_db_ctx", side_effect=RuntimeError("db disabled")),
@@ -174,6 +183,7 @@ def test_overtime_job_that_later_raises_finishes_as_failed():
         with (
             patch.object(main, "_job_store_instance", store),
             patch.object(main, "_JOB_TIMEOUT", 0.01),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 1),
             patch.object(main, "_run_job_inner", side_effect=failing_inner),
             patch.object(main, "_emit_job_event", side_effect=lambda _j, event, _d: events.append(event)),
             patch.object(main, "get_db_ctx", side_effect=RuntimeError("db disabled")),
@@ -187,6 +197,43 @@ def test_overtime_job_that_later_raises_finishes_as_failed():
     assert job["error"] == "RuntimeError: late failure"
     assert job["overtime"] is False
     assert job["overtime_at"] is None
+
+
+def test_hard_timeout_releases_wrapper_and_ignores_late_thread_result():
+    store = InMemoryJobStore()
+    events: list[tuple[str, dict]] = []
+    release_thread = threading.Event()
+
+    async def blocked_inner(job_id, *_args, **_kwargs):
+        await asyncio.to_thread(release_thread.wait)
+        main._set_job(job_id, status="completed", error=None, overtime=False)
+        main._emit_job_event(job_id, "job.completed", {"job_id": job_id})
+
+    async def scenario() -> None:
+        with (
+            patch.object(main, "_job_store_instance", store),
+            patch.object(main, "_JOB_TIMEOUT", 0.01),
+            patch.object(main, "_JOB_HARD_TIMEOUT", 0.03),
+            patch.object(main, "_run_job_inner", side_effect=blocked_inner),
+            patch.object(main, "_emit_job_event", side_effect=lambda _j, event, data: events.append((event, data))),
+            patch.object(main, "get_db_ctx", side_effect=RuntimeError("db disabled")),
+        ):
+            await main._run_job("job-hard-timeout", _request())
+            assert store.get_job("job-hard-timeout")["status"] == "failed"
+            release_thread.set()
+            await asyncio.sleep(0.02)
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release_thread.set()
+
+    job = store.get_job("job-hard-timeout")
+    assert [event for event, _ in events] == ["job.overtime", "job.failed"]
+    assert job["status"] == "failed"
+    assert "硬性运行上限" in job["error"]
+    assert job["overtime"] is False
+    assert events[-1][1]["hard_timeout_seconds"] == 0.03
 
 
 def test_report_save_failure_is_raised_to_the_job_failure_boundary():

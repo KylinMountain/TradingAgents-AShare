@@ -479,11 +479,11 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobConfidence: state.jobConfidence,
         jobTargetPrice: state.jobTargetPrice,
         jobStopLoss: state.jobStopLoss,
-        // Filter out transient status indicator messages (e.g. __typing__, __parsing__)
-        // so they don't persist across page refreshes
-        chatMessages: state.chatMessages.filter(m =>
-            !m.content.startsWith('__') &&
-            !(m.role === 'assistant' && m.agent && !m.complete)
+        // Drop transient indicators and pure agent placeholders.  Preserve any
+        // partial agent content, but mark it complete so hydration cannot show
+        // a stale "still writing" state.
+        chatMessages: reconcilePersistedChatMessages(
+            state.chatMessages.filter(m => !m.content.startsWith('__')),
         ),
     }),
     merge: (persistedState, currentState) => {

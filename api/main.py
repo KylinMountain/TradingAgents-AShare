@@ -347,9 +347,13 @@ def _utcnow_iso() -> str:
 
 # Soft deadline for long-running analyses.  This keeps the historical
 # TA_JOB_TIMEOUT setting API-compatible, but crossing it is now an overtime
-# notification rather than a terminal failure: the actual workflow continues
-# until it completes or raises a real exception.
+# notification rather than a terminal failure.  TA_JOB_HARD_TIMEOUT is the
+# resource-safety backstop that releases scheduler capacity if a workflow is
+# genuinely wedged.  Set either value to 0 to disable that deadline.
 _JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "1800"))
+_JOB_HARD_TIMEOUT = int(os.getenv("TA_JOB_HARD_TIMEOUT", "7200"))
+
+
 def _create_tracked_task(coro, *, label: str = "Background task") -> asyncio.Task:
     """Create an asyncio task and keep a reference to prevent GC.
     Also logs unhandled exceptions via a done callback."""
@@ -1562,35 +1566,93 @@ async def _run_job(
     request_source: str = "api",
 ) -> None:
     # Keep the workflow in its own task so crossing the soft deadline does not
-    # cancel to_thread work.  TA_JOB_TIMEOUT is intentionally a warning only;
-    # the wrapper remains attached and awaits the real terminal outcome.
+    # cancel to_thread work.  The hard deadline cancels the coroutine and
+    # releases its caller/scheduler slot.  A sync function already submitted by
+    # asyncio.to_thread may finish later, but cancellation prevents the
+    # coroutine from resuming into report or terminal-state writes.
+    started_monotonic = time.monotonic()
     inner_task = asyncio.create_task(
         _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
     )
     try:
         if _JOB_TIMEOUT > 0:
-            done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
+            soft_wait_seconds = _JOB_TIMEOUT
+            if _JOB_HARD_TIMEOUT > 0:
+                soft_wait_seconds = min(soft_wait_seconds, _JOB_HARD_TIMEOUT)
+            done, _ = await asyncio.wait({inner_task}, timeout=soft_wait_seconds)
             if inner_task not in done and not inner_task.done():
-                overtime_at = _utcnow_iso()
-                message = f"任务已运行超过 {_JOB_TIMEOUT} 秒，后台仍在继续"
-                _log(f"[Job {job_id}] {message}")
+                # When the configured hard limit is no greater than the soft
+                # limit, skip the misleading overtime notice and fall through
+                # to the terminal hard-limit handling below.
+                if _JOB_HARD_TIMEOUT <= 0 or _JOB_TIMEOUT < _JOB_HARD_TIMEOUT:
+                    overtime_at = _utcnow_iso()
+                    elapsed_seconds = time.monotonic() - started_monotonic
+                    message = (
+                        f"分析耗时较长（已超过 {_JOB_TIMEOUT} 秒），后台仍在继续，"
+                        "正在等待最终结果，请勿重复提交。"
+                    )
+                    _log(f"[Job {job_id}] {message}")
+                    _set_job(
+                        job_id,
+                        status="running",
+                        overtime=True,
+                        overtime_at=overtime_at,
+                        error=None,
+                    )
+                    _emit_job_event(
+                        job_id,
+                        "job.overtime",
+                        {
+                            "job_id": job_id,
+                            "elapsed_seconds": elapsed_seconds,
+                            "soft_timeout_seconds": _JOB_TIMEOUT,
+                            "overtime_at": overtime_at,
+                            "message": message,
+                        },
+                    )
+
+        if _JOB_HARD_TIMEOUT > 0 and not inner_task.done():
+            remaining_seconds = max(
+                0.0,
+                _JOB_HARD_TIMEOUT - (time.monotonic() - started_monotonic),
+            )
+            done, _ = await asyncio.wait({inner_task}, timeout=remaining_seconds)
+            if inner_task not in done and not inner_task.done() and inner_task.cancel():
+                try:
+                    await inner_task
+                except asyncio.CancelledError:
+                    pass
+
+                elapsed_seconds = time.monotonic() - started_monotonic
+                err_msg = (
+                    f"任务达到硬性运行上限（{_JOB_HARD_TIMEOUT} 秒），已终止。"
+                    "请检查模型或数据源的请求超时配置后重试。"
+                )
+                _log(f"[Job {job_id}] {err_msg}")
                 _set_job(
                     job_id,
-                    status="running",
-                    overtime=True,
-                    overtime_at=overtime_at,
-                    error=None,
+                    status="failed",
+                    error=err_msg,
+                    overtime=False,
+                    overtime_at=None,
+                    finished_at=_utcnow_iso(),
                 )
+                try:
+                    with get_db_ctx() as db:
+                        report_service.mark_report_failed(db, job_id, err_msg)
+                except Exception:
+                    pass
                 _emit_job_event(
                     job_id,
-                    "job.overtime",
+                    "job.failed",
                     {
                         "job_id": job_id,
-                        "elapsed_seconds": _JOB_TIMEOUT,
-                        "overtime_at": overtime_at,
-                        "message": message,
+                        "error": err_msg,
+                        "elapsed_seconds": elapsed_seconds,
+                        "hard_timeout_seconds": _JOB_HARD_TIMEOUT,
                     },
                 )
+                return
 
         await inner_task
     except asyncio.CancelledError:

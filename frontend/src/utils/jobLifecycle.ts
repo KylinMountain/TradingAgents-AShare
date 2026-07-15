@@ -8,7 +8,16 @@ export interface JobLifecycleUpdate {
 
 export type RecoveredJobDisposition = 'running' | 'completed' | 'failed'
 
-const DEFAULT_OVERTIME_NOTICE = '分析耗时较长，后台仍在继续，请勿重复提交。'
+export const DEFAULT_OVERTIME_NOTICE = '分析耗时较长，后台仍在继续，正在等待最终结果，请勿重复提交。'
+export const RECOVERY_POLL_MAX_ATTEMPTS = 2 * 60 * 60 / 3
+export const RECOVERY_POLL_TIMEOUT_MESSAGE = '已停止等待任务状态。后端任务可能仍在处理，请稍后到历史报告查看最终结果。'
+
+export function hasRecoveryPollingReachedLimit(
+    attempts: number,
+    maxAttempts: number = RECOVERY_POLL_MAX_ATTEMPTS,
+): boolean {
+    return attempts >= maxAttempts
+}
 
 export function getJobLifecycleUpdate(
     eventName: string,

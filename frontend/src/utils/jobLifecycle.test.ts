@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyRecoveredJobStatus, getJobLifecycleUpdate } from '@/utils/jobLifecycle'
+import {
+    classifyRecoveredJobStatus,
+    getJobLifecycleUpdate,
+    hasRecoveryPollingReachedLimit,
+    RECOVERY_POLL_MAX_ATTEMPTS,
+} from '@/utils/jobLifecycle'
 
 describe('getJobLifecycleUpdate', () => {
     it('treats overtime as a non-terminal running state', () => {
         expect(getJobLifecycleUpdate('job.overtime')).toEqual({
             isAnalyzing: true,
             runState: 'running',
-            overtimeNotice: '分析耗时较长，后台仍在继续，请勿重复提交。',
+            overtimeNotice: '分析耗时较长，后台仍在继续，正在等待最终结果，请勿重复提交。',
         })
     })
 
@@ -31,6 +36,13 @@ describe('getJobLifecycleUpdate', () => {
 
     it('keeps compatibility with unrelated events from older backends', () => {
         expect(getJobLifecycleUpdate('agent.status', { status: 'in_progress' })).toBeNull()
+    })
+})
+
+describe('hasRecoveryPollingReachedLimit', () => {
+    it('stops recovery polling after two hours of three-second retries', () => {
+        expect(hasRecoveryPollingReachedLimit(RECOVERY_POLL_MAX_ATTEMPTS - 1)).toBe(false)
+        expect(hasRecoveryPollingReachedLimit(RECOVERY_POLL_MAX_ATTEMPTS)).toBe(true)
     })
 })
 

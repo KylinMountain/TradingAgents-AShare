@@ -2,7 +2,11 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import type { AnalysisReport, RiskItem, KeyMetric } from '@/types'
 import { getBaseUrl } from '@/services/api'
-import { classifyRecoveredJobStatus, getJobLifecycleUpdate } from '@/utils/jobLifecycle'
+import {
+    classifyRecoveredJobStatus,
+    DEFAULT_OVERTIME_NOTICE,
+    getJobLifecycleUpdate,
+} from '@/utils/jobLifecycle'
 
 export function useSSE(jobId: string | null) {
     const eventSourceRef = useRef<EventSource | null>(null)
@@ -83,7 +87,7 @@ export function useSSE(jobId: string | null) {
                         id: Date.now().toString(),
                         timestamp: new Date().toISOString(),
                         type: 'system',
-                        content: 'Analysis is taking longer than expected and is still running'
+                        content: lifecycleUpdate?.overtimeNotice || DEFAULT_OVERTIME_NOTICE
                     })
                     break
 
@@ -116,7 +120,7 @@ export function useSSE(jobId: string | null) {
                             id: Date.now().toString(),
                             timestamp: new Date().toISOString(),
                             type: 'system',
-                            content: 'Legacy timeout received; analysis may still be running'
+                            content: DEFAULT_OVERTIME_NOTICE
                         })
                         break
                     }
