@@ -6,9 +6,14 @@ in-process, reports persist to the shared SQLite database).
 
 To run only one process, override the container command, e.g.:
     docker run ... <image> uv run --no-sync tradingagents-api
+
+Set TA_DISABLE_SCHEDULER=1 to skip the scheduler in this container.  Use
+that when the scheduler is deployed separately — running two scheduler
+instances against the same database can trigger duplicate analyses.
 """
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
@@ -17,6 +22,8 @@ from pathlib import Path
 from typing import Sequence
 
 ENTRYPOINTS = ("tradingagents-api", "tradingagents-scheduler")
+
+_TRUTHY = {"1", "true", "yes", "on"}
 
 # uv sync installs the project into /app/.venv; calling the venv binaries
 # directly keeps signals and exit codes on the real server process.  Fall
@@ -61,8 +68,14 @@ def supervise(commands: Sequence[Sequence[str]]) -> int:
     return exit_code
 
 
+def _enabled_entrypoints() -> list[str]:
+    if os.getenv("TA_DISABLE_SCHEDULER", "").strip().lower() in _TRUTHY:
+        return [ENTRYPOINTS[0]]
+    return list(ENTRYPOINTS)
+
+
 def main() -> int:
-    return supervise([_resolve(name) for name in ENTRYPOINTS])
+    return supervise([_resolve(name) for name in _enabled_entrypoints()])
 
 
 if __name__ == "__main__":
