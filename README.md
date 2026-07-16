@@ -130,6 +130,18 @@ docker run -d -p 8000:8000 \
 
 访问 `http://localhost:8000` 即可使用。
 
+镜像默认在同一容器内同时启动 API 服务与定时任务调度器：配置的定时分析会按触发时间自动执行，无需 Redis 等额外组件（任务状态在进程内维护，报告落库到共享的 SQLite）。如只需 API 进程（例如想自行单独运行调度器），覆盖启动命令即可：
+
+```bash
+docker run -d -p 8000:8000 \
+  --name tradingagents \
+  -v $(pwd)/data:/app/data \
+  -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
+  -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
+  ghcr.io/kylinmountain/tradingagents-ashare:latest \
+  uv run --no-sync tradingagents-api
+```
+
 > **`TA_APP_SECRET_KEY`**：用于加密用户 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且不可更改。
 
 > **LLM 配置**：启动后在前端"设置"页面配置模型厂商、API Key 和模型名称即可，无需环境变量预设。

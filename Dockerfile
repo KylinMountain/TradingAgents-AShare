@@ -26,6 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY api/ ./api/
 COPY tradingagents/ ./tradingagents/
 COPY scheduler/ ./scheduler/
+COPY docker-entrypoint.py ./docker-entrypoint.py
 
 # 安装项目本身，避免 uv run 启动时重复安装
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -45,5 +46,6 @@ ENV APP_VERSION=${VERSION}
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# 启动命令
-CMD ["uv", "run", "--no-sync", "tradingagents-api"]
+# 启动命令（同一容器内运行 API 服务与定时任务调度器；
+# 只跑单进程时可覆盖命令，如 uv run --no-sync tradingagents-api）
+CMD ["/app/docker-entrypoint.py"]
