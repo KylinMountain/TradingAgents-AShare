@@ -4,12 +4,15 @@ in a single container, so scheduled analyses trigger out of the box
 without extra services (no Redis required — the job store stays
 in-process, reports persist to the shared SQLite database).
 
-To run only one process, override the container command, e.g.:
-    docker run ... <image> uv run --no-sync tradingagents-api
+For split deployments, each container selects its role with an env var:
+    TA_DISABLE_SCHEDULER=1  -> only the API server
+    TA_DISABLE_API=1        -> only the scheduler
+Never run two scheduler instances against the same database — that can
+trigger duplicate analyses.  Setting both vars is a misconfiguration and
+exits non-zero without starting anything.
 
-Set TA_DISABLE_SCHEDULER=1 to skip the scheduler in this container.  Use
-that when the scheduler is deployed separately — running two scheduler
-instances against the same database can trigger duplicate analyses.
+To run only one process without env vars, override the container command:
+    docker run ... <image> uv run --no-sync tradingagents-api
 """
 from __future__ import annotations
 
@@ -21,7 +24,10 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-ENTRYPOINTS = ("tradingagents-api", "tradingagents-scheduler")
+_ENTRYPOINTS = (
+    ("tradingagents-api", "TA_DISABLE_API"),
+    ("tradingagents-scheduler", "TA_DISABLE_SCHEDULER"),
+)
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -69,13 +75,22 @@ def supervise(commands: Sequence[Sequence[str]]) -> int:
 
 
 def _enabled_entrypoints() -> list[str]:
-    if os.getenv("TA_DISABLE_SCHEDULER", "").strip().lower() in _TRUTHY:
-        return [ENTRYPOINTS[0]]
-    return list(ENTRYPOINTS)
+    return [
+        name
+        for name, disable_env in _ENTRYPOINTS
+        if os.getenv(disable_env, "").strip().lower() not in _TRUTHY
+    ]
 
 
 def main() -> int:
-    return supervise([_resolve(name) for name in _enabled_entrypoints()])
+    commands = [_resolve(name) for name in _enabled_entrypoints()]
+    if not commands:
+        print(
+            "TA_DISABLE_API and TA_DISABLE_SCHEDULER are both set; nothing to run.",
+            file=sys.stderr,
+        )
+        return 2
+    return supervise(commands)
 
 
 if __name__ == "__main__":
