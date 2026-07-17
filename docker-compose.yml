@@ -1,0 +1,28 @@
+# 单体一键部署：API 与定时任务调度器同容器运行，无需 Redis。
+#
+# 用法：
+#   export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+#   docker compose up -d
+#
+# TA_APP_SECRET_KEY 也可以写入当前目录的 .env 文件（compose 会自动读取）。
+# 分开部署（API/调度器/Redis 各自一个容器）请使用 docker-compose.split.yml。
+
+services:
+  app:
+    image: ghcr.io/kylinmountain/tradingagents-ashare:latest
+    # 从源码构建镜像时：注释掉上面的 image，改用下行
+    # build: .
+    container_name: tradingagents
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      DATABASE_URL: sqlite:///./data/tradingagents.db
+      TA_APP_SECRET_KEY: ${TA_APP_SECRET_KEY:?请先设置 TA_APP_SECRET_KEY，如 export TA_APP_SECRET_KEY=$(openssl rand -base64 32)}
+      # 常用可选变量（取消注释并填值；完整清单见 guide/configuration.md）：
+      # TA_API_KEY: "你的 LLM API Key"
+      # TA_BASE_URL: "https://api.openai.com/v1"
+      # TA_LLM_PROVIDER: "openai"
+      # MAIL_HOST: "smtp.gmail.com"

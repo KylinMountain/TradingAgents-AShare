@@ -6,6 +6,17 @@
 
 镜像默认在同一容器内同时启动 **API 服务**与**定时任务调度器**：配置的定时分析会按触发时间自动执行，无需 Redis 等额外组件（任务状态在进程内维护，报告落库到 SQLite）。
 
+**Docker Compose（推荐）**：仓库根目录的 `docker-compose.yml` 一条命令即可启动：
+
+```bash
+export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+docker compose up -d
+```
+
+也可以不克隆仓库，只下载 compose 文件：`curl -O https://raw.githubusercontent.com/KylinMountain/TradingAgents-AShare/main/docker-compose.yml`
+
+**docker run（备选）**：
+
 ```bash
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 
@@ -36,6 +47,15 @@ docker run -d -p 8000:8000 \
 | API 容器 | `TA_DISABLE_SCHEDULER=1` | 只启动 API |
 | 调度器容器 | `TA_DISABLE_API=1` | 只启动调度器 |
 
+**Docker Compose（推荐）**：仓库根目录的 `docker-compose.split.yml` 一条命令启动 API、调度器与 Redis 三个容器：
+
+```bash
+export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+docker compose -f docker-compose.split.yml up -d
+```
+
+**docker run（备选，手动起两个容器）**：
+
 ```bash
 # API 容器
 docker run -d -p 8000:8000 \
@@ -62,7 +82,7 @@ docker run -d \
 
 - **同一数据库不要同时运行多个调度器实例**，否则定时任务可能重复触发（两个开关同设会被视为误配置，容器入口直接报错退出）。
 - 两个容器必须挂载**同一个数据目录**并使用**相同的数据库与密钥配置**。
-- 如希望 API 与调度器共享任务状态（调度任务的 SSE 实时进度能在 API 侧看到），在所有容器上配置相同的 `REDIS_URL`（如 `redis://redis-host:6379/0`）；不配置则各容器使用进程内状态，报告仍通过共享数据库落库，不影响最终结果。
+- 如希望 API 与调度器共享任务状态（调度任务的 SSE 实时进度能在 API 侧看到），在所有容器上配置相同的 `REDIS_URL`（`docker-compose.split.yml` 已预置 `redis://redis:6379/0`）；不配置则各容器使用进程内状态，报告仍通过共享数据库落库，不影响最终结果。
 - 调度器并发数由 `SCHEDULER_CONCURRENCY`（默认 3）控制；长任务的软/硬超时见 `TA_JOB_TIMEOUT` / `TA_JOB_HARD_TIMEOUT`。
 
 ## 从旧版镜像升级
@@ -75,13 +95,20 @@ docker run -d \
 ## 常用运维操作
 
 ```bash
+# Compose 部署：查看服务状态与日志
+docker compose ps
+docker compose logs -f
+
 # 查看容器内进程（确认角色是否符合预期）
 docker exec tradingagents ps aux
 
 # 查看日志
 docker logs -f tradingagents
 
-# 升级镜像
+# 升级镜像（Compose）
+docker compose pull && docker compose up -d
+
+# 升级镜像（docker run）
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 docker stop tradingagents && docker rm tradingagents
 # 按上面的命令重新 docker run（数据在挂载目录中，不受影响）

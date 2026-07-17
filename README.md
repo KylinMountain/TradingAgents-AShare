@@ -114,6 +114,22 @@ $env:TA_APP_SECRET_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { Get
 
 ### Docker 一键部署 (推荐)
 
+**方式一：Docker Compose（推荐）**
+
+```bash
+# 克隆仓库（也可以只下载 compose 文件：
+#   curl -O https://raw.githubusercontent.com/KylinMountain/TradingAgents-AShare/main/docker-compose.yml）
+git clone https://github.com/KylinMountain/TradingAgents-AShare.git
+cd TradingAgents-AShare
+
+export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+docker compose up -d
+```
+
+镜像默认在同一容器内同时启动 API 服务与定时任务调度器，定时分析开箱即用，无需 Redis 等额外组件。如需分开部署（API/调度器/Redis 各自一个容器），使用 `docker-compose.split.yml`，详见 [guide/deployment.md](guide/deployment.md)。
+
+**方式二：docker run**
+
 ```bash
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 
@@ -129,22 +145,6 @@ docker run -d -p 8000:8000 \
 ```
 
 访问 `http://localhost:8000` 即可使用。
-
-镜像默认在同一容器内同时启动 API 服务与定时任务调度器：配置的定时分析会按触发时间自动执行，无需 Redis 等额外组件（任务状态在进程内维护，报告落库到共享的 SQLite）。
-
-如果你把调度器分开部署（例如 API 与调度器各跑一个容器），用环境变量为每个容器选择角色：API 容器设置 `-e TA_DISABLE_SCHEDULER=1`，调度器容器设置 `-e TA_DISABLE_API=1`。**注意：同一数据库不要同时运行多个调度器实例，否则定时任务可能重复执行。**分开部署时如希望 API 与调度器共享任务状态（调度任务的 SSE 实时进度能在 API 侧看到），可在所有容器上配置相同的 `-e REDIS_URL=redis://...`；不配置则各容器使用进程内状态，报告仍通过共享 SQLite 落库，不影响最终结果。
-
-也可以直接覆盖启动命令来只跑单进程：
-
-```bash
-docker run -d -p 8000:8000 \
-  --name tradingagents \
-  -v $(pwd)/data:/app/data \
-  -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
-  -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
-  ghcr.io/kylinmountain/tradingagents-ashare:latest \
-  uv run --no-sync tradingagents-api
-```
 
 > **`TA_APP_SECRET_KEY`**：用于加密用户 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且不可更改。
 
