@@ -113,3 +113,5 @@ docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 docker stop tradingagents && docker rm tradingagents
 # 按上面的命令重新 docker run（数据在挂载目录中，不受影响）
 ```
+
+> **分开部署注意**：以上所有 compose 命令默认读写 `docker-compose.yml`（单体）。按拓扑 B 部署的用户必须给每条命令加 `-f docker-compose.split.yml`（如 `docker compose -f docker-compose.split.yml pull && docker compose -f docker-compose.split.yml up -d`），否则会在同一数据目录上额外拉起一个带调度器的单体容器，导致定时任务重复触发。

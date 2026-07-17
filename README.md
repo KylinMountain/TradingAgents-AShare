@@ -138,6 +138,7 @@ export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
 
 docker run -d -p 8000:8000 \
   --name tradingagents \
+  --restart always \
   -v $(pwd)/data:/app/data \
   -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
   -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \

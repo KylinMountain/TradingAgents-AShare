@@ -72,12 +72,12 @@
 |------|--------|------|
 | `DATABASE_URL` | `sqlite:///./tradingagents.db` | SQLAlchemy 数据库地址。Docker 部署建议 `sqlite:///./data/tradingagents.db` 并挂载 `/app/data` |
 | `REDIS_URL` | （空） | 如 `redis://host:6379/0`。设置后任务状态/SSE 事件走 Redis（多进程共享）；不设置为进程内内存态 |
-| `UPLOAD_DIR` | 项目根 `uploads/` | 上传文件（头像等）目录 |
+| `UPLOAD_DIR` | 项目根 `uploads/`（容器内 `/app/uploads`） | 上传文件（头像等）目录。注意不在挂载的 `/app/data` 下，容器重建后头像会丢失；需要持久化时设为 `/app/data/uploads` |
 | `TA_RESULTS_DIR` | `./results` | 分析中间产物目录 |
 
 ## 邮件服务（SMTP）
 
-用于邮箱验证码登录与分析报告邮件推送。不配置 `MAIL_HOST` 则邮件功能整体关闭（开发环境下验证码会打印到后端日志）。
+用于邮箱验证码登录与分析报告邮件推送。不配置 `MAIL_HOST` 则邮件功能整体关闭：登录验证码打印到后端日志，非生产环境（`APP_ENV≠production`）下还会直接返回给前端展示。
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -85,8 +85,8 @@
 | `MAIL_PORT` | `587` | SMTP 端口。别名：`SMTP_PORT` |
 | `MAIL_USER` | （空） | SMTP 账号。别名：`MAIL_USERNAME`、`SMTP_USER` |
 | `MAIL_PASS` | （空） | SMTP 授权码/密码。别名：`MAIL_PASSWORD`、`SMTP_PASSWORD` |
-| `MAIL_FROM` | 同 `MAIL_USER` | 发件人地址/名称。别名：`SMTP_FROM` |
-| `MAIL_STARTTLS` | `1` | 使用 STARTTLS（587 端口常用）。别名：`SMTP_TLS` |
+| `MAIL_FROM` | 同 `MAIL_USER`（为空则 `noreply@example.com`） | 发件人地址/名称。别名：`SMTP_FROM` |
+| `MAIL_STARTTLS` | `1` | 使用 STARTTLS（587 端口常用）。别名：`SMTP_TLS`。注意为反向解析：仅 `0/false/off/no` 为关 |
 | `MAIL_SSL` | `0` | 使用 SSL/TLS 直连（465 端口常用，与 STARTTLS 二选一）。别名：`MAIL_SSL_TLS` |
 
 ## VLM 截图识别（持仓截图）
@@ -97,7 +97,7 @@
 | `TA_VLM_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | 视觉模型 Base URL（OpenAI 兼容） |
 | `TA_VLM_MODEL` | `glm-4.6v-flash` | 视觉模型名（默认智谱免费模型） |
 | `TA_VLM_PROVIDER` | `openai` | `openai` / `anthropic` |
-| `TA_VLM_RAW_BASE64` | `1` | `1` 发送裸 base64；`0` 发送 `data:` URI 前缀（按服务商要求切换） |
+| `TA_VLM_RAW_BASE64` | `1` | `1/true/yes` 发送裸 base64；其他值发送 `data:` URI 前缀（按服务商要求切换；注意此变量不认 `on`） |
 
 ## 数据源
 
@@ -127,5 +127,5 @@
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `TA_MAX_WORKERS` | `2` | API 进程内预留的小型线程池（当前代码基本未使用），无需调整 |
 | `ENV` | （空） | 设为 `prod` 时关闭 `/docs`、`/redoc`、`/openapi.json` |
-| `APP_ENV` | `development` | 设为 `production` 时不再把登录验证码打印到日志 |
+| `APP_ENV` | `development` | 设为 `production` 时，未配置 SMTP 的登录验证码不再返回给前端展示（仍会打印到后端日志） |
 | `APP_VERSION` | 镜像构建注入 | 版本号，一般由 CI 通过 `--build-arg VERSION=` 设置 |
