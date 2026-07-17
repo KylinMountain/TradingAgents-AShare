@@ -84,8 +84,8 @@ def test_case_e_not_masked_by_case_c_when_net_inflow_is_large():
 
 
 def test_zt_pool_concentration_threshold():
-    below = pd.DataFrame([{"code": i} for i in range(30)])
-    above = pd.DataFrame([{"code": i} for i in range(31)])
+    below = pd.DataFrame([{"code": i} for i in range(80)])
+    above = pd.DataFrame([{"code": i} for i in range(81)])
     assert detect_zt_pool_concentration(below) is False
     assert detect_zt_pool_concentration(above) is True
     assert detect_zt_pool_concentration(pd.DataFrame()) is False

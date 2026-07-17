@@ -68,8 +68,8 @@ def test_intraday_feed_returns_items_newest_first():
     headers = {"Authorization": f"Bearer {token}"}
 
     now = datetime.now(timezone.utc)
-    older = _insert_signal(board_name="旧板块", created_at=now - timedelta(minutes=10))
-    newer = _insert_signal(board_name="新板块", created_at=now)
+    older = _insert_signal(board_name=f"旧板块-{uuid4().hex[:6]}", created_at=now - timedelta(minutes=10))
+    newer = _insert_signal(board_name=f"新板块-{uuid4().hex[:6]}", created_at=now)
 
     r = client.get("/v1/intraday/feed", headers=headers)
     assert r.status_code == 200
@@ -87,7 +87,7 @@ def test_intraday_feed_created_at_includes_utc_offset():
     token = _auth_unique(client)
     headers = {"Authorization": f"Bearer {token}"}
 
-    row = _insert_signal(board_name="时区板块")
+    row = _insert_signal(board_name=f"时区板块-{uuid4().hex[:6]}")
 
     r = client.get("/v1/intraday/feed", headers=headers, params={"limit": 1})
     assert r.status_code == 200
@@ -102,7 +102,7 @@ def test_intraday_feed_llm_failed_signal_has_null_fund_source():
     headers = {"Authorization": f"Bearer {token}"}
 
     row = _insert_signal(
-        board_name="降级板块", fund_source=None, judgement=None, llm_failed=True, cause_summary="仅原始异动"
+        board_name=f"降级板块-{uuid4().hex[:6]}", fund_source=None, judgement=None, llm_failed=True, cause_summary="仅原始异动"
     )
 
     r = client.get("/v1/intraday/feed", headers=headers, params={"limit": 1})

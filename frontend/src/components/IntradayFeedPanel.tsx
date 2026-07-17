@@ -9,10 +9,10 @@ const REFRESH_INTERVAL_SECONDS = 25
 type CaseTone = 'emerald' | 'rose' | 'amber'
 
 const CASE_TONE: Record<IntradaySignal['anomaly_case'], CaseTone> = {
-    A: 'emerald', // 涨 + 大资金流入：量价确认
+    A: 'rose',    // 涨 + 大资金流入：量价确认(红涨)
     B: 'amber',   // 涨 + 资金流出：量价背离，警惕出货
-    C: 'emerald', // 不涨但资金流入：暗中吸筹
-    D: 'rose',    // 跌 + 大资金流出：真下杀
+    C: 'rose',    // 不涨但资金流入：暗中吸筹
+    D: 'emerald', // 跌 + 大资金流出：真下杀(绿跌)
     E: 'amber',   // 跌但资金流入：逆势吸筹，信号混合
 }
 
@@ -38,9 +38,18 @@ function formatTime(iso: string): string {
     }
 }
 
+function todayStr(): string {
+    const d = new Date()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 function SignalCard({ signal }: { signal: IntradaySignal }) {
-    const tone = CASE_TONE[signal.anomaly_case]
+    const tone = CASE_TONE[signal.anomaly_case] ?? 'amber'
     const isUp = signal.change_pct >= 0
+    // 非交易日的 feed 会展示上一交易日的信号,必须标出日期避免误读为今日
+    const isToday = signal.trade_date === todayStr()
 
     return (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -48,23 +57,26 @@ function SignalCard({ signal }: { signal: IntradaySignal }) {
                 <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{signal.board_name}</span>
                     <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONE_CLASSES[tone]}`}>
-                        {CASE_LABEL[signal.anomaly_case]}
+                        {CASE_LABEL[signal.anomaly_case] ?? signal.anomaly_case}
                     </span>
                 </div>
-                <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">{formatTime(signal.created_at)}</span>
+                <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
+                    {!isToday && <span className="mr-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] dark:bg-slate-800">{signal.trade_date}</span>}
+                    {formatTime(signal.created_at)}
+                </span>
             </div>
 
             <div className="mt-2 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                <span className={isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                <span className={isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>
                     {isUp ? '+' : ''}{signal.change_pct.toFixed(2)}%
                 </span>
-                <span>净流入 {signal.net_inflow.toFixed(2)} 亿</span>
-                {signal.fund_source && <span>资金来源：{signal.fund_source}</span>}
-                {signal.judgement && <span className="font-medium text-slate-700 dark:text-slate-300">判断：{signal.judgement}</span>}
+                <span>{signal.net_inflow >= 0 ? '净流入' : '净流出'} {Math.abs(signal.net_inflow).toFixed(2)} 亿</span>
+                {signal.fund_source && <span>资金来源:{signal.fund_source}</span>}
+                {signal.judgement && <span className="font-medium text-slate-700 dark:text-slate-300">判断:{signal.judgement}</span>}
             </div>
 
             <p className="mt-2 whitespace-pre-line text-sm text-slate-700 dark:text-slate-300">
-                {signal.llm_failed ? '（归因生成失败，仅展示原始异动数据）' : signal.cause_summary}
+                {signal.cause_summary ?? '（归因生成失败,仅展示原始异动数据)'}
             </p>
         </div>
     )

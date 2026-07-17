@@ -17,7 +17,9 @@ _COL_BOARD_NAME = "行业"  # akshare's own naming; this is actually the concept
 _COL_CHANGE_PCT = "行业-涨跌幅"
 _COL_NET_INFLOW = "净额"  # unit: 亿元 (100M yuan)
 
-_ZT_POOL_ANOMALY_THRESHOLD = 30
+# 涨停家数集中度阈值:普通交易日涨停 30-90 家,30 的阈值会让 boost 几乎全天
+# 挂在 2 分钟轮询档而失去意义;80 以上才视为市场级异动。
+_ZT_POOL_ANOMALY_THRESHOLD = 80
 
 
 @dataclass(frozen=True)

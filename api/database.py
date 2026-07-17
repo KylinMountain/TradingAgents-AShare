@@ -437,6 +437,12 @@ class IntradaySignalDB(Base):
     llm_failed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
+    # 同一交易日同一板块的同一异动类型只保留一条追因记录(内存去重见
+    # scheduler/intraday.py;此约束作为进程重启后的兜底)。
+    __table_args__ = (
+        UniqueConstraint("trade_date", "board_name", "anomaly_case", name="uq_intraday_day_board_case"),
+    )
+
 
 class SponsorDB(Base):
     """Sponsor records managed by admin project."""
