@@ -383,6 +383,14 @@ async def _startup():
     """Initialize DB, pre-load caches, recover stale tasks, then run the loop."""
     global _semaphore, _executor
 
+    # 全局 socket 默认超时:akshare 等库内部的 requests 调用不传 timeout,
+    # 网络丢包时会永久阻塞读操作。与 API 进程 lifespan 中的设置保持一致,
+    # 防止单次卡死让盘中扫描循环或定时任务静默挂住。
+    import socket
+
+    socket.setdefaulttimeout(float(os.getenv("TA_SOCKET_DEFAULT_TIMEOUT", "60")))
+    _log(f"Global socket default timeout set to {socket.getdefaulttimeout()}s.")
+
     # Each scheduled `_run_job` fans out many `asyncio.to_thread` calls (DB
     # writes, akshare data collection, LLM extraction). The CPython default
     # of `min(32, cpu_count + 4)` is too small to absorb concurrent jobs +
@@ -424,6 +432,14 @@ async def _startup():
 
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
+
+    # Global intraday concept-board anomaly scan — independent loop, own
+    # trading-hours clock, runs alongside (not instead of) the per-user
+    # scheduled-analysis loop below.
+    from scheduler.intraday import run_intraday_loop_forever
+
+    _create_tracked_task(run_intraday_loop_forever(), label="Intraday anomaly scan loop")
+    _log("[Intraday] anomaly scan task launched.")
 
     # Run the scheduler loop (blocks until cancelled)
     await _scheduler_loop()

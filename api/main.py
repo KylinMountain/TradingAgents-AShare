@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
 import pandas as pd
 
-from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
+from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, IntradaySignalDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
 
@@ -734,6 +734,35 @@ class ReportDetailResponse(ReportResponse):
 class ReportListResponse(BaseModel):
     total: int
     reports: List[ReportResponse]
+
+
+class IntradaySignalItem(BaseModel):
+    id: str
+    trade_date: str
+    board_name: str
+    anomaly_case: str
+    change_pct: float
+    net_inflow: float
+    cause_summary: Optional[str] = None
+    fund_source: Optional[str] = None
+    judgement: Optional[str] = None
+    llm_failed: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("created_at", when_used="json")
+    def serialize_created_at(self, value: Optional[datetime]) -> Optional[str]:
+        # IntradaySignalDB.created_at is a plain Column(DateTime); SQLite
+        # silently strips tzinfo on round-trip even though the stored value
+        # was always UTC (datetime.now(timezone.utc)) -- _serialize_datetime_utc
+        # re-attaches UTC rather than letting a naive isoformat() string get
+        # parsed as local time by the frontend (an 8h offset in Beijing).
+        return _serialize_datetime_utc(value)
+
+
+class IntradayFeedResponse(BaseModel):
+    items: List[IntradaySignalItem]
 
 
 class ReportBatchDeleteRequest(BaseModel):
@@ -4301,6 +4330,28 @@ def delete_from_watchlist(
 ):
     if not watchlist_service.delete_watchlist_item(db, current_user.id, item_id):
         raise HTTPException(404, "未找到该自选股")
+
+
+# ── Intraday Anomaly Feed ─────────────────────────────────────────────────────
+
+@app.get("/v1/intraday/feed", response_model=IntradayFeedResponse)
+def get_intraday_feed(
+    since_id: Optional[str] = None,
+    limit: int = 50,
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    """全局共享的盘中异动信息流（不分用户），按最新优先返回。"""
+    limit = max(1, min(limit, 200))
+    query = db.query(IntradaySignalDB)
+    if since_id:
+        since_row = db.query(IntradaySignalDB).filter(IntradaySignalDB.id == since_id).first()
+        if since_row is not None:
+            query = query.filter(IntradaySignalDB.created_at > since_row.created_at)
+    rows = query.order_by(IntradaySignalDB.created_at.desc()).limit(limit).all()
+    return IntradayFeedResponse(
+        items=[IntradaySignalItem.model_validate(row) for row in rows]
+    )
 
 
 # ── Scheduled Analysis ────────────────────────────────────────────────────────

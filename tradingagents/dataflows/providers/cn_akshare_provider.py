@@ -913,6 +913,47 @@ class CnAkshareProvider(BaseMarketDataProvider):
         except Exception as exc:
             return f"板块资金流向数据暂时不可用（akshare 接口问题）：{type(exc).__name__}"
 
+    def get_concept_fund_flow_df(self) -> pd.DataFrame:
+        """获取概念板块资金流向排名（原始 DataFrame，供盘中异动检测规则引擎使用）。
+
+        列名沿用 akshare 原始返回（含"行业"字样是 akshare 自身命名，实际是概念板块数据）：
+        序号/行业(概念名)/行业指数/行业-涨跌幅/流入资金/流出资金/净额/公司家数/领涨股/领涨股-涨跌幅/当前价。
+        流入资金/流出资金/净额单位为"亿元"。
+
+        接口异常时直接向上抛出（不在此吞掉），让调用方按各自语境处理——盘中扫描
+        的调用方会记录警告并降级为空表，而 get_concept_fund_flow() 这类面向 LLM
+        工具/展示层的封装仍需要把具体异常原因暴露给使用者，不能和"今天确实没数据"
+        混为一谈。
+        """
+        ak = self._ak()
+        with AKSHARE_CALL_LOCK:
+            df = ak.stock_fund_flow_concept(symbol="即时")
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return df.reset_index(drop=True)
+
+    def get_concept_fund_flow(self) -> str:
+        """获取概念板块资金流向排名（供 LLM 工具调用的格式化文本）。
+
+        注意：此接口依赖 akshare，可能因东方财富 API 变化而暂时不可用。
+        """
+        try:
+            df = self.get_concept_fund_flow_df()
+            if df.empty:
+                return "今日概念板块资金流向数据暂不可用。"
+            sort_col = "净额"
+            if sort_col in df.columns:
+                df_sorted = df.sort_values(sort_col, ascending=False).reset_index(drop=True)
+            else:
+                df_sorted = df
+            df_sorted = df_sorted.copy()
+            df_sorted.insert(0, "排名", range(1, len(df_sorted) + 1))
+            total = len(df_sorted)
+            result = df_sorted.head(10).to_string(index=False)
+            return f"概念板块资金流向排名（共{total}个概念，前10名）：\n{result}"
+        except Exception as exc:
+            return f"概念板块资金流向数据暂时不可用（akshare 接口问题）：{type(exc).__name__}"
+
     def get_individual_fund_flow(self, symbol: str) -> str:
         """获取个股近期主力资金净流向。"""
         try:
@@ -929,19 +970,25 @@ class CnAkshareProvider(BaseMarketDataProvider):
         except Exception as exc:
             return f"个股资金流向数据获取失败：{type(exc).__name__}: {exc}"
 
+    def _fetch_lhb_market_df(self, date: str) -> pd.DataFrame:
+        """当日全市场龙虎榜明细原始 DataFrame（未按个股过滤）。失败/未更新时返回空 DataFrame。"""
+        ak = self._ak()
+        date_fmt = date.replace("-", "")
+        with AKSHARE_CALL_LOCK:
+            df = ak.stock_lhb_detail_em(start_date=date_fmt, end_date=date_fmt)
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return df.reset_index(drop=True)
+
     def get_lhb_detail(self, symbol: str, date: str) -> str:
-        """获取龙虎榜数据，非异动日返回空提示（属正常）。
+        """获取个股龙虎榜数据，非异动日返回空提示（属正常）。
 
         注意：此接口依赖 akshare，可能因东方财富 API 变化而暂时不可用。
         """
         try:
-            ak = self._ak()
             code = self._normalize_symbol(symbol)
-            # stock_lhb_detail_em 不接受 symbol 参数，返回全市场数据；日期需去掉短横线
-            date_fmt = date.replace("-", "")
-            with AKSHARE_CALL_LOCK:
-                df = ak.stock_lhb_detail_em(start_date=date_fmt, end_date=date_fmt)
-            if df is None or df.empty:
+            df = self._fetch_lhb_market_df(date)
+            if df.empty:
                 return f"{date} 全市场无龙虎榜数据。"
             # 手动过滤指定股票
             if "代码" in df.columns:
@@ -955,13 +1002,39 @@ class CnAkshareProvider(BaseMarketDataProvider):
         except Exception as exc:
             return f"龙虎榜数据获取失败（akshare 接口异常）：{type(exc).__name__}"
 
+    def get_lhb_market_snapshot(self, date: str, limit: int = 30) -> str:
+        """获取当日全市场龙虎榜明细（不按个股过滤），供盘中板块级追因判断机构/游资构成。
+
+        注意：此接口依赖 akshare，可能因东方财富 API 变化而暂时不可用。
+        """
+        try:
+            df = self._fetch_lhb_market_df(date)
+            if df.empty:
+                return f"{date} 全市场无龙虎榜数据（可能未更新或非异动日）。"
+            total = len(df)
+            return f"{date} 全市场龙虎榜（共{total}只，前{min(limit, total)}只）：\n{df.head(limit).to_string(index=False)}"
+        except TypeError:
+            return f"{date} 龙虎榜数据尚未更新（通常发生在盘中查询当日数据）。"
+        except Exception as exc:
+            return f"龙虎榜数据获取失败（akshare 接口异常）：{type(exc).__name__}"
+
+    def get_zt_pool_df(self, date: str) -> pd.DataFrame:
+        """获取涨停板情绪池（原始 DataFrame，供盘中异动检测规则引擎使用）。
+
+        接口异常时直接向上抛出（不在此吞掉），理由同 get_concept_fund_flow_df。
+        """
+        ak = self._ak()
+        with AKSHARE_CALL_LOCK:
+            df = ak.stock_zt_pool_em(date=date.replace("-", ""))
+        if df is None or df.empty:
+            return pd.DataFrame()
+        return df.reset_index(drop=True)
+
     def get_zt_pool(self, date: str) -> str:
         """获取涨停板情绪池，反映市场整体情绪温度。"""
         try:
-            ak = self._ak()
-            with AKSHARE_CALL_LOCK:
-                df = ak.stock_zt_pool_em(date=date.replace("-", ""))
-            if df is None or df.empty:
+            df = self.get_zt_pool_df(date)
+            if df.empty:
                 return f"{date} 涨停板情绪池数据暂不可用。"
             count = len(df)
             result = f"{date} 涨停家数：{count}\n"
