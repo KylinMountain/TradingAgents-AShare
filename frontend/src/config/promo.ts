@@ -10,10 +10,10 @@
 // ─────────────────────────────────────────────────────────────
 export const RELAY_PROMO = {
     enabled: true,
-    name: 'windapi',              // 中转站名称
+    name: 'wind',                 // 对外显示名（只显示 wind，不暴露完整域名，避免绕过邀请链接）
     url: 'https://windapi.ai/sign-up?aff=eMfU',  // 官网 / 注册链接，邀请码已带在链接里
     apiBaseUrl: 'https://windapi.ai/v1',  // API Base URL，选中厂商预设后自动填入（注意：这不是注册链接）
-    quickModel: 'gpt-5.4-mini',    // 选中预设后自动填入的常规模型名
-    deepModel: 'gpt-5.4',          // 选中预设后自动填入的推理模型名
+    quickModel: 'gpt-5.6-terra',   // 选中预设后自动填入的常规模型名
+    deepModel: 'gpt-5.6-terra',    // 选中预设后自动填入的推理模型名
     rate: '0.06',                 // 计费倍率（相对官方价，越低越便宜）
 }

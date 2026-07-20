@@ -4,7 +4,7 @@
 
 [在线体验](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://clawhub.ai/kylinmountain/tradingagents-analysis)
 
-> 🎁 **没有 API Key？** 推荐中转服务 **[windapi](https://windapi.ai/sign-up?aff=eMfU)** —— 一个 Key 通调 **GPT / Claude / Grok** 等主流模型，倍率 `0.06`，国内直连免翻墙、支持支付宝 / 微信充值，可直接用于 **Claude Code、Codex** 等编程工具。👉 **[点此注册即用](https://windapi.ai/sign-up?aff=eMfU)**
+> 🎁 **用 Codex / Claude Code 有困难？** 推荐中转服务 **[windapi](https://windapi.ai/sign-up?aff=eMfU)** —— 一个 Key 通调 **GPT / Claude / Grok** 等主流模型，畅用 **Codex / Claude Code**，也能直接用于本项目分析；国内直连免翻墙、支持支付宝 / 微信充值，倍率 `0.06`。👉 **[点此注册即用](https://windapi.ai/sign-up?aff=eMfU)**
 
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
@@ -56,7 +56,7 @@
 
 OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型；保存配置后会自动执行模型 warmup，也可以在设置页手动发送“你好”查看模型原始返回，便于排查接入问题。
 
-> 💡 **没有 API Key？** 推荐中转服务 [windapi](https://windapi.ai/sign-up?aff=eMfU) —— 一个 Key 同时调用 **GPT / Claude / Grok** 等主流模型，国内直连免翻墙，支持支付宝 / 微信充值，可直接用于 **Claude Code、Codex** 等编程工具。倍率 `0.06`，注册即用。
+> 💡 **用 Codex / Claude Code 有困难，或没有 API Key？** 推荐中转服务 [windapi](https://windapi.ai/sign-up?aff=eMfU) —— 一个 Key 通调 **GPT / Claude / Grok**，畅用 **Codex / Claude Code**，也能直接用于本站分析；国内直连免翻墙，支持支付宝 / 微信充值，倍率 `0.06`。注册即用。
 
 <div align="center">
   <img src="assets/web/settings.png" width="80%" alt="定时分析"/>

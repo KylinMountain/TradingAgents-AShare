@@ -353,7 +353,7 @@ export default function Settings() {
                     >
                         <Sparkles className="mt-0.5 w-4 h-4 shrink-0 text-indigo-500" />
                         <span className="flex-1 leading-relaxed">
-                            还没有 API Key？在下方「模型厂商」里选择 <span className="font-semibold">{RELAY_PROMO.name}（推荐·全模型）</span>，接入地址与模型会自动填好，注册获取 Key 填入即可使用。支持 GPT / Claude / Grok，可用于 Claude Code / Codex，倍率 {RELAY_PROMO.rate}。<span className="underline">点此注册 →</span>
+                            用 Codex / Claude Code 有困难？推荐 {RELAY_PROMO.rate} 倍率的 {RELAY_PROMO.name}：在下方「模型厂商」选择「<span className="font-semibold">{RELAY_PROMO.name}（推荐·全模型）</span>」一键接入，地址与模型自动填好，注册拿 Key 填入即用；一个 Key 通调 GPT / Claude / Grok，也能畅用 Codex / Claude Code。<span className="underline">点此注册 →</span>
                         </span>
                         <span className="shrink-0 text-[10px] text-indigo-400 dark:text-indigo-500">推广</span>
                     </a>

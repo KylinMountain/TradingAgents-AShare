@@ -29,10 +29,11 @@ export default function PromoBanner() {
         <div className="relative flex items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-700 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
             <Sparkles className="w-4 h-4 shrink-0 text-indigo-500" />
             <p className="flex-1 leading-relaxed">
+                用 Codex / Claude Code 有困难？推荐 {RELAY_PROMO.rate} 倍率的{' '}
                 <a href={RELAY_PROMO.url} target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">
                     {RELAY_PROMO.name}
                 </a>
-                {' '}— 一个 Key 跑遍 GPT / Claude / Grok，支持 Claude Code / Codex，国内直连。倍率 {RELAY_PROMO.rate}。
+                {' '}—— 一个 Key 通调 GPT / Claude / Grok，畅用 Codex / Claude Code，也能直接用于本站分析。
                 <a
                     href={RELAY_PROMO.url}
                     target="_blank"
