@@ -66,6 +66,25 @@ def _trace(msg: str) -> None:
         print(f"[provider-trace] {msg}", flush=True)
 
 
+_TRACE_KEYS = ("symbol", "ticker", "start_date", "end_date", "curr_date", "indicator")
+
+
+def _summarize_args(args: tuple, kwargs: dict) -> str:
+    """格式化首参数（通常是 symbol）和常见日期/指标键，用于 trace 日志定位。"""
+    parts = []
+    if args:
+        # 约定：所有 provider 方法首参数为 symbol/ticker
+        parts.append(f"symbol={args[0]!r}")
+        if len(args) >= 2:
+            parts.append(f"arg2={args[1]!r}")
+        if len(args) >= 3:
+            parts.append(f"arg3={args[2]!r}")
+    for k, v in kwargs.items():
+        if k in _TRACE_KEYS:
+            parts.append(f"{k}={v!r}")
+    return " ".join(parts)
+
+
 def get_category_for_method(method: str) -> str:
     """Get the category that contains the specified method."""
     for category, info in TOOLS_CATEGORIES.items():
@@ -91,8 +110,14 @@ def _resolve_vendor_chain(method: str, configured_vendor: str) -> list[str]:
     fallback = configured.copy()
 
     for provider_name in _registry.list_names():
-        if provider_name not in fallback:
-            fallback.append(provider_name)
+        if provider_name in fallback:
+            continue
+        provider = _registry.get(provider_name)
+        # 占位 provider（如 cn_stub）不自动追加进 fallback chain，
+        # 避免污染日志和兜底链；用户显式配置仍可强制使用。
+        if getattr(provider, "is_placeholder", False):
+            continue
+        fallback.append(provider_name)
 
     return fallback
 
@@ -102,33 +127,34 @@ def route_to_vendor(method: str, *args, **kwargs):
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     fallback_vendors = _resolve_vendor_chain(method, vendor_config)
+    args_summary = _summarize_args(args, kwargs)
     last_exc = None
     _trace(
-        f"method={method} category={category} configured='{vendor_config}' "
-        f"chain={fallback_vendors}"
+        f"method={method} {args_summary} category={category} "
+        f"configured='{vendor_config}' chain={fallback_vendors}"
     )
 
     for vendor in fallback_vendors:
         provider = _registry.get(vendor)
         if provider is None:
-            _trace(f"method={method} vendor={vendor} status=skip reason=not-registered")
+            _trace(f"method={method} {args_summary} vendor={vendor} status=skip reason=not-registered")
             continue
 
         impl_func = getattr(provider, method, None)
         if impl_func is None:
-            _trace(f"method={method} vendor={vendor} status=skip reason=not-implemented")
+            _trace(f"method={method} {args_summary} vendor={vendor} status=skip reason=not-implemented")
             continue
 
         try:
             result = impl_func(*args, **kwargs)
-            _trace(f"method={method} vendor={vendor} status=hit")
+            _trace(f"method={method} {args_summary} vendor={vendor} status=hit")
             return result
         except (AlphaVantageRateLimitError, NotImplementedError) as exc:
             last_exc = exc
             # Try next provider for transient/routing issues or placeholder providers.
             _trace(
-                f"method={method} vendor={vendor} status=fallback "
-                f"reason={type(exc).__name__}"
+                f"method={method} {args_summary} vendor={vendor} status=fallback "
+                f"reason={type(exc).__name__}: {exc}"
             )
             continue
         except Exception as exc:
@@ -136,12 +162,12 @@ def route_to_vendor(method: str, *args, **kwargs):
             # should not terminate the full chain; fall through to next vendor.
             last_exc = exc
             _trace(
-                f"method={method} vendor={vendor} status=fallback "
-                f"reason={type(exc).__name__}"
+                f"method={method} {args_summary} vendor={vendor} status=fallback "
+                f"reason={type(exc).__name__}: {exc}"
             )
             continue
 
-    _trace(f"method={method} status=failed reason=no-available-vendor")
+    _trace(f"method={method} {args_summary} status=failed reason=no-available-vendor")
     if last_exc is not None:
         raise RuntimeError(
             f"No available vendor for method '{method}'. "

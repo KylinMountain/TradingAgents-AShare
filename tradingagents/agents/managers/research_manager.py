@@ -1,3 +1,6 @@
+import logging
+import time
+
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.agents.utils.agent_states import current_tracker_var
@@ -5,6 +8,8 @@ from tradingagents.agents.utils.debate_utils import (
     format_claim_subset_for_prompt,
     format_claims_for_prompt,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def create_research_manager(llm, memory):
@@ -29,29 +34,87 @@ def create_research_manager(llm, memory):
         for i, rec in enumerate(past_memories, 1):
             past_memory_str += rec["recommendation"] + "\n\n"
 
+        claims_text = format_claims_for_prompt(claims)
+        unresolved_claims_text = format_claim_subset_for_prompt(claims, unresolved_claim_ids)
+        round_summary_text = round_summary or "暂无轮次摘要。"
+
         prompt = get_prompt("research_manager_prompt", config=get_config()).format(
             past_memory_str=past_memory_str,
             history=history,
             smart_money_report=smart_money_report,
             volume_price_report=volume_price_report,
             sentiment_report=sentiment_report,
-            claims_text=format_claims_for_prompt(claims),
-            unresolved_claims_text=format_claim_subset_for_prompt(claims, unresolved_claim_ids),
-            round_summary=round_summary or "暂无轮次摘要。",
+            claims_text=claims_text,
+            unresolved_claims_text=unresolved_claims_text,
+            round_summary=round_summary_text,
         )
-        
+
+        _logger.info(
+            "[research_manager] prompt size: total=%d chars | "
+            "history=%d, smart_money=%d, volume_price=%d, sentiment=%d, "
+            "memory=%d, claims=%d, unresolved=%d, round_summary=%d",
+            len(prompt),
+            len(history or ""),
+            len(smart_money_report or ""),
+            len(volume_price_report or ""),
+            len(sentiment_report or ""),
+            len(past_memory_str or ""),
+            len(claims_text or ""),
+            len(unresolved_claims_text or ""),
+            len(round_summary_text or ""),
+        )
+
         # ── 实现 Token 级流式输出 ──────────────────
         tracker = current_tracker_var.get()
         full_content = ""
+        reasoning_buf: list[str] = []
+        first_token_at: float | None = None
+        first_reasoning_at: float | None = None
+        start = time.monotonic()
+
         async for chunk in llm.astream(prompt):
+            now = time.monotonic()
             content = chunk.content if hasattr(chunk, "content") else str(chunk)
             full_content += content
-            if tracker:
-                tracker._emit_token("Research Manager", "investment_plan", content)
-                tracker.emit_debate_token(
-                    debate="research", agent="Research Manager",
-                    round_num=-1, token=content,
-                )
+
+            # reasoning_content (thinking 模型) 仅做 server 端日志，不发前端
+            reasoning = None
+            extra = getattr(chunk, "additional_kwargs", None) or {}
+            if isinstance(extra, dict):
+                reasoning = extra.get("reasoning_content")
+            if reasoning:
+                if first_reasoning_at is None:
+                    first_reasoning_at = now
+                reasoning_buf.append(reasoning)
+
+            if content:
+                if first_token_at is None:
+                    first_token_at = now
+                if tracker:
+                    tracker._emit_token("Research Manager", "investment_plan", content)
+                    tracker.emit_debate_token(
+                        debate="research", agent="Research Manager",
+                        round_num=-1, token=content,
+                    )
+
+        total_elapsed = time.monotonic() - start
+        reasoning_text = "".join(reasoning_buf)
+        _logger.info(
+            "[research_manager] streaming done: total_elapsed=%.2fs | "
+            "ttft_reasoning=%.2fs ttft_content=%.2fs | "
+            "reasoning_chars=%d content_chars=%d",
+            total_elapsed,
+            (first_reasoning_at - start) if first_reasoning_at else -1,
+            (first_token_at - start) if first_token_at else -1,
+            len(reasoning_text),
+            len(full_content),
+        )
+        if reasoning_text:
+            _logger.debug(
+                "[research_manager] reasoning preview (%d chars): %s",
+                len(reasoning_text),
+                reasoning_text[:1500],
+            )
 
         # ── 推送辩论裁决（标记流式结束）──
         if tracker:

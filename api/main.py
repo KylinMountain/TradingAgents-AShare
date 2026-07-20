@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import socket
 import traceback
 from contextlib import asynccontextmanager
 from io import StringIO
@@ -13,7 +14,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from fastapi import Body
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
 
 import logging
@@ -33,7 +34,7 @@ load_dotenv()
 
 from fastapi import FastAPI, File, HTTPException, Depends, Query, Request, UploadFile, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy.orm import Session
@@ -204,6 +205,46 @@ async def _run_manual_trigger(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
+    # 全局 socket 默认超时：akshare 等库内部的 requests 调用不传 timeout，
+    # 网络丢包时 TLS 握手/读会永久阻塞，僵尸线程逐渐占满线程池（见 healthz 探针）。
+    # uvicorn/asyncio 的服务端 socket 显式 setblocking(False)，不受此影响；
+    # httpx/openai SDK 自带超时配置，也不受影响。
+    socket.setdefaulttimeout(float(os.getenv("TA_SOCKET_DEFAULT_TIMEOUT", "60")))
+    _log(f"Global socket default timeout set to {socket.getdefaulttimeout()}s.")
+    # Raise the AnyIO thread limiter ceiling so frequent sync endpoints
+    # (tracking-board polling, /v1/jobs/{id} polling, akshare-backed
+    # market endpoints) cannot starve each other when the event loop is
+    # also running long-lived `_run_job` tasks.
+    try:
+        from anyio import to_thread as _anyio_to_thread
+
+        limiter = _anyio_to_thread.current_default_thread_limiter()
+        desired = int(os.getenv("ANYIO_THREAD_LIMIT", "120"))
+        if limiter.total_tokens < desired:
+            limiter.total_tokens = desired
+            _log(f"AnyIO thread limiter raised to {desired}.")
+    except Exception as exc:
+        _log(f"Could not raise AnyIO thread limiter: {exc}")
+
+    # Default asyncio executor is used by `asyncio.to_thread`. The CPython
+    # default is `min(32, cpu_count + 4)`, which is too small when many
+    # `_run_job_inner` coroutines fan out concurrent `to_thread` calls for
+    # DB writes, LLM extraction, and akshare data collection.
+    global _default_executor
+    new_default_executor: Optional[ThreadPoolExecutor] = None
+    try:
+        loop = asyncio.get_running_loop()
+        executor_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_WORKERS", "64"))
+        new_default_executor = ThreadPoolExecutor(
+            max_workers=executor_workers,
+            thread_name_prefix="ta-asyncio",
+        )
+        loop.set_default_executor(new_default_executor)
+        _default_executor = new_default_executor
+        _log(f"Default asyncio executor set to {executor_workers} workers.")
+    except Exception as exc:
+        _log(f"Could not configure default asyncio executor: {exc}")
+
     init_db()
     _log("Database initialized.")
     store = get_job_store()
@@ -229,6 +270,8 @@ async def lifespan(app: FastAPI):
     yield
     _log("Shutting down: Cleaning up resources...")
     _executor.shutdown(wait=True)
+    if new_default_executor is not None:
+        new_default_executor.shutdown(wait=False)
     _log("Executor shutdown complete.")
 
 
@@ -267,6 +310,8 @@ app.add_middleware(
 )
 
 _executor = ThreadPoolExecutor(max_workers=int(os.getenv("TA_MAX_WORKERS", "2")))
+# lifespan 中创建的 asyncio 默认 executor，healthz 探针用它报告饱和度
+_default_executor: Optional[ThreadPoolExecutor] = None
 
 # ── Singleton job store (in-memory or Redis depending on REDIS_URL) ─────────
 _job_store_instance: Optional[Any] = None
@@ -300,7 +345,15 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "600"))  # seconds
+# Soft deadline for long-running analyses.  This keeps the historical
+# TA_JOB_TIMEOUT setting API-compatible, but crossing it is now an overtime
+# notification rather than a terminal failure.  TA_JOB_HARD_TIMEOUT is the
+# resource-safety backstop that releases scheduler capacity if a workflow is
+# genuinely wedged.  Set either value to 0 to disable that deadline.
+_JOB_TIMEOUT = int(os.getenv("TA_JOB_TIMEOUT", "1800"))
+_JOB_HARD_TIMEOUT = int(os.getenv("TA_JOB_HARD_TIMEOUT", "7200"))
+
+
 def _create_tracked_task(coro, *, label: str = "Background task") -> asyncio.Task:
     """Create an asyncio task and keep a reference to prevent GC.
     Also logs unhandled exceptions via a done callback."""
@@ -596,6 +649,8 @@ class JobStatusResponse(BaseModel):
     symbol: str
     trade_date: str
     error: Optional[str] = None
+    overtime: bool = False
+    overtime_at: Optional[str] = None
     waiting_ahead_count: Optional[int] = None
     scheduled_running_count: Optional[int] = None
     scheduled_concurrency_limit: Optional[int] = None
@@ -1510,29 +1565,135 @@ async def _run_job(
     user_id: Optional[str] = None,
     request_source: str = "api",
 ) -> None:
-    # 用 asyncio.Task + sleep 竞速代替 wait_for，避免 cancel 卡在 to_thread 导致
-    # semaphore 永远不释放的问题。超时后标记失败但不 cancel 内部协程（让线程自然结束）。
+    # Keep the workflow in its own task so crossing the soft deadline does not
+    # cancel to_thread work.  The hard deadline cancels the coroutine and
+    # releases its caller/scheduler slot.  A sync function already submitted by
+    # asyncio.to_thread may finish later, but cancellation prevents the
+    # coroutine from resuming into report or terminal-state writes.
+    started_monotonic = time.monotonic()
     inner_task = asyncio.create_task(
         _run_job_inner(job_id, request, stream_events, save_report, user_id, request_source)
     )
-    done, _ = await asyncio.wait({inner_task}, timeout=_JOB_TIMEOUT)
-    if inner_task in done:
-        # 正常完成（可能成功也可能异常）
-        if not inner_task.cancelled() and inner_task.exception():
-            _log(f"[Job {job_id}] failed: {inner_task.exception()}")
-        return
-    # 超时：标记失败，但不 cancel 内部 task（避免 cancel 卡住）
-    err_msg = f"任务超时（超过 {_JOB_TIMEOUT} 秒），已自动终止"
-    _log(f"[Job {job_id}] {err_msg}")
-    _set_job(job_id, status="failed", error=err_msg, finished_at=_utcnow_iso())
-    # 注意：不能用 asyncio.to_thread 写 DB，因为线程池可能被僵尸任务占满导致死锁。
-    # 用同步方式直接写，SQLite 的写入足够快不会阻塞事件循环。
     try:
-        with get_db_ctx() as db:
-            report_service.mark_report_failed(db, job_id, err_msg)
-    except Exception:
-        pass
-    _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+        if _JOB_TIMEOUT > 0:
+            soft_wait_seconds = _JOB_TIMEOUT
+            if _JOB_HARD_TIMEOUT > 0:
+                soft_wait_seconds = min(soft_wait_seconds, _JOB_HARD_TIMEOUT)
+            done, _ = await asyncio.wait({inner_task}, timeout=soft_wait_seconds)
+            if inner_task not in done and not inner_task.done():
+                # When the configured hard limit is no greater than the soft
+                # limit, skip the misleading overtime notice and fall through
+                # to the terminal hard-limit handling below.
+                if _JOB_HARD_TIMEOUT <= 0 or _JOB_TIMEOUT < _JOB_HARD_TIMEOUT:
+                    overtime_at = _utcnow_iso()
+                    elapsed_seconds = time.monotonic() - started_monotonic
+                    message = (
+                        f"分析耗时较长（已超过 {_JOB_TIMEOUT} 秒），后台仍在继续，"
+                        "正在等待最终结果，请勿重复提交。"
+                    )
+                    _log(f"[Job {job_id}] {message}")
+                    _set_job(
+                        job_id,
+                        status="running",
+                        overtime=True,
+                        overtime_at=overtime_at,
+                        error=None,
+                    )
+                    _emit_job_event(
+                        job_id,
+                        "job.overtime",
+                        {
+                            "job_id": job_id,
+                            "elapsed_seconds": elapsed_seconds,
+                            "soft_timeout_seconds": _JOB_TIMEOUT,
+                            "overtime_at": overtime_at,
+                            "message": message,
+                        },
+                    )
+
+        if _JOB_HARD_TIMEOUT > 0 and not inner_task.done():
+            remaining_seconds = max(
+                0.0,
+                _JOB_HARD_TIMEOUT - (time.monotonic() - started_monotonic),
+            )
+            done, _ = await asyncio.wait({inner_task}, timeout=remaining_seconds)
+            if inner_task not in done and not inner_task.done() and inner_task.cancel():
+                try:
+                    await inner_task
+                except asyncio.CancelledError:
+                    pass
+
+                elapsed_seconds = time.monotonic() - started_monotonic
+                err_msg = (
+                    f"任务达到硬性运行上限（{_JOB_HARD_TIMEOUT} 秒），已终止。"
+                    "请检查模型或数据源的请求超时配置后重试。"
+                )
+                _log(f"[Job {job_id}] {err_msg}")
+                _set_job(
+                    job_id,
+                    status="failed",
+                    error=err_msg,
+                    overtime=False,
+                    overtime_at=None,
+                    finished_at=_utcnow_iso(),
+                )
+                try:
+                    with get_db_ctx() as db:
+                        report_service.mark_report_failed(db, job_id, err_msg)
+                except Exception:
+                    pass
+                _emit_job_event(
+                    job_id,
+                    "job.failed",
+                    {
+                        "job_id": job_id,
+                        "error": err_msg,
+                        "elapsed_seconds": elapsed_seconds,
+                        "hard_timeout_seconds": _JOB_HARD_TIMEOUT,
+                    },
+                )
+                return
+
+        await inner_task
+    except asyncio.CancelledError:
+        # Preserve normal application shutdown/caller cancellation semantics.
+        if not inner_task.done():
+            inner_task.cancel()
+        raise
+    except Exception as exc:
+        # _run_job_inner handles expected workflow errors itself.  This guards
+        # failures before its try block (initialisation/configuration) as well.
+        err_msg = f"{type(exc).__name__}: {exc}"
+        _log(f"[Job {job_id}] failed: {err_msg}")
+        _set_job(
+            job_id,
+            status="failed",
+            error=err_msg,
+            overtime=False,
+            overtime_at=None,
+            finished_at=_utcnow_iso(),
+        )
+        try:
+            with get_db_ctx() as db:
+                report_service.mark_report_failed(db, job_id, err_msg)
+        except Exception:
+            pass
+        _emit_job_event(job_id, "job.failed", {"job_id": job_id, "error": err_msg})
+
+
+async def _save_report_or_raise(
+    job_id: str,
+    save_callable: Callable[[], Any],
+    *,
+    stage: str,
+) -> None:
+    """Run a report DB finalizer without turning persistence errors into success."""
+    try:
+        await asyncio.to_thread(save_callable)
+    except Exception as exc:
+        message = f"Failed to {stage} report for job {job_id}: {exc}"
+        _log(message)
+        raise RuntimeError(message) from exc
 
 
 async def _run_job_inner(
@@ -1567,7 +1728,13 @@ async def _run_job_inner(
 
     config = await asyncio.to_thread(_init_and_configure)
 
-    _set_job(job_id, status="running", started_at=_utcnow_iso(), symbol=normalized_symbol)
+    _set_job(
+        job_id,
+        status="running",
+        started_at=_utcnow_iso(),
+        symbol=normalized_symbol,
+        error=None,
+    )
 
     _emit_job_event(
         job_id,
@@ -1601,6 +1768,9 @@ async def _run_job_inner(
                 status="completed",
                 result=result,
                 decision="DRY_RUN",
+                error=None,
+                overtime=False,
+                overtime_at=None,
                 finished_at=_utcnow_iso(),
             )
             _emit_job_event(
@@ -1788,7 +1958,10 @@ async def _run_job_inner(
                         if db_updates:
                             await asyncio.to_thread(_horizon_partial_update, db_updates)
                 except Exception as e:
-                    _log(f"Error during horizon streaming ({horizon}): {e}")
+                    _log(
+                        f"Error during horizon streaming ({horizon}): {e!r}\n"
+                        f"{traceback.format_exc()}"
+                    )
                     raise
                 finally:
                     current_tracker_var.reset(_tracker_token)
@@ -1807,7 +1980,8 @@ async def _run_job_inner(
             horizon_errors = []
             for i, r in enumerate(results):
                 if isinstance(r, Exception):
-                    _log(f"Horizon '{request.horizons[i]}' failed: {r}")
+                    tb = "".join(traceback.format_exception(type(r), r, r.__traceback__))
+                    _log(f"Horizon '{request.horizons[i]}' failed: {r!r}\n{tb}")
                     horizon_errors.append(f"{request.horizons[i]}: {r}")
             if horizon_errors:
                 raise RuntimeError(f"Horizon analysis failed: {'; '.join(horizon_errors)}")
@@ -1889,14 +2063,13 @@ async def _run_job_inner(
                         )
                         save_db.commit()
 
-                try:
-                    await asyncio.to_thread(_save_report_sync)
-                except Exception as e:
-                    _log(f"Failed to save report: {e}")
+                await _save_report_or_raise(job_id, _save_report_sync, stage="save")
 
             # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
             _set_job(job_id, status="completed", result=result,
-                     decision=decision, finished_at=_utcnow_iso())
+                     decision=decision, error=None, overtime=False,
+                     overtime_at=None,
+                     finished_at=_utcnow_iso())
             _emit_job_event(job_id, "job.completed", {
                 "job_id": job_id, "decision": decision,
                 "direction": result["direction"],
@@ -2008,14 +2181,21 @@ async def _run_job_inner(
                         msg = messages[-1]
                         content = _extract_message_text(getattr(msg, "content", ""))
                         agent_name = getattr(msg, "name", None)
+                        msg_type = getattr(msg, "type", "unknown")  # human/system/ai/tool
 
                         if content:
-                            _log(f"[Agent Message] {agent_name}: {content[:200]}...")
+                            if agent_name:
+                                _log(f"[Agent Message] {agent_name}: {content[:200]}...")
+                            elif msg_type in ("human", "system"):
+                                # Graph 入口的初始 prompt，不是 agent 产出，跳过
+                                pass
+                            else:
+                                _log(f"[Agent Message] {msg_type}: {content[:200]}...")
 
                         for tool_call in getattr(msg, "tool_calls", []) or []:
                             tool_name = tool_call.get("name", "unknown") if isinstance(tool_call, dict) else getattr(tool_call, "name", "unknown")
                             tool_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
-                            _log(f"[Tool Call] {agent_name}: {tool_name}")
+                            _log(f"[Tool Call] {agent_name or msg_type}: {tool_name}")
 
                             agent_display = agent_name
                             if not agent_display:
@@ -2120,16 +2300,16 @@ async def _run_job_inner(
                     )
                     save_db.commit()
 
-            try:
-                await asyncio.to_thread(_save_report_final_sync)
-            except Exception as e:
-                _log(f"Failed to finalize report: {e}")
+            await _save_report_or_raise(job_id, _save_report_final_sync, stage="finalize")
         # 所有后处理完成后再标记 completed，防止 SSE 超时提前关闭流
         _set_job(
             job_id,
             status="completed",
             result=result,
             decision=decision,
+            error=None,
+            overtime=False,
+            overtime_at=None,
             finished_at=_utcnow_iso(),
         )
         _emit_job_event(
@@ -2150,11 +2330,13 @@ async def _run_job_inner(
         _log(f"Job completed successfully: {job_id}")
         _log(f"[Timer] TOTAL Job execution (single_horizon) took {time.time() - job_start_t:.2f}s")
     except Exception as exc:
-        err_msg = f"{type(exc).__name__}: {exc}"
+        err_msg = _humanize_analysis_error(f"{type(exc).__name__}: {exc}")
         _set_job(
             job_id,
             status="failed",
             error=err_msg,
+            overtime=False,
+            overtime_at=None,
             traceback=traceback.format_exc(),
             finished_at=_utcnow_iso(),
         )
@@ -2175,6 +2357,35 @@ async def _run_job_inner(
         )
     finally:
         _shared_data_collector.evict(request.symbol, request.trade_date)
+
+
+_ANALYSIS_ERROR_HINTS: List[tuple] = [
+    (r"Insufficient Balance|Error code: 402",
+     "您配置的大模型 API Key 余额不足。请前往模型服务商充值，或在「设置」中更换其他模型。"),
+    (r"DataInspectionFailed|sensitive words detect|data_inspection",
+     "模型服务商的内容安全审查拦截了本次分析输出（A股分析内容偶发误伤）。请重试一次；若频繁出现，建议在「设置」中更换其他模型服务商。"),
+    (r"Error code: 429|too.?many.?requests|throttling|rate.?limit",
+     "模型服务限流（请求过于频繁或额度受限）。请稍后重试，或在「设置」中更换模型。"),
+    (r"Error code: 401|Authorization Failed|invalid.*api.?key|authentication",
+     "模型 API Key 无效或已过期。请在「设置」中检查 API Key 配置并点击「测试」验证。"),
+    (r"Unsupported model|invalid_parameter.*model|model.*not.*(exist|found)",
+     "配置的模型名称不被服务商支持（可能已下线或改名）。请在「设置」中更换模型名称。"),
+    (r"Error code: 5\d\d|overloaded|InternalError|upload file failed",
+     "模型服务端暂时故障。请稍后重试；若持续失败，建议在「设置」中更换模型。"),
+    (r"Connection error|peer closed connection|Request timed out|timed?.?out|ConnectTimeout|Connection refused",
+     "连接模型服务失败（网络波动或服务不可达）。请稍后重试，并确认「设置」中的 Base URL 可以访问。"),
+]
+
+
+def _humanize_analysis_error(err: str) -> str:
+    """把 LLM/网络的原始报错翻译成用户能看懂的提示与建议动作。
+
+    识别不了的错误原样返回；识别出的保留截断后的原始错误便于反馈排查。
+    """
+    for pat, hint in _ANALYSIS_ERROR_HINTS:
+        if re.search(pat, err, re.IGNORECASE):
+            return f"{hint}\n\n（原始错误：{err[:200]}）"
+    return err
 
 
 def _normalize_symbol(raw: str) -> str:
@@ -2418,8 +2629,24 @@ async def _stream_job_events(job_id: str):
 
 
 @app.get("/healthz")
-def healthz() -> Dict[str, str]:
-    return {"status": "ok"}
+async def healthz():
+    """健康检查，同时探测 asyncio 默认线程池是否被僵尸线程占满。
+
+    向默认 executor 提交一个 no-op，5 秒内排不上队即判定饱和并返回 503
+    （生产事故：无超时的网络调用把 64 个 worker 全部占死，所有依赖
+    to_thread 的接口静默挂起，前端表现为 Cloudflare 524）。
+    """
+    payload: Dict[str, Any] = {"status": "ok"}
+    if _default_executor is not None:
+        payload["executor_queued"] = _default_executor._work_queue.qsize()
+        payload["executor_threads"] = len(_default_executor._threads)
+    try:
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, int), timeout=5)
+    except asyncio.TimeoutError:
+        payload["status"] = "thread_pool_starved"
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 # Simple in-memory rate limiter for version stats: {ip: last_timestamp}
@@ -2450,6 +2677,15 @@ def version_stats(payload: Dict[str, Any] = Body(...), request: Request = None, 
     return {"status": "ok"}
 
 
+_RESOLVABLE_SYMBOL_RE = re.compile(
+    r"^("
+    r"\d{6}\.(SH|SZ|BJ)"          # A 股 / 北交所
+    r"|\d{4,5}\.HK"                # 港股
+    r"|[A-Z][A-Z0-9.\-]{0,10}"     # 美股 / 通用 ticker
+    r")$"
+)
+
+
 @app.get("/v1/market/kline", response_model=KlineResponse)
 def get_kline(
     symbol: str,
@@ -2466,7 +2702,16 @@ def get_kline(
         candles = _fetch_index_kline(symbol, start, end)
     else:
         # Normalize symbol (convert "阳光电源" -> "300274.SZ")
+        original = symbol
         symbol = _normalize_symbol(symbol)
+        if not _RESOLVABLE_SYMBOL_RE.match(symbol):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unrecognized symbol {original!r} (normalized to {symbol!r}); "
+                    f"expected formats: '300394.SZ' / 'AAPL' / '00700.HK'"
+                ),
+            )
         config = _build_runtime_config({})
         set_config(config)
         raw = route_to_vendor("get_stock_data", symbol, start, end)
@@ -2607,13 +2852,20 @@ async def analyze(
     request: AnalyzeRequest,
     current_user: UserDB = Depends(_require_api_user),
 ) -> AnalyzeResponse:
-    with get_db_ctx() as db:
-        merged_user_context = _compose_analysis_user_context(
-            db,
-            current_user.id,
-            request.symbol,
-            explicit_context=_extract_request_user_context(request),
-        )
+    explicit_context = _extract_request_user_context(request)
+
+    def _load_user_context() -> Dict[str, Any]:
+        with get_db_ctx() as db:
+            return _compose_analysis_user_context(
+                db,
+                current_user.id,
+                request.symbol,
+                explicit_context=explicit_context,
+            )
+
+    # Don't block the event loop on a sync SQLite read while the scheduler
+    # process may be holding write locks.
+    merged_user_context = await asyncio.to_thread(_load_user_context)
     _apply_user_context_to_request(request, merged_user_context)
 
     job_id = uuid4().hex
@@ -2629,6 +2881,8 @@ async def analyze(
         symbol=request.symbol,
         trade_date=request.trade_date,
         error=None,
+        overtime=False,
+        overtime_at=None,
         result=None,
         decision=None,
     )
@@ -2667,6 +2921,8 @@ def get_job_status(job_id: str, current_user: UserDB = Depends(_require_api_user
         symbol=job["symbol"],
         trade_date=job["trade_date"],
         error=job.get("error"),
+        overtime=bool(job.get("overtime", False)),
+        overtime_at=job.get("overtime_at"),
         waiting_ahead_count=job.get("waiting_ahead_count"),
         scheduled_running_count=job.get("scheduled_running_count"),
         scheduled_concurrency_limit=job.get("scheduled_concurrency_limit"),
@@ -2708,6 +2964,9 @@ async def _ai_extract_symbol_and_date_streaming(
     import json as _json
 
     today = datetime.now().strftime("%Y-%m-%d")
+    # 兜底：先用 regex 直接从原文抽 symbol/date，LLM 失败 / 限流 / 返回 null 时
+    # 至少不会把用户已经明确输入的代码也判为"无法识别"。
+    fast_symbol, fast_date = _extract_symbol_and_date(text)
     llm_name: Optional[str] = None
     llm_date: Optional[str] = None
     llm_horizons: List[str] = ["short"]
@@ -2775,20 +3034,36 @@ async def _ai_extract_symbol_and_date_streaming(
         _log(f"[StockExtract streaming] LLM failed: {e}")
 
     if not llm_name:
+        if fast_symbol:
+            _log(f"[StockExtract] LLM 未返回 stock_name，使用 regex 兜底: {fast_symbol}")
+            return fast_symbol, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        # LLM 挂掉(限流/模型下线/网络)且原文没有代码时，拿原文在本地股票名单里
+        # 搜一次：_search_cn_stock_by_name 支持"名称是输入子串"的匹配，
+        # "分析一下 飞沃科技" 可以不经 LLM 直接命中 301232.SZ
+        local_code = await asyncio.to_thread(_search_cn_stock_by_name, text)
+        if local_code:
+            _log(f"[StockExtract] LLM 失败，本地名单从原文兜底命中: {local_code}")
+            return local_code, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
-    if re.match(r"^\d{6}$", llm_name) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
+    if re.match(r"^\d{6}(?:\.(?:SH|SZ|SS))?$", llm_name, re.IGNORECASE) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
         symbol = _normalize_symbol(llm_name)
-        return symbol or None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        if symbol:
+            return symbol, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     local_code = await asyncio.to_thread(_search_cn_stock_by_name, llm_name)
     if local_code:
         return local_code, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     fallback = _normalize_symbol(llm_name)
-    if fallback:
+    if fallback and re.search(r"\d{6}|[A-Za-z]{2,}", fallback):
         return fallback, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+
+    # 最后兜底：LLM 返回了名字但所有 resolver 都解析不出，且 regex 找到了清晰代码
+    if fast_symbol:
+        _log(f"[StockExtract] LLM 名 '{llm_name}' 无法解析为代码，使用 regex 兜底: {fast_symbol}")
+        return fast_symbol, llm_date or fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     return None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
@@ -2805,6 +3080,9 @@ def _ai_extract_symbol_and_date(
     import json as _json
 
     today = datetime.now().strftime("%Y-%m-%d")
+    # 兜底：先用 regex 直接从原文抽 symbol/date，LLM 失败 / 限流 / 返回 null 时
+    # 至少不会把用户已经明确输入的代码也判为"无法识别"。
+    fast_symbol, fast_date = _extract_symbol_and_date(text)
 
     llm_name: Optional[str] = None
     llm_date: Optional[str] = None
@@ -2870,16 +3148,25 @@ def _ai_extract_symbol_and_date(
         _log(f"[StockExtract] LLM failed: {e}")
 
     if not llm_name:
+        if fast_symbol:
+            _log(f"[StockExtract] LLM 未返回 stock_name，使用 regex 兜底: {fast_symbol}")
+            return fast_symbol, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        # LLM 挂掉且原文没有代码时，拿原文在本地股票名单里搜一次（同流式版本）
+        local_code = _search_cn_stock_by_name(text)
+        if local_code:
+            _log(f"[StockExtract] LLM 失败，本地名单从原文兜底命中: {local_code}")
+            return local_code, fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         _log(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] LLM extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
 
     # ── Step 2: If looks like a direct code (digits / letters), normalize it ──
-    if re.match(r"^\d{6}$", llm_name) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
+    if re.match(r"^\d{6}(?:\.(?:SH|SZ|SS))?$", llm_name, re.IGNORECASE) or re.match(r"^[A-Za-z]{1,6}(\.[A-Za-z]+)?$", llm_name):
         symbol = _normalize_symbol(llm_name)
-        _log(f"[StockExtract] Direct code: {symbol}")
-        return symbol or None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+        if symbol:
+            _log(f"[StockExtract] Direct code: {symbol}")
+            return symbol, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     # ── Step 3: Search akshare A-share name database ──────────────────────────
     local_code = _search_cn_stock_by_name(llm_name)
@@ -2888,10 +3175,17 @@ def _ai_extract_symbol_and_date(
         return local_code, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     # ── Step 4: Last resort — treat LLM name as a raw code ────────────────────
+    # _normalize_symbol 在找不到代码时会原样返回，需要校验结果包含数字/英文，
+    # 避免把"天孚通讯"这种纯中文 LLM 输出当成 symbol 透传给 provider。
     fallback = _normalize_symbol(llm_name)
-    if fallback:
+    if fallback and re.search(r"\d{6}|[A-Za-z]{2,}", fallback):
         _log(f"[StockExtract] Fallback normalize: '{llm_name}' → {fallback}")
         return fallback, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+
+    # 最后兜底：LLM 给了名字但所有 resolver 都解析不出，且 regex 找到了清晰代码
+    if fast_symbol:
+        _log(f"[StockExtract] LLM 名 '{llm_name}' 无法解析为代码，使用 regex 兜底: {fast_symbol}")
+        return fast_symbol, llm_date or fast_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] Could not resolve '{llm_name}' to a stock code")
     return None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
@@ -2927,14 +3221,19 @@ async def chat_completions(
                     "focus_areas": focus_areas,
                     "specific_questions": specific_questions,
                 }
-                with get_db_ctx() as db:
-                    merged_user_context = _compose_analysis_user_context(
-                        db,
-                        current_user.id,
-                        symbol,
-                        explicit_context=_extract_request_user_context(request),
-                        inferred_context=inferred_user_context,
-                    )
+                explicit_context = _extract_request_user_context(request)
+
+                def _load_user_context() -> Dict[str, Any]:
+                    with get_db_ctx() as db:
+                        return _compose_analysis_user_context(
+                            db,
+                            current_user.id,
+                            symbol,
+                            explicit_context=explicit_context,
+                            inferred_context=inferred_user_context,
+                        )
+
+                merged_user_context = await asyncio.to_thread(_load_user_context)
                 pre_intent["user_context"] = merged_user_context
                 analyze_req = AnalyzeRequest(
                     symbol=symbol,
@@ -2979,7 +3278,7 @@ async def chat_completions(
                 await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
             except Exception as exc:
                 _log(f"[chat] _extract_and_run failed: {exc}")
-                _emit_job_event(job_id, "job.failed", {"error": str(exc)})
+                _emit_job_event(job_id, "job.failed", {"error": _humanize_analysis_error(str(exc))})
 
         _create_tracked_task(_extract_and_run())
         return StreamingResponse(
@@ -3002,14 +3301,19 @@ async def chat_completions(
         "focus_areas": focus_areas,
         "specific_questions": specific_questions,
     }
-    with get_db_ctx() as db:
-        merged_user_context = _compose_analysis_user_context(
-            db,
-            current_user.id,
-            symbol,
-            explicit_context=_extract_request_user_context(request),
-            inferred_context=inferred_user_context,
-        )
+    explicit_context = _extract_request_user_context(request)
+
+    def _load_user_context_nonstream() -> Dict[str, Any]:
+        with get_db_ctx() as db:
+            return _compose_analysis_user_context(
+                db,
+                current_user.id,
+                symbol,
+                explicit_context=explicit_context,
+                inferred_context=inferred_user_context,
+            )
+
+    merged_user_context = await asyncio.to_thread(_load_user_context_nonstream)
     pre_intent["user_context"] = merged_user_context
     analyze_req = AnalyzeRequest(
         symbol=symbol,

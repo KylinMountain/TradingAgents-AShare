@@ -2,6 +2,11 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import type { AnalysisReport, RiskItem, KeyMetric } from '@/types'
 import { getBaseUrl } from '@/services/api'
+import {
+    classifyRecoveredJobStatus,
+    DEFAULT_OVERTIME_NOTICE,
+    getJobLifecycleUpdate,
+} from '@/utils/jobLifecycle'
 
 export function useSSE(jobId: string | null) {
     const eventSourceRef = useRef<EventSource | null>(null)
@@ -23,6 +28,8 @@ export function useSSE(jobId: string | null) {
         addChatMessage,
         appendToChatMessage,
         setMessageContent,
+        setAnalysisRunState,
+        setAnalysisOvertimeNotice,
     } = useAnalysisStore()
 
     const connect = useCallback(() => {
@@ -43,6 +50,13 @@ export function useSSE(jobId: string | null) {
         }
 
         const handleEvent = (eventType: string, data: Record<string, unknown>) => {
+            const lifecycleUpdate = getJobLifecycleUpdate(eventType, data)
+            if (lifecycleUpdate) {
+                setIsAnalyzing(lifecycleUpdate.isAnalyzing)
+                setAnalysisRunState(lifecycleUpdate.runState, eventType === 'job.failed' ? String(data.error || '未知错误') : null)
+                setAnalysisOvertimeNotice(lifecycleUpdate.overtimeNotice)
+            }
+
             switch (eventType) {
                 case 'job.created':
                     addLog({
@@ -54,7 +68,6 @@ export function useSSE(jobId: string | null) {
                     break
 
                 case 'job.running':
-                    setIsAnalyzing(true)
                     addChatMessage({
                         id: `job-running-${Date.now()}`,
                         role: 'system',
@@ -69,8 +82,16 @@ export function useSSE(jobId: string | null) {
                     })
                     break
 
+                case 'job.overtime':
+                    addLog({
+                        id: Date.now().toString(),
+                        timestamp: new Date().toISOString(),
+                        type: 'system',
+                        content: lifecycleUpdate?.overtimeNotice || DEFAULT_OVERTIME_NOTICE
+                    })
+                    break
+
                 case 'job.completed':
-                    setIsAnalyzing(false)
                     setReport((data.result || null) as AnalysisReport | null)
                     setStructuredData({
                         riskItems: (data.risk_items as RiskItem[] | undefined) ?? [],
@@ -94,7 +115,15 @@ export function useSSE(jobId: string | null) {
                     break
 
                 case 'job.failed':
-                    setIsAnalyzing(false)
+                    if (classifyRecoveredJobStatus('failed', typeof data.error === 'string' ? data.error : null) === 'running') {
+                        addLog({
+                            id: Date.now().toString(),
+                            timestamp: new Date().toISOString(),
+                            type: 'system',
+                            content: DEFAULT_OVERTIME_NOTICE
+                        })
+                        break
+                    }
                     addChatMessage({
                         id: `job-failed-${Date.now()}`,
                         role: 'system',
@@ -181,6 +210,7 @@ export function useSSE(jobId: string | null) {
             'job.ready',
             'job.created',
             'job.running',
+            'job.overtime',
             'job.completed',
             'job.failed',
             'agent.status',

@@ -4,6 +4,8 @@ from .base import BaseMarketDataProvider
 class CnStubProvider(BaseMarketDataProvider):
     """Placeholder provider for CN market data integrations."""
 
+    is_placeholder = True
+
     @property
     def name(self) -> str:
         return "cn_stub"
@@ -48,5 +50,5 @@ class CnStubProvider(BaseMarketDataProvider):
     ) -> str:
         return self._not_implemented()
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         return self._not_implemented()

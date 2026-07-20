@@ -51,6 +51,5 @@ class AlphaVantageProvider(BaseMarketDataProvider):
     ) -> str:
         return get_alpha_vantage_global_news(curr_date, look_back_days, limit)
 
-    def get_insider_transactions(self, symbol: str) -> str:
+    def get_insider_transactions(self, symbol: str, curr_date: str = None) -> str:
         return get_alpha_vantage_insider_transactions(symbol)
-

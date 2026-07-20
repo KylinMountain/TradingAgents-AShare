@@ -1,5 +1,6 @@
-import { Heart, Github, ArrowLeft } from 'lucide-react'
+import { Heart, ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import GithubIcon from '@/components/GithubIcon'
 
 const GITHUB_URL = 'https://github.com/KylinMountain/TradingAgents-AShare'
 
@@ -65,7 +66,7 @@ export default function Sponsor() {
                             rel="noopener noreferrer"
                             className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
                         >
-                            <Github className="w-4 h-4" />
+                            <GithubIcon className="w-4 h-4" />
                             GitHub
                         </a>
                     </div>
