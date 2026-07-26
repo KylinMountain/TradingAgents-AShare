@@ -63,3 +63,17 @@ class BaseMarketDataProvider(ABC):
         price, open, high, low, previous_close, change, change_pct, volume, amount.
         """
         raise NotImplementedError
+
+    def get_research(self, query: str, research_effort: str = "standard") -> str:
+        """Perform deep research using You.com Research API (or equivalent).
+
+        Args:
+            query: Research topic or question
+            research_effort: lite, standard, deep, or exhaustive
+
+        Returns:
+            Markdown-formatted research report with citations
+        """
+        raise NotImplementedError(
+            f"{self.name} provider does not support deep research"
+        )
