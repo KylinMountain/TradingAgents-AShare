@@ -18,6 +18,9 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_global_news
 )
+from tradingagents.agents.utils.youcom_news_tools import (
+    get_deep_research
+)
 from tradingagents.agents.utils.game_theory_tools import (
     get_board_fund_flow,
     get_individual_fund_flow,
