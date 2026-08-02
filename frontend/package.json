@@ -22,7 +22,7 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.0",
-    "recharts": "^2.12.0",
+    "recharts": "^3.9.2",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.2.2",
