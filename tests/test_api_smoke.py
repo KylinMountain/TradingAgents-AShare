@@ -609,7 +609,7 @@ class TestPortfolioOverviewEndpoint:
             )
             db.commit()
 
-        with patch("api.main._get_reverse_stock_map", return_value=self.code_to_name):
+        with patch("api.main._get_reverse_stock_map_cached_only", return_value=self.code_to_name):
             response = self.client.get("/v1/portfolio/overview", headers=self.headers)
 
         assert response.status_code == 200
@@ -693,7 +693,7 @@ class TestScheduledBatchEndpoints:
             coro.close()
             return MagicMock()
 
-        with patch("api.main._run_scheduled_analysis_once", run_once), \
+        with patch("api.main._run_manual_trigger", run_once), \
              patch("api.main._create_tracked_task", side_effect=_close_coro), \
              patch("api.main.cn_today_str", return_value="2026-03-31"), \
              patch("api.main._resolve_scheduled_trade_date", return_value="2026-03-31"):
@@ -713,7 +713,7 @@ class TestScheduledBatchEndpoints:
         assert args[0]["user_id"]
         assert args[1] == "2026-03-31"
         assert args[2] == body["job_id"]
-        assert kwargs == {"mark_schedule_run": False}
+        assert kwargs == {}   # 当前架构 _run_manual_trigger(task, requested_date, job_id)，无 mark_schedule_run
 
     def test_batch_trigger_endpoint_queues_selected_tasks_with_position_context(self):
         from api.database import ImportedPortfolioPositionDB, get_db_ctx
@@ -743,7 +743,7 @@ class TestScheduledBatchEndpoints:
             coro.close()
             return MagicMock()
 
-        with patch("api.main._run_scheduled_analysis_once", run_once), \
+        with patch("api.main._run_manual_trigger", run_once), \
              patch("api.main._create_tracked_task", side_effect=_close_coro), \
              patch("api.main.cn_today_str", return_value="2026-03-31"), \
              patch("api.main._resolve_scheduled_trade_date", return_value="2026-03-31"), \
@@ -775,5 +775,5 @@ class TestScheduledBatchEndpoints:
         assert second_args[0]["symbol"] == "600519.SH"
         assert first_args[1] == "2026-03-31"
         assert second_args[1] == "2026-03-31"
-        assert first_kwargs == {"mark_schedule_run": False}
-        assert second_kwargs == {"mark_schedule_run": False}
+        assert first_kwargs == {}
+        assert second_kwargs == {}
