@@ -255,6 +255,7 @@ def upsert_user_llm_config(
     clear_api_key: bool = False,
     clear_wecom_webhook: bool = False,
     default_analysts: Optional[list] = None,
+    max_concurrency: Optional[int] = None,
 ) -> UserLLMConfigDB:
     row = get_user_llm_config(db, user_id)
     now = _utcnow()
@@ -288,6 +289,9 @@ def upsert_user_llm_config(
     if default_analysts is not None:
         import json
         row.default_analysts = json.dumps(default_analysts)
+
+    if max_concurrency is not None:
+        row.max_concurrency = max_concurrency
 
     row.updated_at = now
     db.commit()
