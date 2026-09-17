@@ -136,6 +136,8 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
             if "default_analysts" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN default_analysts TEXT"))
+            if "max_concurrency" not in llm_columns:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN max_concurrency INTEGER"))
     except Exception as e:
         logger.error("Failed to ensure user schema: %s", e)
 
@@ -357,6 +359,7 @@ class UserLLMConfigDB(Base):
     api_key_encrypted = Column(Text, nullable=True)
     wecom_webhook_encrypted = Column(Text, nullable=True)
     default_analysts = Column(Text, nullable=True)  # JSON list, e.g. '["market","social",...]'
+    max_concurrency = Column(Integer, nullable=True)  # LLM 并发上限（防订阅套餐 429/1302）
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -839,6 +839,7 @@ class UserRuntimeConfigResponse(BaseModel):
     email_report_enabled: bool = True
     wecom_report_enabled: bool = True
     default_analysts: List[str] = Field(default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"])
+    max_concurrency: int = 3
 
 
 class UserRuntimeConfigUpdateRequest(BaseModel):
@@ -857,6 +858,7 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     warmup: bool = True
     force_warmup: bool = False
     default_analysts: Optional[List[str]] = None
+    max_concurrency: Optional[int] = None
 
 
 class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
@@ -961,6 +963,7 @@ def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None)
             "deep_think_llm",
             "max_debate_rounds",
             "max_risk_discuss_rounds",
+            "max_concurrency",
         ):
             value = getattr(user_cfg, key, None)
             if value is not None:
@@ -3609,6 +3612,7 @@ def delete_backtest(job_id: str) -> Dict:
 _CONFIG_ALLOWED_KEYS = {
     "llm_provider", "deep_think_llm", "quick_think_llm",
     "backend_url", "max_debate_rounds", "max_risk_discuss_rounds",
+    "max_concurrency",
 }
 _CONFIG_PREFERENCE_KEYS = {"email_report_enabled", "wecom_report_enabled"}
 _CONFIG_MODEL_KEYS = ("llm_provider", "backend_url", "quick_think_llm", "deep_think_llm")
@@ -3862,6 +3866,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         email_report_enabled=user.email_report_enabled if user and hasattr(user, 'email_report_enabled') else True,
         wecom_report_enabled=user.wecom_report_enabled if user and hasattr(user, "wecom_report_enabled") else True,
         default_analysts=json.loads(user_cfg.default_analysts) if user_cfg and user_cfg.default_analysts else ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"],
+        max_concurrency=int(getattr(user_cfg, "max_concurrency", None) or cfg.get("max_concurrency") or 3),
     )
 
 
@@ -3920,6 +3925,10 @@ def update_runtime_config(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     persistent_user = db.query(UserDB).filter(UserDB.id == current_user.id).first() or current_user
+
+    if updates.max_concurrency is not None:
+        updates.max_concurrency = max(1, min(8, int(updates.max_concurrency)))
+
     before_cfg = _config_response_for_user(persistent_user, db)
     pending_cfg = _build_pending_runtime_config(updates, persistent_user.id, db)
     if _should_probe_runtime_config(before_cfg, pending_cfg, updates):
@@ -3942,6 +3951,7 @@ def update_runtime_config(
         clear_api_key=updates.clear_api_key,
         clear_wecom_webhook=updates.clear_wecom_webhook,
         default_analysts=updates.default_analysts,
+        max_concurrency=updates.max_concurrency,
     )
     user_pref_updated = False
     if updates.email_report_enabled is not None:

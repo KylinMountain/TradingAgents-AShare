@@ -571,6 +571,7 @@ export interface RuntimeConfig {
     email_report_enabled?: boolean
     wecom_report_enabled?: boolean
     default_analysts?: string[]
+    max_concurrency?: number
 }
 
 export interface RuntimeConfigUpdateResponse {
@@ -597,6 +598,7 @@ export interface RuntimeConfigUpdate {
     default_analysts?: string[]
     warmup?: boolean
     force_warmup?: boolean
+    max_concurrency?: number
 }
 
 export interface RuntimeWarmupRequest extends RuntimeConfigUpdate {

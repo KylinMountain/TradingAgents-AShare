@@ -1,5 +1,7 @@
 # TradingAgents/graph/propagation.py
 
+import os
+
 from typing import Dict, Any, List, Optional, Mapping
 from tradingagents.agents.utils.agent_states import (
     AgentState,
@@ -23,9 +25,10 @@ from tradingagents.agents.utils.debate_utils import (
 class Propagator:
     """Handles state initialization and propagation through the graph."""
 
-    def __init__(self, max_recur_limit=100):
+    def __init__(self, max_recur_limit=100, max_concurrency=None):
         """Initialize with configuration parameters."""
         self.max_recur_limit = max_recur_limit
+        self.max_concurrency = max_concurrency
 
     def create_initial_state(
         self,
@@ -118,6 +121,15 @@ class Propagator:
                        Note: LLM callbacks are handled separately via LLM constructor.
         """
         config = {"recursion_limit": self.max_recur_limit}
+        # 并发上限：优先实例配置（来自用户设置 max_concurrency），其次环境变量，默认 3
+        _mc = self.max_concurrency
+        if _mc is None:
+            try:
+                _mc = int(os.environ.get("TA_MAX_CONCURRENCY", "3"))
+            except ValueError:
+                _mc = 3
+        if isinstance(_mc, int) and _mc > 0:
+            config["max_concurrency"] = _mc
         if callbacks:
             config["callbacks"] = callbacks
         return {

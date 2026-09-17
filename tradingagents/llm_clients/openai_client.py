@@ -87,8 +87,9 @@ class OpenAIClient(BaseLLMClient):
             llm_kwargs["temperature"] = self.kwargs.get("temperature", 0)
 
         # ── 极致稳定性配置 ──
-        # 1. 禁用一切重试：避免 Thinking 模型重复扣费或因重连导致的状态丢失
-        llm_kwargs["max_retries"] = 0
+        # 1. 重试次数可配置：429/5xx 属于"请求被拒"，SDK 自带的指数退避可恢复且不会重复计费；
+        #    需要彻底禁用重试的调用方（如 warmup/probe）仍可显式传 max_retries=0
+        llm_kwargs["max_retries"] = int(self.kwargs.get("max_retries", 6))
         
         # 2. 超长超时：默认 300 秒，给足推理模型思考时间
         llm_kwargs["timeout"] = self.kwargs.get("timeout", 300.0)
@@ -99,7 +100,7 @@ class OpenAIClient(BaseLLMClient):
         elif self.provider == "ollama": target_url = "http://localhost:11434/v1"
         elif self.provider == "deepseek": target_url = "https://api.deepseek.com"
 
-        print(f"[LLM Client] Init {self.provider} ({self.model}) at {target_url} (Retries=0, Timeout={llm_kwargs['timeout']}s)")
+        print(f"[LLM Client] Init {self.provider} ({self.model}) at {target_url} (Retries={llm_kwargs['max_retries']}, Timeout={llm_kwargs['timeout']}s)")
 
         if self.provider == "xai":
             llm_kwargs["base_url"] = "https://api.x.ai/v1"

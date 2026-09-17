@@ -25,6 +25,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'deepseek', label: 'DeepSeek', provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', protocol: 'OpenAI 兼容' },
     { id: 'moonshot', label: 'Moonshot AI（Kimi）', provider: 'openai', baseUrl: 'https://api.moonshot.cn/v1', protocol: 'OpenAI 兼容' },
     { id: 'zhipu', label: '智谱 AI', provider: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', protocol: 'OpenAI 兼容' },
+    { id: 'zhipu-coding', label: '智谱 GLM Coding Plan（订阅套餐）', provider: 'openai', baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', protocol: 'OpenAI 兼容' },
     { id: 'siliconflow', label: '硅基流动', provider: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', protocol: 'OpenAI 兼容' },
     { id: 'custom-openai', label: '自定义 OpenAI 兼容', provider: 'openai', baseUrl: '', protocol: 'OpenAI 兼容', editableBaseUrl: true },
 ]
@@ -58,6 +59,7 @@ export default function Settings() {
     const [quickThinkLlm, setQuickThinkLlm] = useState('')
     const [maxDebateRounds, setMaxDebateRounds] = useState(1)
     const [maxRiskRounds, setMaxRiskRounds] = useState(1)
+    const [maxConcurrency, setMaxConcurrency] = useState(3)
     const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
@@ -127,6 +129,7 @@ export default function Settings() {
                 setQuickThinkLlm(cfg.quick_think_llm)
                 setMaxDebateRounds(cfg.max_debate_rounds)
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
+                setMaxConcurrency(cfg.max_concurrency || 3)
                 setHasStoredApiKey(!!cfg.has_api_key)
                 setHasStoredWebhook(!!cfg.has_wecom_webhook)
                 setStoredWebhookDisplay(cfg.wecom_webhook_display || '')
@@ -205,6 +208,7 @@ export default function Settings() {
         quick_think_llm: quickThinkLlm,
         max_debate_rounds: maxDebateRounds,
         max_risk_discuss_rounds: maxRiskRounds,
+        max_concurrency: maxConcurrency,
         api_key: llmApiKey || undefined,
         ...(options?.includeWecom ? {
             wecom_webhook_url: wecomWebhook.trim() || undefined,
@@ -569,7 +573,7 @@ export default function Settings() {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
                             辩论轮数上限
@@ -597,6 +601,24 @@ export default function Settings() {
                             className="input w-full"
                             disabled={configLoading}
                         />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            模型并发数
+                            <span className="ml-1 text-xs text-slate-400 font-normal">同时调用的模型请求数</span>
+                        </label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={8}
+                            value={maxConcurrency}
+                            onChange={e => setMaxConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 3)))}
+                            className="input w-full"
+                            disabled={configLoading}
+                        />
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            套餐限流（429/1302）就调小，想提速就调大，保存后生效。
+                        </p>
                     </div>
                 </div>
 
