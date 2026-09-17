@@ -113,7 +113,16 @@ class OpenAIClient(BaseLLMClient):
             llm_kwargs["base_url"] = "http://localhost:11434/v1"
             llm_kwargs["api_key"] = "ollama"
         elif self.provider == "deepseek":
-            llm_kwargs["base_url"] = self.base_url or "https://api.deepseek.com"
+            # 本地补丁(2026-09-06)：端点优先级修复。default_config 的 backend_url
+            # 默认值是 api.openai.com/v1，若被当作 base_url 采纳会覆盖 DeepSeek 端点
+            # 导致 401。仅当显式传入非 OpenAI 默认端点(如自定义 deepseek 兼容网关)时才采用。
+            if self.base_url and self.base_url.rstrip("/").lower() not in (
+                "https://api.openai.com",
+                "https://api.openai.com/v1",
+            ):
+                llm_kwargs["base_url"] = self.base_url
+            else:
+                llm_kwargs["base_url"] = "https://api.deepseek.com"
             api_key = os.environ.get("DEEPSEEK_API_KEY")
             if api_key: llm_kwargs["api_key"] = api_key
         elif self.base_url:
