@@ -24,7 +24,7 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _set(job_id: str, **kwargs: Any) -> None:
+def _set(job_id: str, /, **kwargs: Any) -> None:
     with _lock:
         if job_id not in _backtest_jobs:
             _backtest_jobs[job_id] = {}
