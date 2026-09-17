@@ -22,6 +22,7 @@ def _add_report(
     decision=None,
     final_trade_decision=None,
     result_data=None,
+    error=None,
 ):
     now = datetime.now(timezone.utc)
     report = ReportDB(
@@ -33,6 +34,7 @@ def _add_report(
         decision=decision,
         final_trade_decision=final_trade_decision,
         result_data=result_data,
+        error=error,
         created_at=now,
         updated_at=now,
     )
@@ -50,7 +52,7 @@ def test_recover_stale_active_reports_marks_empty_running_report_failed():
         result = report_service.recover_stale_active_reports(db)
 
         refreshed = db.query(ReportDB).filter(ReportDB.id == report.id).first()
-        assert result == {"total": 1, "completed": 0, "failed": 1}
+        assert result == {"total": 1, "failed": 1}
         assert refreshed is not None
         assert refreshed.status == "failed"
         assert refreshed.error == report_service.STALE_REPORT_ERROR_MESSAGE
@@ -71,7 +73,7 @@ def test_recover_stale_active_reports_marks_partial_running_report_failed():
         result = report_service.recover_stale_active_reports(db)
 
         refreshed = db.query(ReportDB).filter(ReportDB.id == report.id).first()
-        assert result == {"total": 1, "completed": 0, "failed": 1}
+        assert result == {"total": 1, "failed": 1}
         assert refreshed is not None
         assert refreshed.status == "failed"
         assert refreshed.error == report_service.STALE_REPORT_ERROR_MESSAGE
@@ -88,5 +90,30 @@ def test_finalize_orphan_report_marks_pending_report_failed():
 
         assert refreshed.status == "failed"
         assert refreshed.error == report_service.STALE_REPORT_ERROR_MESSAGE
+    finally:
+        db.close()
+
+
+def test_create_report_clears_previous_failure_error_on_success():
+    db = _make_session()
+    try:
+        report = _add_report(
+            db,
+            status="failed",
+            error="任务超时（旧策略）",
+        )
+
+        finalized = report_service.create_report(
+            db=db,
+            symbol=report.symbol,
+            trade_date=report.trade_date,
+            decision="BUY",
+            result_data={"final_trade_decision": "结论：买入"},
+            report_id=report.id,
+        )
+
+        assert finalized.status == "completed"
+        assert finalized.error is None
+        assert finalized.decision == "BUY"
     finally:
         db.close()

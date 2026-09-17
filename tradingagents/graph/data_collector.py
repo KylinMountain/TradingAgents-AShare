@@ -1,9 +1,10 @@
 """DataCollector: fetch all data once, serve windowed views to analyst agents."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+import os
 import threading
 import time
 import pandas as pd
@@ -33,6 +34,11 @@ INDICATORS = [
 ]
 SHORT_DAYS = 14
 LONG_DAYS = 90
+
+# 网络丢包时单个数据源可能永久卡死（SSL 握手/读无超时），必须给整轮抓取
+# 设硬上限，否则卡死线程会拿着 per-key 锁把后续同标的分析全部拖死，
+# 并逐渐占满 asyncio 默认线程池（生产事故：64/64 全部僵死 → 前端 524）。
+FETCH_ALL_TIMEOUT = int(os.getenv("TA_DATA_FETCH_TIMEOUT", "300"))
 
 import numpy as np
 
@@ -290,10 +296,19 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
     fetch_start = time.time()
     # 减少并发池大小，避免被反爬
-    with ThreadPoolExecutor(max_workers=min(10, len(tasks))) as executor:
+    executor = ThreadPoolExecutor(max_workers=min(10, len(tasks)))
+    try:
         future_to_key = {executor.submit(_safe, tool, payload): key for key, (tool, payload) in tasks.items()}
-        for future in future_to_key:
+        done, not_done = futures_wait(set(future_to_key), timeout=FETCH_ALL_TIMEOUT)
+        for future in done:
             results[future_to_key[future]] = future.result()
+        for future in not_done:
+            key = future_to_key[future]
+            results[key] = f"{key} 数据拉取超时（>{FETCH_ALL_TIMEOUT}s），本次分析跳过该数据源"
+            print(f"  [Warning] {key} fetch timed out after {FETCH_ALL_TIMEOUT}s, skipped")
+    finally:
+        # wait=False：卡死的抓取线程留给 socket 超时自行了断，绝不反过来堵住本线程
+        executor.shutdown(wait=False, cancel_futures=True)
 
     # ── Parse CSV once, reuse for indicators and VPA ──────────────────
     raw_csv = results.get("stock_data", "")
@@ -371,10 +386,19 @@ class DataCollector:
         """
         key = make_cache_key(ticker, trade_date)
         key_lock = self._get_key_lock(key)
-        with key_lock:
+        # 带超时的 acquire：即使持锁的抓取意外卡死，排队者也能在有限时间内
+        # 报错退出，而不是把线程池 worker 一个个吸进来陪葬
+        if not key_lock.acquire(timeout=FETCH_ALL_TIMEOUT + 60):
+            raise TimeoutError(
+                f"等待 {key} 数据抓取锁超时（>{FETCH_ALL_TIMEOUT + 60}s），"
+                "可能存在卡死的抓取任务，本次分析中止"
+            )
+        try:
             if key not in self._cache:
                 self._cache[key] = _fetch_all(ticker, trade_date)
-        return self._cache[key]
+            return self._cache[key]
+        finally:
+            key_lock.release()
 
     def get(self, ticker: str, trade_date: str) -> Optional[Dict[str, Any]]:
         """Retrieve cached pool, or None if not collected yet."""

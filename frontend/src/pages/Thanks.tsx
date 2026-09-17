@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Github, Heart, Cpu, Code2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Heart, Cpu, Code2, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { getBaseUrl } from '@/services/api'
+import GithubIcon from '@/components/GithubIcon'
 
 const GITHUB_REPO = 'KylinMountain/TradingAgents-AShare'
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/contributors?per_page=100`
@@ -77,7 +78,7 @@ function SponsorCard({ name, github, avatar, email, date, badge, badgeColor, ext
                     <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{name}</span>
                     {github && (
                         <a href={`https://github.com/${github}`} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-                            <Github className="w-3.5 h-3.5" />
+                            <GithubIcon className="w-3.5 h-3.5" />
                         </a>
                     )}
                 </div>
@@ -247,7 +248,7 @@ export default function Thanks() {
                         {/* Upstream Project */}
                         <section>
                             <div className="flex items-center gap-2 mb-3">
-                                <Github className="w-4 h-4 text-slate-500" />
+                                <GithubIcon className="w-4 h-4 text-slate-500" />
                                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-wide">上游项目</h2>
                             </div>
                             <a

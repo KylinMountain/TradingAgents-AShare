@@ -32,7 +32,7 @@ def _serialize_value(v: Any) -> str:
     """Serialize a Python value for storage in a Redis Hash field."""
     if v is None:
         return ""
-    if isinstance(v, (dict, list)):
+    if isinstance(v, (dict, list, bool)):
         return json.dumps(v, ensure_ascii=False)
     return str(v)
 
@@ -78,7 +78,7 @@ class RedisJobStore:
     def set_job(self, job_id: str, **fields: Any) -> None:
         """Create or update job fields (merge semantics).
 
-        Complex values (dict/list) are JSON-serialized; None becomes empty string.
+        Complex values and booleans are JSON-serialized; None becomes empty string.
         Each call refreshes the TTL.
         """
         if not fields:

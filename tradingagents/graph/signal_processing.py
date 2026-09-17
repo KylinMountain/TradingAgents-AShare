@@ -107,11 +107,29 @@ def _extract_decision_keyword(text: str) -> str | None:
             "中性",
         ]
 
-        if any(k in snippet_upper for k in buy_keywords):
+        # 中文风控/交易结论里常见"不建议买入""暂不建仓"这类否定表述，
+        # 关键词子串匹配会命中"买入"/"建仓"而误判为 BUY。这里检查关键词前
+        # 一小段窗口内是否存在否定词，命中则该关键词不计入该方向的信号。
+        negation_markers = ("不", "非", "无需", "别", "切勿", "勿", "避免", "谨防")
+
+        def has_signal(keywords: list[str]) -> bool:
+            for kw in keywords:
+                start = 0
+                while True:
+                    idx = snippet_upper.find(kw, start)
+                    if idx == -1:
+                        break
+                    window = snippet_upper[max(0, idx - 6):idx]
+                    if not any(neg in window for neg in negation_markers):
+                        return True
+                    start = idx + 1
+            return False
+
+        if has_signal(buy_keywords):
             return "BUY"
-        if any(k in snippet_upper for k in sell_keywords):
+        if has_signal(sell_keywords):
             return "SELL"
-        if any(k in snippet_upper for k in hold_keywords):
+        if has_signal(hold_keywords):
             return "HOLD"
         return None
 

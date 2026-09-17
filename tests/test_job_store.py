@@ -69,6 +69,36 @@ def test_emit_and_subscribe():
     asyncio.run(scenario())
 
 
+def test_overtime_event_is_non_terminal_and_completion_still_arrives():
+    async def scenario():
+        store = _make_store()
+        store.set_job("j1", status="running", overtime=False)
+
+        collected = []
+
+        async def emit_lifecycle():
+            await asyncio.sleep(0)
+            store.set_job("j1", status="running", overtime=True)
+            store.emit_event("j1", "job.overtime", {"elapsed_seconds": 1800})
+            await asyncio.sleep(0)
+            store.set_job("j1", status="completed", overtime=False)
+            store.emit_event("j1", "job.completed", {"result": "ok"})
+
+        emitter = asyncio.create_task(emit_lifecycle())
+        async for event in store.subscribe("j1", poll_interval=0.05):
+            collected.append(event)
+        await emitter
+
+        assert [event["event"] for event in collected] == [
+            "job.overtime",
+            "job.completed",
+        ]
+        assert collected[0]["data"] == {"elapsed_seconds": 1800}
+        assert collected[1]["data"] == {"result": "ok"}
+
+    asyncio.run(scenario())
+
+
 def test_subscribe_timeout_ping():
     async def scenario():
         store = _make_store()

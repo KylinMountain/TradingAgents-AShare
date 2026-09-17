@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github, Heart, Megaphone, Users } from 'lucide-react'
+import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Heart, Megaphone, Users } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { Announcement } from '@/types'
+import GithubIcon from './GithubIcon'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -218,7 +219,7 @@ export default function Header() {
                         className="group flex items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-all mr-1"
                         title="Star us on GitHub"
                     >
-                        <Github className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
+                        <GithubIcon className="w-4 h-4 text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
                         <span className="text-[13px] font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white hidden sm:inline">Star</span>
                     </a>
                     {user && (

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Sparkles } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
+import { RELAY_PROMO } from '@/config/promo'
 
 type ProviderPreset = {
     id: string
@@ -17,6 +18,9 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'openai', label: 'OpenAI', provider: 'openai', baseUrl: 'https://api.openai.com/v1', protocol: 'OpenAI' },
     { id: 'anthropic', label: 'Anthropic', provider: 'anthropic', baseUrl: '', protocol: 'Anthropic' },
     { id: 'google', label: 'Google Gemini', provider: 'google', baseUrl: '', protocol: 'Google' },
+    ...(RELAY_PROMO.enabled
+        ? [{ id: 'relay', label: `${RELAY_PROMO.name}（推荐 · 全模型）`, provider: 'openai', baseUrl: RELAY_PROMO.apiBaseUrl, protocol: 'OpenAI 兼容' } as ProviderPreset]
+        : []),
     { id: 'dashscope', label: '阿里云百炼（DashScope）', provider: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', protocol: 'OpenAI 兼容' },
     { id: 'deepseek', label: 'DeepSeek', provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', protocol: 'OpenAI 兼容' },
     { id: 'moonshot', label: 'Moonshot AI（Kimi）', provider: 'openai', baseUrl: 'https://api.moonshot.cn/v1', protocol: 'OpenAI 兼容' },
@@ -340,6 +344,21 @@ export default function Settings() {
                     <p className="text-sm text-amber-500">⚠ {configError}（显示本地默认值）</p>
                 )}
 
+                {RELAY_PROMO.enabled && (
+                    <a
+                        href={RELAY_PROMO.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200 dark:hover:bg-indigo-900/40"
+                    >
+                        <Sparkles className="mt-0.5 w-4 h-4 shrink-0 text-indigo-500" />
+                        <span className="flex-1 leading-relaxed">
+                            用 Codex / Claude Code 有困难？推荐 {RELAY_PROMO.rate} 倍率的 {RELAY_PROMO.name}：在下方「模型厂商」选择「<span className="font-semibold">{RELAY_PROMO.name}（推荐·全模型）</span>」一键接入，地址与模型自动填好，注册拿 Key 填入即用；一个 Key 通调 GPT / Claude / Grok，也能畅用 Codex / Claude Code。<span className="underline">点此注册 →</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-indigo-400 dark:text-indigo-500">推广</span>
+                    </a>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
@@ -347,7 +366,15 @@ export default function Settings() {
                         </label>
                         <select
                             value={providerPreset}
-                            onChange={e => setProviderPreset(e.target.value)}
+                            onChange={e => {
+                                const id = e.target.value
+                                setProviderPreset(id)
+                                // 选中中转站预设时，自动填好模型名（Base URL 由预设自动带出，API Key 用户自填）
+                                if (id === 'relay') {
+                                    setQuickThinkLlm(RELAY_PROMO.quickModel)
+                                    setDeepThinkLlm(RELAY_PROMO.deepModel)
+                                }
+                            }}
                             className="input w-full"
                             disabled={configLoading}
                         >

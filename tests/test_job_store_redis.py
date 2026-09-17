@@ -85,6 +85,13 @@ def test_none_roundtrip(store: RedisJobStore):
     assert job["result"] is None
 
 
+def test_boolean_roundtrip(store: RedisJobStore):
+    store.set_job("j1", overtime=False)
+    assert store.get_job("j1")["overtime"] is False
+    store.set_job("j1", overtime=True)
+    assert store.get_job("j1")["overtime"] is True
+
+
 def test_complex_value_roundtrip(store: RedisJobStore):
     """Dict and list values should round-trip via JSON serialization."""
     store.set_job("j1", report={"score": 8, "tags": ["buy", "hold"]}, items=[1, 2, 3])
@@ -147,6 +154,36 @@ def test_pubsub(store: RedisJobStore):
         assert collected[2]["data"] == {"result": "ok"}
         for ev in collected:
             assert "timestamp" in ev
+
+    asyncio.run(scenario())
+
+
+def test_overtime_event_is_non_terminal_and_completion_still_arrives(store: RedisJobStore):
+    async def scenario():
+        store.set_job("j1", status="running", overtime=False)
+        collected = []
+
+        async def _emit_later():
+            # Redis Pub/Sub has no replay, so allow the listener thread to
+            # subscribe before publishing the lifecycle events.
+            await asyncio.sleep(0.3)
+            store.set_job("j1", status="running", overtime=True)
+            store.emit_event("j1", "job.overtime", {"elapsed_seconds": 1800})
+            await asyncio.sleep(0.05)
+            store.set_job("j1", status="completed", overtime=False)
+            store.emit_event("j1", "job.completed", {"result": "ok"})
+
+        emitter = asyncio.create_task(_emit_later())
+        async for event in store.subscribe("j1", poll_interval=1.0):
+            collected.append(event)
+        await emitter
+
+        assert [event["event"] for event in collected] == [
+            "job.overtime",
+            "job.completed",
+        ]
+        assert collected[0]["data"] == {"elapsed_seconds": 1800}
+        assert collected[1]["data"] == {"result": "ok"}
 
     asyncio.run(scenario())
 

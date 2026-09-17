@@ -4,6 +4,8 @@
 
 [在线体验](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://clawhub.ai/kylinmountain/tradingagents-analysis)
 
+> 🎁 **用 Codex / Claude Code 有困难？** 推荐中转服务 **[windapi](https://windapi.ai/sign-up?aff=eMfU)** —— 一个 Key 通调 **GPT / Claude / Grok** 等主流模型，畅用 **Codex / Claude Code**，也能直接用于本项目分析；国内直连免翻墙、支持支付宝 / 微信充值，倍率 `0.06`。👉 **[点此注册即用](https://windapi.ai/sign-up?aff=eMfU)**
+
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
   <p><em>14 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
@@ -53,6 +55,8 @@
 ### 多模型厂商支持
 
 OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型；保存配置后会自动执行模型 warmup，也可以在设置页手动发送“你好”查看模型原始返回，便于排查接入问题。
+
+> 💡 **用 Codex / Claude Code 有困难，或没有 API Key？** 推荐中转服务 [windapi](https://windapi.ai/sign-up?aff=eMfU) —— 一个 Key 通调 **GPT / Claude / Grok**，畅用 **Codex / Claude Code**，也能直接用于本站分析；国内直连免翻墙，支持支付宝 / 微信充值，倍率 `0.06`。注册即用。
 
 <div align="center">
   <img src="assets/web/settings.png" width="80%" alt="定时分析"/>
@@ -114,6 +118,22 @@ $env:TA_APP_SECRET_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { Get
 
 ### Docker 一键部署 (推荐)
 
+**方式一：Docker Compose（推荐）**
+
+```bash
+# 克隆仓库（也可以只下载 compose 文件：
+#   curl -O https://raw.githubusercontent.com/KylinMountain/TradingAgents-AShare/main/docker-compose.yml）
+git clone https://github.com/KylinMountain/TradingAgents-AShare.git
+cd TradingAgents-AShare
+
+export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
+docker compose up -d
+```
+
+镜像默认在同一容器内同时启动 API 服务与定时任务调度器，定时分析开箱即用，无需 Redis 等额外组件。如需分开部署（API/调度器/Redis 各自一个容器），使用 `docker-compose.split.yml`，详见 [guide/deployment.md](guide/deployment.md)。
+
+**方式二：docker run**
+
 ```bash
 docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
 
@@ -122,6 +142,7 @@ export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
 
 docker run -d -p 8000:8000 \
   --name tradingagents \
+  --restart always \
   -v $(pwd)/data:/app/data \
   -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
   -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
@@ -137,6 +158,8 @@ docker run -d -p 8000:8000 \
 > **邮箱验证码**：未配置 SMTP（`MAIL_HOST` 等）时，验证码会在前端登录页直接显示为 `开发环境验证码：xxxxxx`，本地使用无需配置邮件服务器。如果需要真实邮件投递，参考 `.env.example` 配置 `MAIL_HOST` / `MAIL_USER` / `MAIL_PASS` 等并通过 `-e` 注入容器。
 
 Docker 容器使用 SQLite 时建议挂载 `/app/data`，否则容器删除后历史研报、用户配置和 Token 会丢失。
+
+> 📖 更多部署拓扑（分开部署、旧版镜像升级迁移）与全部环境变量说明，见 [guide/ 配置与部署指南](guide/)。
 
 ### 源码安装
 

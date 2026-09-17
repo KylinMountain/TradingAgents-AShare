@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { reconcilePersistedChatMessages } from '@/utils/chatRecovery'
 import type {
     Agent,
     JobStatus,
@@ -27,7 +28,7 @@ export interface ChatMessage {
     timestamp: string
     agent?: string      // The name of the agent who sent the message
     section?: string    // only for role='report'
-    complete?: boolean  // only for role='report'
+    complete?: boolean  // completed report or agent message
 }
 
 const createInitialChatMessages = (): ChatMessage[] => [
@@ -79,6 +80,7 @@ interface AnalysisState {
     isConnected: boolean
     analysisRunState: 'idle' | 'running' | 'completed' | 'failed'
     analysisRunError: string | null
+    analysisOvertimeNotice: string | null
 
     // Current analysis horizon (for badge display)
     currentHorizon: string | null
@@ -107,6 +109,7 @@ interface AnalysisState {
     setIsAnalyzing: (isAnalyzing: boolean) => void
     setIsConnected: (isConnected: boolean) => void
     setAnalysisRunState: (state: 'idle' | 'running' | 'completed' | 'failed', error?: string | null) => void
+    setAnalysisOvertimeNotice: (notice: string | null) => void
     setCurrentHorizon: (horizon: string | null) => void
     addChatMessage: (message: ChatMessage) => void
     appendToChatMessage: (id: string, chunk: string) => void
@@ -190,6 +193,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     isConnected: false,
     analysisRunState: 'idle',
     analysisRunError: null,
+    analysisOvertimeNotice: null,
     currentHorizon: null,
 
     setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
@@ -404,6 +408,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         isConnected: false,
         analysisRunState: 'idle',
         analysisRunError: null,
+        analysisOvertimeNotice: null,
         currentHorizon: null,
     }),
 
@@ -431,7 +436,10 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     setAnalysisRunState: (analysisRunState, error = null) => set({
         analysisRunState,
         analysisRunError: analysisRunState === 'failed' ? error : null,
+        ...(analysisRunState === 'running' ? {} : { analysisOvertimeNotice: null }),
     }),
+
+    setAnalysisOvertimeNotice: (analysisOvertimeNotice) => set({ analysisOvertimeNotice }),
 
     setCurrentHorizon: (horizon) => set({ currentHorizon: horizon }),
 
@@ -456,6 +464,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         isConnected: false,
         analysisRunState: 'idle',
         analysisRunError: null,
+        analysisOvertimeNotice: null,
         currentHorizon: null,
     }))
 }), {
@@ -470,12 +479,16 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
         jobConfidence: state.jobConfidence,
         jobTargetPrice: state.jobTargetPrice,
         jobStopLoss: state.jobStopLoss,
-        // Filter out transient status indicator messages (e.g. __typing__, __parsing__)
-        // so they don't persist across page refreshes
-        chatMessages: state.chatMessages.filter(m => !m.content.startsWith('__')),
+        // Drop transient indicators and pure agent placeholders.  Preserve any
+        // partial agent content, but mark it complete so hydration cannot show
+        // a stale "still writing" state.
+        chatMessages: reconcilePersistedChatMessages(
+            state.chatMessages.filter(m => !m.content.startsWith('__')),
+        ),
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>
+        const restoredChatMessages = reconcilePersistedChatMessages(persisted.chatMessages ?? [])
         return {
             ...currentState,
             ...persisted,
@@ -491,7 +504,8 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
             isConnected: false,
             analysisRunState: 'idle',
             analysisRunError: null,
-            chatMessages: persisted.chatMessages?.length ? persisted.chatMessages : currentState.chatMessages,
+            analysisOvertimeNotice: null,
+            chatMessages: restoredChatMessages.length ? restoredChatMessages : currentState.chatMessages,
         }
     },
 }))

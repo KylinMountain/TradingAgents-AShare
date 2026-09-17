@@ -402,6 +402,9 @@ def create_report(
     if db_report:
         # Update existing
         db_report.status = "completed"
+        # A report may previously have been marked failed by an older worker
+        # or timeout policy.  Successful finalisation is authoritative.
+        db_report.error = None
         db_report.decision = decision
         db_report.direction = resolved["direction"]
         db_report.confidence = resolved["confidence"]

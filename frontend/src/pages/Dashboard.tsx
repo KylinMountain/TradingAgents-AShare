@@ -6,6 +6,7 @@ import { api } from '@/services/api'
 import { useAnalysisStore } from '@/stores/analysisStore'
 import { useAuthStore } from '@/stores/authStore'
 import type { Report, TrackingBoardResponse } from '@/types'
+import PromoBanner from '@/components/PromoBanner'
 
 export default function Dashboard() {
     const { agents, isAnalyzing } = useAnalysisStore()
@@ -55,6 +56,7 @@ export default function Dashboard() {
 
     return (
         <div className="space-y-6">
+            <PromoBanner />
             {dashboardError && (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
                     {dashboardError}
