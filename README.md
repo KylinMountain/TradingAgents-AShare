@@ -257,11 +257,11 @@ curl -X POST 'https://app.510168.xyz/v1/analyze' \
 - **数据延迟**：分析所依赖的数据源可能存在延迟或偏差，请以交易所实时公告为准。
 
 <div align="center">
-<a href="https://www.star-history.com/#KylinMountain/TradingAgents-AShare&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" />
-   <img alt="TradingAgents Star History" src="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" style="width: 80%; height: auto;" />
+<a href="https://star-history.dera.page/#KylinMountain/TradingAgents-AShare&type=Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=KylinMountain/TradingAgents-AShare&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" />
+    <img alt="TradingAgents Star History" src="https://star-history.dera.page/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" style="width: 80%; height: auto;" />
  </picture>
 </a>
 </div>
