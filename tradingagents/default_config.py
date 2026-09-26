@@ -39,7 +39,7 @@ DEFAULT_CONFIG = {
         "core_stock_apis": "cn_akshare,cn_baostock,cn_investoday,yfinance",
         "technical_indicators": "cn_akshare,cn_baostock,cn_investoday,yfinance",
         "fundamental_data": "cn_akshare,cn_baostock,cn_investoday,yfinance",
-        "news_data": "cn_akshare,cn_baostock,cn_investoday,yfinance",
+        "news_data": "cn_akshare,cn_baostock,cn_investoday,yfinance,youcom",
         "realtime_data": "cn_akshare,cn_investoday",
     },
     "tool_vendors": {},
