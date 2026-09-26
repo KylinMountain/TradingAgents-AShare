@@ -556,6 +556,25 @@ export interface TrackingBoardResponse {
     items: TrackingBoardItem[]
 }
 
+// Intraday anomaly feed (global, not user-scoped)
+export interface IntradaySignal {
+    id: string
+    trade_date: string
+    board_name: string
+    anomaly_case: 'A' | 'B' | 'C' | 'D' | 'E'
+    change_pct: number
+    net_inflow: number
+    cause_summary?: string | null
+    fund_source?: string | null
+    judgement?: string | null
+    llm_failed: boolean
+    created_at: string
+}
+
+export interface IntradayFeedResponse {
+    items: IntradaySignal[]
+}
+
 // Runtime config
 export interface RuntimeConfig {
     llm_provider: string

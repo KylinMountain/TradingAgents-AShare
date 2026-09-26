@@ -34,6 +34,8 @@ dependencies = [
     "json-repair>=0.44.0",
     "markdown>=3.7",
     "redis[hiredis]>=5.0.0",
+    "openai-agents[litellm]>=0.6.0",
+    "ddgs>=9.14.1",
 ]
 
 [project.scripts]
@@ -47,4 +49,8 @@ include = ["tradingagents*", "cli*", "api*", "scheduler*"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-asyncio>=0.24.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
